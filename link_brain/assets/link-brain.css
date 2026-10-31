@@ -142,6 +142,12 @@ body,.lb-page-host,.lb-scope{--lb-ink:var(--text-normal);--lb-muted:var(--text-m
 .xhs-note .lb-no-media .lb-main { height: auto; }
 .xhs-note .lb-author-row { flex-shrink: 0; }
 .xhs-note .lb-note-title { font-size: 1.2em; line-height: 1.5; margin: 0 0 14px; }
+/* 1031 B 站多 P：标题下面「分 P　P1 P2 …」，当前这 P 实心 */
+.xhs-note .lb-parts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: -6px 0 14px; font-size: 13px; }
+.xhs-note .lb-parts-label { color: var(--text-muted); margin-right: 2px; }
+.xhs-note .lb-part { padding: 1px 10px; border-radius: 999px; border: 1px solid var(--background-modifier-border); color: var(--text-normal); text-decoration: none; cursor: pointer; font-variant-numeric: tabular-nums; }
+.xhs-note .lb-part:hover { border-color: var(--interactive-accent); color: var(--text-accent); }
+.xhs-note .lb-part.is-current { background: var(--interactive-accent); border-color: var(--interactive-accent); color: var(--text-on-accent); cursor: default; }
 .lb-inbox .metadata-container,.lb-catalog .metadata-container { display: none!important; }
 .lb-catalog .inline-title { display: none!important; }
 

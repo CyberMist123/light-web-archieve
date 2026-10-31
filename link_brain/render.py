@@ -851,6 +851,13 @@ def _fill_view(source: dict[str, Any], meta: dict[str, Any]) -> dict[str, Any] |
         return None
 
 
+def _can_fetch_comments(source_name: str | None) -> bool:
+    try:
+        return "comments_fill" in sources.get(source_name or sources.names()[0]).capabilities
+    except Exception:  # noqa: BLE001 - 认不出来源就按原样给
+        return True
+
+
 def _comments_html(
     note: dict[str, Any], comments: list[dict[str, Any]], manifest: dict[str, Any], object_rel: str,
     capture: dict[str, Any] | None = None, view: dict[str, Any] | None = None,
@@ -878,6 +885,8 @@ def _comments_html(
     if comments:
         parts.extend(_comment_html(c, object_rel, manifest, gap_reasons=gap_reasons, floor_limit=floor_limit,
                                    scoped=view is not None, label=f"c{i}", source_name=source_name) for i, c in enumerate(comments, start=1))
+    elif not _can_fetch_comments(source_name):
+        pass   # 1031 她：B 站不抓评论，不挂「原帖有 N 条评论…现在抓」（点了也抓不到）
     else:
         # 批次 D · N14：原帖有评论、这次没存下来 ≠ 暂无评论
         n = (note.get("engagement") or {}).get("comment_count")

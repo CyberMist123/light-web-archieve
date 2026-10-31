@@ -113,22 +113,14 @@ ta.placeholder = '写批注…';  // 真正的提示由 setPlaceholder() 按有�
 // 时间取「开始写这一条那一刻」的播放位置（看到一处、点进框里打字，视频还在往前走；落成批注时才取就晚了）；勾掉就不带时间。
 // 视频还没开始播（只有封面）不带时间。存完发 link-brain:annotations（itemId, {annotations, deleted}），弹幕层立刻换上。
 const isBili = /^bili-/.test(String(itemId || ''));
-let vtOn = true, vtStamp = null, vtTimer = null, vtBox = null, vtNow = null;
+let vtStamp = null, vtTimer = null, vtNow = null;
 if (isBili) {
-  try { vtOn = localStorage.getItem('lb:annot-vt') !== '0'; } catch {}
-  const vtRow = box.createEl('label', { cls: 'lba-vt-row' });
-  vtBox = vtRow.createEl('input', { attr: { type: 'checkbox' } });
-  vtBox.checked = vtOn;
-  vtRow.createEl('span', { text: '记在当前时间' });
+  // 1031 她「改成发弹幕」：B 站视频笔记里这个框就是发弹幕——不再给「记在当前时间」的勾，一律带当前时间（没开始播的照旧不带）
+  const vtRow = box.createEl('div', { cls: 'lba-vt-row' });
+  vtRow.createEl('span', { text: '弹幕时间' });
   vtNow = vtRow.createEl('span', { cls: 'lba-vt-now' });
-  // 按下这一行不让输入框失焦（失焦即定稿：不然一点勾，正在写的那条就先存了）
-  vtRow.onmousedown = (e) => { if (e && e.target !== vtBox && e.preventDefault) e.preventDefault(); };
-  vtBox.onchange = () => {
-    vtOn = !!vtBox.checked;
-    try { localStorage.setItem('lb:annot-vt', vtOn ? '1' : '0'); } catch {}
-    paintVt();
-    if (hasDoc && document.activeElement !== ta && !ta.disabled) { try { ta.focus(); } catch {} }
-  };
+  // 按下这一行不让输入框失焦（失焦即定稿）
+  vtRow.onmousedown = (e) => { if (e && e.preventDefault) e.preventDefault(); };
 }
 // 这篇的视频（左栏那一个）。批注框挪进左栏前后都找得到：从框往上找到这篇的视图再往下找
 function findVideo() {
@@ -150,10 +142,9 @@ function fmtVt(sec) {
 }
 function paintVt() {
   if (!vtNow) return;
-  if (!vtOn) { vtNow.setText(''); return; }
   const t = vtStamp != null ? vtStamp : videoNow();
   const focused = hasDoc && document.activeElement === ta;
-  vtNow.setText(t != null ? fmtVt(t) : (focused || findVideo() ? '（视频还没开始播）' : ''));
+  vtNow.setText(t != null ? fmtVt(t) : (focused || findVideo() ? '（视频还没开始播：先播放，再发就在那一秒飘）' : ''));
 }
 function seekTo(sec) {
   const v = findVideo();
@@ -342,6 +333,7 @@ function fmtTs(ts) {
   catch { return ts || ''; }
 }
 function setPlaceholder() {
+  if (isBili) { ta.placeholder = '发弹幕…'; return; }   // 1031 她：B 站视频笔记的框 = 发弹幕
   // 已经有批注时不再写那长串灰字提示（Owner 2026-09-17）
   ta.placeholder = data.annotations.length
     ? '写批注…'
@@ -538,7 +530,7 @@ async function commit() {
   const to_fable = isMention(text);
   const prev = snapshot();
   const entry = { id: newId(), ts: new Date().toISOString(), text, to_fable, author: to_fable ? '' : nickname() };
-  if (isBili && vtOn) { const vt = vtStamp != null ? vtStamp : videoNow(); if (vt != null) entry.video_t = vt; }   // 1031：= 用户的弹幕
+  if (isBili) { const vt = vtStamp != null ? vtStamp : videoNow(); if (vt != null) entry.video_t = vt; }   // 1031：= 用户的弹幕
   data.annotations.push(entry);
   data.draft = '';
   // 失败把刚 push 的那条撤回（不然再提交一次会多出一条重复批注），字留在输入框里
@@ -571,7 +563,7 @@ ta.onblur = () => {
       return saveDraftNow();
     });
 };
-// 1031：框里有光标时「记在当前时间」后面的时间跟着视频走（每半秒刷一次）；离开就停
+// 1031：框里有光标时「弹幕时间」后面的时间跟着视频走（每半秒刷一次）；离开就停
 ta.onfocus = () => {
   if (!isBili) return;
   paintVt(); clearInterval(vtTimer);

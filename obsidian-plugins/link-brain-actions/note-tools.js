@@ -340,6 +340,54 @@ module.exports = (obsidian, plugin, deps = {}) => {
       a.addEventListener('keydown', e => { if (e.key !== 'Enter' && e.key !== ' ') return; try { e.preventDefault(); } catch {} backToCatalog(a, e); });
       row.insertBefore(a, row.firstChild);
     }
+    paintParts(el, ctx);
+  }
+
+  // 1031 她「没看到 2P 在哪里点」：B 站多 P 拆成每 P 一篇（bili-BV…、bili-BV…_pN），标题下面一行「分 P　P1 P2 …」，
+  // 点了开那一篇。只列已入库的（目录数据 catalog-data.json 里有的），不到两篇不出；数据 30 秒内复用，不每段都读盘。
+  let partsCache = null;
+  async function catalogItems() {
+    if (partsCache && Date.now() - partsCache.at < 30000) return partsCache.items;
+    const rel = plugin.lbPath ? plugin.lbPath('_archive/catalog-data.json') : '_archive/catalog-data.json';
+    const items = (JSON.parse(await app().vault.adapter.read(rel)) || {}).items || [];
+    partsCache = { at: Date.now(), items };
+    return items;
+  }
+  function partsOf(items, bv) {
+    const out = [];
+    for (const it of items) {
+      const m = /^bili-(BV[0-9A-Za-z]+?)(?:_p(\d+))?$/.exec(String(it && it.id || ''));
+      if (m && m[1] === bv && it.note) out.push({ page: m[2] ? Number(m[2]) : 1, id: it.id, note: it.note });
+    }
+    return out.sort((a, b) => a.page - b.page);
+  }
+  function paintParts(el, ctx) {
+    const itemId = String((ctx && ctx.frontmatter && ctx.frontmatter.link_brain && ctx.frontmatter.link_brain.item_id) || '');
+    const m = /^bili-(BV[0-9A-Za-z]+?)(?:_p(\d+))?$/.exec(itemId);
+    const title = m && el.querySelector && el.querySelector('.lb-note-title');
+    if (!title) return;
+    catalogItems().then(items => {
+      const parts = partsOf(items, m[1]);
+      if (parts.length < 2 || !title.parentNode) return;
+      const D = title.ownerDocument || doc();
+      for (const old of [...(title.parentNode ? title.parentNode.querySelectorAll('.lb-parts') : [])]) old.remove();
+      const row = D.createElement('div');
+      row.className = 'lb-parts';
+      const lab = D.createElement('span'); lab.className = 'lb-parts-label'; lab.textContent = '分 P'; row.appendChild(lab);
+      for (const pt of parts) {
+        const a = D.createElement('a');
+        a.className = 'lb-part' + (pt.id === itemId ? ' is-current' : '');
+        a.textContent = 'P' + pt.page;
+        a.setAttribute('role', 'link'); a.setAttribute('tabindex', '0');
+        if (pt.id !== itemId) {
+          const go = e => { try { e.preventDefault(); e.stopPropagation(); } catch {} try { app().workspace.openLinkText(plugin.lbPath ? plugin.lbPath(pt.note) : pt.note, (ctx && ctx.sourcePath) || '', false); } catch {} };
+          a.addEventListener('click', go);
+          a.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') go(e); });
+        }
+        row.appendChild(a);
+      }
+      title.parentNode.insertBefore(row, title.nextSibling);
+    }).catch(() => {});   // 目录数据读不到：不出这一行，不打扰
   }
 
   // ⋮ 菜单 / 文件列表右键 / 标签页右键：导出 ▸（PDF / 压缩包）· 恢复这篇 · 从快照找回…

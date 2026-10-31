@@ -261,7 +261,7 @@ const key = (E, target, k, extra = {}) => { const e = E.dom.event('keydown', { k
     assert.match(c.panel.textContent, /按 D 开关弹幕/, '可见文字里说明了 D 键');
     assert.match(c.panel.textContent, /不会发到 B 站/);
     assert.match(c.panel.textContent, /原弹幕 3 条 · 我的批注弹幕 1 条/);
-    assert.match(c.panel.textContent, /记在当前时间/, '说明了自己的弹幕从批注框写');
+    assert.match(c.panel.textContent, /发弹幕/, '说明了自己的弹幕从「发弹幕」框发');
     const opt = text => c.panel.querySelectorAll('button').find(b => b.textContent === text);
     for (const t of ['1/4 屏', '半屏', '全屏', '慢', '标准', '快', '很快', '滚动', '顶部', '底部', '收起']) assert.ok(opt(t), '弹层里有「' + t + '」');
     opt('全屏').click(); await settle();

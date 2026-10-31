@@ -3165,7 +3165,8 @@ function buildCard(it, fuzzy, low) {
   }
   // 附件角标：待补=有文件未下载（警示色），downloaded=有文件已下（灰）
   const badges = card.createEl('div', { cls: 'lbc-badges' });
-  if (it.kind === 'video') { const v = badges.createEl('span', { cls: 'lbc-attach lbc-video' }); putSvg(v, VIDEO_SVG); }
+  // 1031 她：B 站的卡片全是视频，不再挂视频角标；作者 / 点赞那一行也不要（见下面 meta）
+  if (it.kind === 'video' && !isBili(it)) { const v = badges.createEl('span', { cls: 'lbc-attach lbc-video' }); putSvg(v, VIDEO_SVG); }
   if (it.attachment === '待补') badges.createEl('div', { cls: 'lbc-attach lbc-attach-todo', text: '待补' });
   else if (it.attachment === '线索') badges.createEl('div', { cls: 'lbc-attach lbc-attach-hint', text: '疑似附件', attr: { title: it.attachment_reason || '正文提到附件，但没找到文件' } });
   else if (it.attachment === 'downloaded') badges.createEl('div', { cls: 'lbc-attach', text: '文件' });
@@ -3210,12 +3211,14 @@ function buildCard(it, fuzzy, low) {
   const ftags = body.createEl('div', { cls: 'lbc-ftags' }); ftags.hidden = true;   // 10-11 索引视图里：这篇在选中这一类的细分标签
   const tops = cardTopics(it);
   if (tops.length) { const tp = body.createEl('div', { cls: 'lbc-ctopics' }); for (const t of tops) tp.createEl('span', { text: '★ ' + t }); }
-  const meta = body.createEl('div', { cls: 'lbc-cmeta' });
-  const who = it.author || it.source || '收藏';
-  const au = meta.createEl('div', { cls: 'lbc-au' });
-  const av = au.createEl('span', { cls: 'lbc-av', text: [...String(who)][0] || '·' }); av.style.setProperty('--lbc-av', TILE_COLORS[hashStr(who) % TILE_COLORS.length]);
-  au.createEl('span', { cls: 'lbc-au-name', text: who });
-  meta.createEl('span', { cls: 'lbc-likes', text: fmtLikes(it.likes) });
+  if (!isBili(it)) {
+    const meta = body.createEl('div', { cls: 'lbc-cmeta' });
+    const who = it.author || it.source || '收藏';
+    const au = meta.createEl('div', { cls: 'lbc-au' });
+    const av = au.createEl('span', { cls: 'lbc-av', text: [...String(who)][0] || '·' }); av.style.setProperty('--lbc-av', TILE_COLORS[hashStr(who) % TILE_COLORS.length]);
+    au.createEl('span', { cls: 'lbc-au-name', text: who });
+    meta.createEl('span', { cls: 'lbc-likes', text: fmtLikes(it.likes) });
+  }
   if (!mobile) {
     // C3 拖文件：进入有文件的拖拽 → 虚线框「松手挂到这篇」；松手后 busy 到 attachFile 返回
     let depth = 0;
@@ -3432,10 +3435,6 @@ function layoutBody(r, n) {
   const simpleEmpty = simplePage && !starredPage && !committed && !activeCat && !activeTopic && !activeAlbum && !todayOnly && !todoOnly;
   if (simpleEmpty || !shown) {
     grid.empty();
-    if (committed && !committed.startsWith('#') && !mobile && shown) {
-      const tip = grid.createEl('div', { cls: 'lbc-possible-note lbc-ask-tip', text: `按关键词筛选。想把同义词、相关内容也找出来 → 去问收藏搜「${committed}」` });
-      tip.onclick = () => askInChat(committed);
-    }
     if (simpleEmpty) { grid.createEl('div', { cls: 'lbc-empty', text: '输入关键词搜索收藏；想让 AI 分析，点上面的「问收藏」。' }); return; }
     renderEmpty(); return;
   }
@@ -3443,14 +3442,7 @@ function layoutBody(r, n) {
   const reuse = test => [...grid.children].find(test) || null;
   const has = (el, c) => el.classList.contains(c);
   const want = [];
-  // 第 10 批：目录搜索是关键词精确筛选；想连同义词 / 语义一起找，一键带着这个词去问收藏
-  if (committed && !committed.startsWith('#') && !mobile) {
-    const tip = reuse(el => has(el, 'lbc-ask-tip')) || document.createElement('div');
-    tip.className = 'lbc-possible-note lbc-ask-tip';
-    tip.textContent = `按关键词筛选。想把同义词、相关内容也找出来 → 去问收藏搜「${committed}」`;
-    tip.onclick = () => askInChat(committed);
-    want.push(tip);
-  }
+  // 1031 她：有结果时网格上面不再挂「按关键词筛选…去问收藏搜」那行（没结果时的空状态里照旧给）
   const exactBox = reuse(el => has(el, 'lbc-grid-inner') && !has(el, 'lbc-grid-possible')) || Object.assign(document.createElement('div'), { className: 'lbc-grid-inner lbc-masonry' });
   want.push(exactBox);
   if (r.possible.length) {

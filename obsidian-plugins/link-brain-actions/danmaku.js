@@ -3,7 +3,7 @@
 // 叠在画面上播：滚动 / 顶部 / 底部三种 + 高级弹幕（mode 7）按坐标静态停几秒，跟 video.currentTime 走（暂停就停、拖进度条按新时间重排、倍速跟着变），
 // 全屏时照样在（层挂在 .lb-media 里）。
 // 1031 作者（第二轮）：「弹幕直接复用批注」——用户自己的弹幕 = 这篇 notes.json 里带视频时间（video_t 秒）的批注，带细框飘；不带时间的不播。
-// 写批注只走批注框（annotate-view.js，勾「记在当前时间」），本文件只读 notes.json + 听 link-brain:annotations 事件（批注框存完就发），不写盘。
+// 写批注只走批注框（annotate-view.js 的「发弹幕」框），本文件只读 notes.json + 听 link-brain:annotations 事件（批注框存完就发），不写盘。
 // 以前那套 danmaku-mine.json 去掉了（一次性迁移：python -m link_brain.migrate_danmaku_mine，见 FORMAT.md）。
 // 性能：弹幕按时间排好、只往前走一个指针；只给屏幕上的那几十条建节点（节点回收复用）；每帧只改这几条的 transform，宽度用 canvas 量字、不读布局。
 // 设置记在插件设置 settings.media.danmaku（所有视频共用）：开关、透明度、字号、显示区域、滚动速度、屏蔽三种。焦点在视频上按 D 开关（全屏里也行）；
@@ -498,7 +498,7 @@ async function attach({ plugin, media, video, note = null, bar = null, itemId = 
   });
   const count = doc.createElement('p'); count.className = 'lb-dm-count'; panel.appendChild(count);
   const tip = doc.createElement('p'); tip.className = 'lb-dm-tip';
-  tip.textContent = '点一下画面再按 D 开关弹幕（全屏里也能按，或点画面右下角的「弹」）。自己的弹幕 = 批注框里勾了「记在当前时间」写的批注，带细框飘，只存在本机，不会发到 B 站。';
+  tip.textContent = '点一下画面再按 D 开关弹幕（全屏里也能按，或点画面右下角的「弹」）。自己的弹幕 = 视频下面「发弹幕」框里发的，带细框飘，只存在本机，不会发到 B 站。';
   panel.appendChild(tip);
   const closeBtn = btn(doc, 'lb-dm-close', '收起'); panel.appendChild(closeBtn);
   media.appendChild(panel);

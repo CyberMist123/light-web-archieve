@@ -271,5 +271,33 @@ function setup({ runPy, files = {}, root = '' } = {}) {
     assert.equal(S.notices.at(-1).msg, '已打包：2 张原图（1 MB）：a.zip');
     assert.deepEqual(S.calls[0].args.slice(3), ['xhs-abc', '--zip', '--json']);
   }
+  // ── 1031 B 站多 P：标题下面「分 P　P1 P2 …」，点了开那一篇；只有一 P / 小红书不出 ──
+  {
+    const S = setup({ root: 'LB' });
+    const cat = { items: [{ id: 'bili-BVabc123', note: 'Web/Bilibili/合集 · P1.md' }, { id: 'bili-BVabc123_p3', note: 'Web/Bilibili/合集 · P3.md' },
+      { id: 'bili-BVabc123_p2', note: 'Web/Bilibili/合集 · P2.md' }, { id: 'bili-BVother', note: 'Web/Bilibili/别的.md' }, { id: 'xhs-abc', note: 'x.md' }] };
+    const reads = [];
+    S.plugin.app.vault.adapter.read = async rel => { reads.push(rel); return JSON.stringify(cat); };
+    const opened = []; S.ws.openLinkText = (l, sp, nw) => opened.push([l, sp, nw]);
+    const mk = () => { const el = S.D.createElement('div'); const main = el.createEl('div', { cls: 'lb-scroll' }); main.createEl('h2', { cls: 'lb-note-title', text: '合集 · P2' }); main.createEl('div', { cls: 'lb-body' }); return el; };
+    const el = mk();
+    S.pps[0](el, { sourcePath: 'LB/Web/Bilibili/合集 · P2.md', frontmatter: { link_brain: { item_id: 'bili-BVabc123_p2' } } });
+    await tick(5);
+    const row = el.querySelector('.lb-parts');
+    assert.ok(row, 'B 站多 P 出「分 P」一行');
+    assert.deepEqual(row.children.map(c => c.textContent), ['分 P', 'P1', 'P2', 'P3'], '按 P 号排，只列同一个 BV 的');
+    assert.ok(row.children[2].classList.contains('is-current'), '当前这 P 标出来');
+    assert.equal(reads[0], 'LB/_archive/catalog-data.json');
+    row.children[3].click();
+    assert.deepEqual(opened[0], ['LB/Web/Bilibili/合集 · P3.md', 'LB/Web/Bilibili/合集 · P2.md', false], '点 P3 开那一篇');
+    S.pps[0](el, { sourcePath: 'LB/Web/Bilibili/合集 · P2.md', frontmatter: { link_brain: { item_id: 'bili-BVabc123_p2' } } });
+    await tick(5);
+    assert.equal(el.querySelectorAll('.lb-parts').length, 1, '重渲染不叠两行');
+    const one = mk(); S.pps[0](one, { sourcePath: 'LB/Web/Bilibili/别的.md', frontmatter: { link_brain: { item_id: 'bili-BVother' } } });
+    const x = mk(); S.pps[0](x, { sourcePath: S.note.path, frontmatter: { link_brain: { item_id: 'xhs-abc' } } });
+    await tick(5);
+    assert.equal(one.querySelector('.lb-parts'), null, '只有一 P 不出');
+    assert.equal(x.querySelector('.lb-parts'), null, '小红书不出');
+  }
   console.log('PASS note-tools');
 })().catch(e => { console.error(e); process.exit(1); });
