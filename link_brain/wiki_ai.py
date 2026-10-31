@@ -20,7 +20,7 @@ MAX_MATERIALS = 12
 
 RULES = """你在帮她改她自己的个人 Wiki（Markdown 笔记）。这是她自己的思考、判断和偏好，不是给别人看的文章。
 规矩：
-1. 只输出改好的 Markdown 本身：不要解释，不要「以下是…」之类的开头结尾，不要用代码块把它包起来。
+1. 改好的 Markdown 放在 <replacement> 和 </replacement> 之间，外面一个字都不要写：不要解释，不要「以下是…」「好的，」这类开头结尾，不要用代码块包起来。
 2. 保持她的口吻和观点；不替她下新结论，不编造事实、数字、链接、出处。
 3. 收藏引用写成 [标题](lwa:编号)：原样保留，一个都不能丢，编号一个字都不能改；可以挪位置、可以改括号外面的话。
 4. 只用这些写法：段落、## / ### 小标题、- 列表、- [ ] 待办、> 引用、**粗体**、`代码`。不要表格，不要 emoji。
@@ -94,17 +94,35 @@ def _materials(texts: list[str], vault: Path | None) -> list[dict[str, str]]:
     return out
 
 
+# 模型没按 <replacement> 外框回时的兜底：剥代码块、开场白（「以下是改好的：」「好的，」）和收尾客套
+_FENCE = re.compile(r"^```[\w-]*\n([\s\S]*?)\n```$")
+_OPEN = re.compile(r"^(?:(?:好的|好|当然|可以|没问题|明白)[，,。！!]?\s*)?(?:(?:以下|下面|这)是[^\n]{0,30}?[：:]|好的[，,。！!][^\n]{0,30}?[：:]?)\s*\n+")
+_CLOSE = re.compile(r"\n+(?:希望|如需|如果(?:你|您)|需要的话|有需要|还需要)[^\n]{0,60}$")
+
+
 def _clean(out: str) -> str:
+    """只认最外一层 <replacement>…</replacement>（第一个开头到最后一个结尾，内容里再出现同名标签不截断）；没有外框就走兜底。"""
     s = str(out or "").strip()
-    m = re.match(r"^```[\w-]*\n([\s\S]*?)\n```$", s)   # 模型还是包了代码块
+    a, b = s.find("<replacement>"), s.rfind("</replacement>")
+    if a >= 0 and b > a:
+        return s[a + len("<replacement>"):b].strip("\n")
+    if a >= 0:   # 只有开头没有结尾（被截断）：从开头取到底
+        s = s[a + len("<replacement>"):]
+    m = _FENCE.match(s.strip())   # 模型还是包了代码块
+    s = (m.group(1) if m else s).strip()
+    s = _CLOSE.sub("", _OPEN.sub("", s, count=1))
+    m = _FENCE.match(s.strip())
     return (m.group(1) if m else s).strip("\n")
 
 
 def rewrite(data: dict[str, Any], vault: Path | None = None) -> dict[str, Any]:
-    """data = {id, scope: block|page, text, instruction?, preset?}。返回 {text, model, lost_cites}，不写盘。"""
+    """data = {id, scope: part|page, text, instruction?, preset?}。返回 {text, model, lost_cites}，不写盘。
+    part = 这页里的一截（当前那一节 / 选中的几段；旧的 block 也认）。"""
     from . import indextree, text_stream
-    scope = str(data.get("scope") or "block")
-    if scope not in ("block", "page"):
+    scope = str(data.get("scope") or "part")
+    if scope == "block":
+        scope = "part"
+    if scope not in ("part", "page"):
         raise WikiError("BAD_ARGS", f"不认识的范围：{scope}")
     text = str(data.get("text") or "")
     instruction = str(data.get("instruction") or "").strip()
@@ -113,7 +131,7 @@ def rewrite(data: dict[str, Any], vault: Path | None = None) -> dict[str, Any]:
         raise WikiError("BAD_ARGS", f"不认识的说法：{preset}")
     if not instruction and not preset:
         raise WikiError("BAD_ARGS", "要让 AI 怎么改？")
-    if not text.strip() and preset != "draft" and scope == "block":
+    if not text.strip() and preset != "draft" and scope == "part":
         raise WikiError("BAD_ARGS", "这一段是空的，先写一点再让 AI 改")
     if len(text) > TEXT_LIMIT:
         raise WikiError("BAD_ARGS", f"这次要改的字太多（{len(text)} 字），分几段改")
@@ -124,8 +142,8 @@ def rewrite(data: dict[str, Any], vault: Path | None = None) -> dict[str, Any]:
     task = "；".join(x for x in (PRESETS[preset][1] if preset else "", instruction) if x)
     mats = _materials([text, page.get("body") or ""] if preset == "from_cites" or scope == "page" else [text], vault)
     parts = [f"页面标题：《{page.get('title') or data.get('title') or ''}》"]
-    if scope == "block":
-        parts.append("要改的是这页里的一段（只输出改好的这一段）。整页正文给你参考上下文：\n<<<整页\n" + (page.get("body") or "")[:TEXT_LIMIT] + "\n整页>>>")
+    if scope == "part":
+        parts.append("要改的是这页里的一截（只输出改好的这一截，别把整页抄回来）。整页正文给你参考上下文：\n<<<整页\n" + (page.get("body") or "")[:TEXT_LIMIT] + "\n整页>>>")
     else:
         parts.append("要改的是整页正文（输出改好的整页正文，不含文件头）。")
     if mats:

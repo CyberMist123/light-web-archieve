@@ -217,54 +217,86 @@ const run = async (name, fn) => { try { await fn(); console.log('  ok   ' + name
     assert.equal(A.qa('.lbw-draft').length, 0);
   });
 
-  await run('让 AI 改一段：用这版 = 存 kind=ai；原文变了不套用；没配 AI 时说清楚', async () => {
+  await run('让 AI 改：范围 = 光标所在那一节；范围里锁住；按字比、逐处勾选；用选中的 = 一次存（kind=ai）、Ctrl+Z 一步撤', async () => {
     const P = fakePlugin(); const { A, V } = await open({ plugin: P });
     await openPage(A, 'pw-stay');
-    blk(A, '为什么记').click();
+    blk(A, '干净').click();                                   // 光标在「在意什么」那一节的一条里
     A.q('.lbw-edbar [data-ai]').click(); await tick(5);
-    assert.ok(A.q('.lbw-ai'), '这段下面出 AI 小面板');
+    assert.ok(A.q('.lbw-ai[data-scope="part"]'), '那一节下面出 AI 面板');
+    assert.ok(A.q('.lbw-ai').textContent.includes('「在意什么」这一节'));
     assert.deepEqual(texts(A, '.lbw-ai [data-preset]'), ['润色', '精简', '说清楚一点', '改成列表', '只改错字']);
-    P.aiText = '为什么记：订房前总要从头翻收藏。';
+    assert.equal(A.qa('.lbw-blk.is-ai-lock').length, 4, '这一节（小标题 + 三条）锁住');
+    blk(A, '干净').click(); await tick(1);
+    assert.equal(A.q('.lbw-ed'), null, '锁住的段点了不开编辑'); assert.ok(A.notices.at(-1).includes('在让 AI 改'));
+    P.aiText = '## 在意什么\n- 安静的房间\n- 干净\n- [ ] 预算多少？';
     A.q('.lbw-ai [data-preset="polish"]').click(); await tick(15);
     const call = P.calls.find(c => c.op === 'ai');
-    assert.deepEqual([call.input.scope, call.input.preset, call.input.text], ['block', 'polish', '为什么记：每次都从头翻。']);
-    assert.ok(A.q('.lbw-ai-out').textContent.includes('订房前总要从头翻'), '看得到 AI 那版');
+    assert.deepEqual([call.input.scope, call.input.preset, call.input.text], ['part', 'polish', '## 在意什么\n- 安静\n- 干净\n- [ ] 预算？']);
+    const hk = A.qa('.lbw-ai-diff .lbw-hk');
+    assert.equal(hk.length, 2, '两处改动：「的房间」「多少」（中文按字比，不是整行）');
+    assert.deepEqual(hk.map(x => x.querySelector('ins') && x.querySelector('ins').textContent), ['的房间', '多少']);
+    assert.ok(A.q('.lbw-ai').textContent.includes('改了 2 处，选了 2 处'));
+    hk[0].click(); await tick(1);                              // 第一处不要
+    assert.ok(A.q('.lbw-ai-diff .lbw-hk[data-h]').classList.contains('is-off'));
+    assert.equal(A.q('.lbw-ai [data-ai="apply"]').textContent, '用选中的 1 处');
     A.q('.lbw-ai [data-ai="apply"]').click(); await tick(20);
     const sv = P.calls.filter(c => c.op === 'save').at(-1);
-    assert.equal(sv.input.kind, 'ai'); assert.match(sv.input.note, /AI：润色/);
-    assert.ok(body(V, '住宿偏好.md').startsWith('为什么记：订房前总要从头翻收藏。\n\n## 在意什么'));
-    // 等 AI 时原文被改了 → 不套用
+    assert.equal(sv.input.kind, 'ai'); assert.match(sv.input.note, /AI：润色（用了 1\/2 处）/);
+    assert.ok(body(V, '住宿偏好.md').includes('## 在意什么\n- 安静\n- 干净\n- [ ] 预算多少？\n'), body(V, '住宿偏好.md'));
+    assert.equal(A.qa('.lbw-blk.is-ai-lock').length, 0, '用完解锁');
+    key(A, A.window.document, 'z', { ctrlKey: true }); await tick(20);
+    assert.ok(body(V, '住宿偏好.md').includes('- [ ] 预算？'), 'Ctrl+Z 一步撤回');
+  });
+
+  await run('让 AI 改：等的时候别处加了行 → 跟着挪照样套用；那截原文被改了 → 作废；没配 AI 说清楚；AI 没改说没改', async () => {
+    const P = fakePlugin(); const { A, V } = await open({ plugin: P });
+    await openPage(A, 'pw-stay');
     blk(A, '结尾一段').click(); A.q('.lbw-edbar [data-ai]').click(); await tick(5);
-    P.aiDelay = 40;
+    P.aiDelay = 40; P.aiText = '结尾改了一段。';
     const inp = A.q('.lbw-ai input'); inp.value = '语气轻一点'; key(A, inp, 'Enter'); await tick(5);
     assert.ok(A.q('.lbw-ai').textContent.includes('AI 在改'));
     assert.equal(P.calls.filter(c => c.op === 'ai').at(-1).input.instruction, '语气轻一点', '自己说的话原样给 AI');
-    blk(A, '为什么记').click(); A.q('.lbw-ed').value = '中间又改了一处。'; key(A, A.q('.lbw-ed'), 'Escape'); await tick(10);
-    blk(A, '结尾一段') && 0;
+    blk(A, '为什么记').querySelector('.lbw-ins').click(); await tick(1);   // 等的时候在上面插一段
+    A.q('.lbw-ed').value = '上面新插的一段'; key(A, A.q('.lbw-ed'), 'Escape'); await tick(10);
     await tick(60); P.aiDelay = 1;
-    const n0 = P.calls.filter(c => c.op === 'save').length;
-    const ap = A.q('.lbw-ai [data-ai="apply"]'); assert.ok(ap); ap.click(); await tick(10);
-    // 结尾那段没变（改的是第一段，行数没变），所以照常套用
-    assert.equal(P.calls.filter(c => c.op === 'save').length, n0 + 1);
-    // 没配 AI
+    A.q('.lbw-ai [data-ai="apply"]').click(); await tick(20);
+    assert.ok(body(V, '住宿偏好.md').includes('上面新插的一段') && body(V, '住宿偏好.md').includes('结尾改了一段。') && !body(V, '住宿偏好.md').includes('结尾一段。'), '行号挪了也套在对的地方');
+    // 原文被改了 → 作废
     blk(A, '为什么记').click(); A.q('.lbw-edbar [data-ai]').click(); await tick(5);
+    P.aiText = '为什么记：改过。';
+    A.q('.lbw-ai [data-preset="fix"]').click(); await tick(15);
+    V.set('PersonalWiki/住宿偏好.md', V.get('PersonalWiki/住宿偏好.md').replace('为什么记：每次都从头翻。', '在 Obsidian 里改了这句。')); await tick(700);
+    const n0 = P.calls.filter(c => c.op === 'save').length;
+    A.q('.lbw-ai [data-ai="apply"]').click(); await tick(10);
+    assert.equal(P.calls.filter(c => c.op === 'save').length, n0, '没套用');
+    assert.ok(A.notices.at(-1).includes('改过了，没套用'));
+    A.qa('.lbw-ai button').find(b => b.textContent === '不要').click(); await tick(2);
+    // 没配 AI
+    blk(A, '结尾改了').click(); A.q('.lbw-edbar [data-ai]').click(); await tick(5);
     P.aiFail = 'AI 没改成：没有能用的文本 AI（没配）';
     A.q('.lbw-ai [data-preset="fix"]').click(); await tick(15);
     assert.ok(A.q('.lbw-ai').textContent.includes('没有能用的文本 AI'), '原因写在面板上');
+    P.aiFail = null; P.aiText = input => input.text;   // 原样回来
+    A.q('.lbw-ai [data-preset="fix"]').click(); await tick(15);
+    assert.ok(A.q('.lbw-ai').textContent.includes('一个字都没改'));
   });
 
-  await run('让 AI 改整页：右侧栏看差异、用这版；页面变了不套用', async () => {
+  await run('让 AI 改整页：右侧栏逐处勾选，不再整页「用这版」', async () => {
     const P = fakePlugin(); const { A, V } = await open({ plugin: P });
     await openPage(A, 'pw-kyoto');
     A.q('.lbw-hbtn.is-more').click();
     A.qa('.lbw-pop button').find(b => b.textContent.startsWith('让 AI 改整页')).click(); await tick(2);
-    assert.ok(!A.q('.lbw-side').hidden && A.q('.lbw-side .lbw-ai'), '右侧栏');
+    assert.ok(!A.q('.lbw-side').hidden && A.q('.lbw-side .lbw-ai[data-scope="page"]'), '右侧栏');
     assert.deepEqual(texts(A, '.lbw-side [data-preset]'), ['理顺结构', '精简', '从引用补要点', '搭个框架', '润色']);
-    P.aiText = '## 为什么\n种草先挂着。\n\n## 想住\n- 町屋民宿';
+    assert.ok(A.qa('.lbw-blk.is-ai-lock').length >= 1, '整页锁住');
+    P.aiText = '## 为什么\n种草先挂着，町屋民宿。\n\n## 想住\n- 町屋';
     A.q('.lbw-side [data-preset="structure"]').click(); await tick(15);
-    assert.ok(A.q('.lbw-side .lbw-diff'), '看得到和现在的差异');
+    assert.ok(A.qa('.lbw-side .lbw-hk').length >= 2, '逐处');
+    A.q('.lbw-side [data-ai="none"]').click(); await tick(1);
+    assert.ok(A.q('.lbw-side [data-ai="apply"]').getAttribute('disabled') != null, '全不要时「用」点不了');
+    A.q('.lbw-side [data-ai="all"]').click(); await tick(1);
     A.q('.lbw-side [data-ai="apply"]').click(); await tick(20);
-    assert.ok(body(V, '京都.md').startsWith('## 为什么\n种草先挂着。'));
+    assert.ok(body(V, '京都.md').startsWith('## 为什么\n种草先挂着，町屋民宿。\n\n## 想住'), body(V, '京都.md'));
     assert.ok(A.q('.lbw-side').hidden, '用完收起');
   });
 
@@ -326,6 +358,25 @@ const run = async (name, fn) => { try { await fn(); console.log('  ok   ' + name
     A.q('.lbw-fold.is-new').click();
     A.q('.lbw-modal input').value = '读书'; await A.q('.lbw-modal').requestSubmit(); await tick(10);
     assert.ok(A.q('.lbw-ed'), '新文件夹建好直接进编辑');
+  });
+
+  await run('不闪：量到宽度 0（Dataview 重跑那一下）不切布局、首页不重画；分界线附近有缓冲；收起目录压过中等宽度', async () => {
+    const P = fakePlugin(); const { A } = await open({ plugin: P });
+    const wrap = A.q('.lbw');
+    A.resize.trigger(1000, 800); await tick(200);
+    assert.ok(wrap.classList.contains('is-mid'));
+    const first = A.q('.lbw-center').firstChild;
+    A.resize.trigger(0, 800); await tick(200);
+    assert.ok(wrap.classList.contains('is-mid'), '宽度 0 不算：还是中等宽');
+    A.resize.trigger(1000, 800); await tick(200);
+    assert.equal(A.q('.lbw-center').firstChild, first, '首页没有重画');
+    A.resize.trigger(1050, 800); await tick(200);
+    assert.ok(wrap.classList.contains('is-mid'), '刚过 1040 不翻（缓冲 24px）');
+    assert.equal(A.q('.lbw-center').firstChild, first);
+    A.resize.trigger(1100, 800); await tick(200);
+    assert.ok(!wrap.classList.contains('is-mid'), '真变宽了才翻');
+    const css = A.window.document.getElementById('lb-wiki-style').textContent;
+    assert.ok(css.includes('.lbw.is-mid.is-tocoff.is-home:not(.is-narrow) .lbw-main{grid-template-columns:minmax(0,1fr);}'), '收起目录压过中等宽度两列');
   });
 
   if (failed.length) { console.log('FAIL wiki 10-31: ' + failed.join(' / ')); process.exit(1); }
