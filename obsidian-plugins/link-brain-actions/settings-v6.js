@@ -1393,6 +1393,10 @@ module.exports = function (obsidian, plugin) {
       sub(b, '这台电脑', 'machine');
       if (h) tab.stops.push(h.renderStatus(b, tab, { machineOnly: true, noProblems: true }));   // 「一键装好」在页顶「懒人安装」
       sub(b, '后台程序', 'developer');
+      // 1101 作者：同步记录 bug 多，平时不放在页面上；要看再从这里打开
+      tab.toggleRow(b, '同步记录和进度', '', () => !!plugin.settings.devSyncLog, v => { plugin.settings.devSyncLog = !!v; }, {
+        help: '打开后：目录页右上角出现同步记录（钟），「更新」和边栏「上次同步」能点开同步记录，状态栏显示同步 / 补评论进度。平时关着。',
+        onChange: () => { plugin.taskChanged?.(); plugin.app.workspace?.trigger?.('link-brain:catalog-prefs'); } });
       tab.renderBackendRows(b);
       tab.link(row(b, tab, '目录显示不对', '重新整理一遍目录页（几秒到一分钟），不改任何收藏文件。', { section: 'rebuild' }), '重建目录',
         async () => { await plugin.run(['-m', 'link_brain', 'catalog'], '重建目录'); }, '重新整理一遍目录页');

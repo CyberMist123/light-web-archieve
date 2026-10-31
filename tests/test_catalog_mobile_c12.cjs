@@ -17,17 +17,9 @@ const { tick, item, openCatalog, ev } = require('./_fake_l1.cjs');
   assert.ok(P.$('.lbc-tools .lbc-jumps .lbc-pnav-chat'), '1101 作者：右上角「问收藏」「Wiki」两颗跳转（手机上也有）');
   P.$('.lbc-pnav-chat').onclick(); await tick(5);
   assert.equal(P.app.workspace.opened.at(-1)[0], '收藏搜索.md');
-  // 「更新」：读 sync-log.jsonl 最后 5 行，浮层；点外面关
+  // 1101 作者：同步记录 bug 多，默认不放在页面上——点「更新」什么都不弹（设置 → 开发者「同步记录和进度」打开才有）
   await P.$('.lbc-updated').onclick(ev()); await tick(5);
-  const pop = dom.document.body.querySelector('.lbc-synclog-pop');
-  assert.ok(pop, '弹出浮层');
-  const rows = pop.querySelectorAll('.lbc-synclog-row').map(r => r.textContent);
-  assert.equal(rows.length, 5, '最多 5 行');
-  assert.match(rows[0], /^10\/07 \d\d:06 · 手动同步 · 新收 6 篇 · 没完成$/);   // 时刻按本机时区显示
-  assert.match(rows[1], /^10\/06 \d\d:05 · 夜跑同步 · 新收 5 篇 · 完成$/);
-  // Esc 关浮层（不动别的）
-  dom.document.dispatchEvent({ type: 'keydown', key: 'Escape', target: dom.document.body });
-  assert.equal(dom.document.body.querySelector('.lbc-synclog-pop'), null);
+  assert.equal(dom.document.body.querySelector('.lbc-synclog-pop'), null, '默认不弹同步记录');
   // 问题角标：照样显示数字；点了只说一句
   // 长按 / 右键：不拦（不设 oncontextmenu）
   assert.equal(P.card('a').oncontextmenu, undefined, '不拦截 contextmenu');

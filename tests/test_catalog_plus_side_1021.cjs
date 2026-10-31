@@ -36,7 +36,7 @@ const sched = () => ({ task: 'LinkBrainNightly', enabled: true, freq: 'daily', n
 const syncFile = more => JSON.stringify({ state: 'ready', updated_at: new Date().toISOString(), last_success: lastOk.toISOString(), ...more });
 const mkPlugin = (more = {}) => {
   const calls = [];
-  return { calls, settings: { hiddenCats: [] }, scheduleCalls: 0,
+  return { calls, settings: { hiddenCats: [], devSyncLog: true }, scheduleCalls: 0,   // 1101：同步记录要开发者开关打开才点得开
     async getSyncSchedule() { this.scheduleCalls++; return sched(); },
     openSetupPage(sec) { calls.push(['setup', sec]); },
     async openSyncLog() { calls.push(['synclog']); },

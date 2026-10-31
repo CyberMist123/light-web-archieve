@@ -212,6 +212,8 @@ const DEFAULT_SETTINGS = {
   hiddenCats: [],
   // 10-03：目录页 / 星标页瀑布流列数（Ctrl + 加减号 / Ctrl + 滚轮 / 「…→每行几列」调，2–6；0 = 按页面宽度自动）
   catalogColumns: 0,
+  // 1101 作者：同步记录 bug 多——默认关：目录页不放同步记录入口（钟 / 「更新」/ 边栏「上次同步」），状态栏不显示同步 / 补评论进度；设置 → 修复 → 后台程序里打开
+  devSyncLog: false,
   catalogTitle: "",   // 目录页大标题（空 = Collections）
   // 目录页编排（1027 design-1027 §5 的形状）：{modules: [{id, x, y, width, hidden, typography: {font, size}, options}], theme: {titleFont, bodyFont, numberFont, scale, gap}}；
   // 1028 起 grid: 48、页头拆成小块（title / meta / cats / scope / topics / types / picks / sort / view / search / ask）+ recent / sync / token / overview / wall；1027 的 12 格 / filters 读的时候换算；和默认一样的键不写，全默认 = null。旧的 {side, top, sideRight, sideW, gap, density}
@@ -2676,7 +2678,7 @@ class LinkBrainActions extends Plugin {
     this.taskLabel = this.running || (live ? (external.live ? '同步收藏' : '夜跑同步') : '');
     const fill = this.taskLabel ? null : commentFillLine(this.commentFill);
     if (this.taskStatusEl) {
-      this.taskStatusEl.hidden = !this.taskLabel && !fill;
+      this.taskStatusEl.hidden = !this.settings?.devSyncLog || (!this.taskLabel && !fill);   // 1101：开发者选项「同步记录和进度」关着就不显示
       this.taskStatusEl.setText(this.taskLabel ? `⟳ ${this.taskLabel}${detail && !this.syncView() ? ' · ' + detail : ''}` : (fill ? fill.text : ''));
       this.taskStatusEl.title = this.running ? '点开看同步记录，可停止' : fill ? (fill.title + (fill.human ? '（点开问题入口处理）' : '')) : this.externalTaskText();
       this.taskStatusEl.onclick = () => (fill && fill.human && !this.taskLabel ? this.openProblems() : this.openSyncLog());

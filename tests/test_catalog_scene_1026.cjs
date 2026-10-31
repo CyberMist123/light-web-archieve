@@ -28,7 +28,7 @@ const pickMenu = (P, re) => { const b = P.menuItems().find(x => re.test(x.textCo
   {
     const P = await openCatalog({ data: dataOf(base()), plugin: { settings: { hiddenCats: [] } } });
     // 1031 作者：两个平台时「图文 / 视频」换成一个来源下拉（不带数）
-    assert.ok(P.$('.lbc-platpick') && !P.cat('图文') && !P.cat('视频'), '两个平台：来源下拉，图文 / 视频不在顶层');
+    assert.ok(P.$('.lbc-platpick') && !P.cat('图文') && P.cat('视频'), '两个平台：来源下拉；1101 作者：全部来源时也出「视频」「文件」');
     P.$('.lbc-platpick').onclick(ev()); assert.deepEqual(P.menuItems().map(x => x.textContent), ['全部来源', '小红书', 'B站'], '不带数，小红书在前'); pickMenu(P, /^B站$/);
     assert.deepEqual(P.ids().sort(), ['bili-c', 'bili-d', 'bili-e'], 'B站');
     P.$('.lbc-thq').onclick();

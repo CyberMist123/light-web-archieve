@@ -26,7 +26,7 @@ async function catalogTests() {
       sync: { state: 'ready', last_success: '2026-10-03T04:00:00+10:00', new: 12, deferred: 85 } }),
   });
   let opened = 0;
-  const plugin = { settings: { hiddenCats: [] }, openAttachments() {}, openCategories() {}, openLibraryPage() {}, openProblems() {}, openSyncLog() { opened++; } };
+  const plugin = { settings: { hiddenCats: [], devSyncLog: true }, openAttachments() {}, openCategories() {}, openLibraryPage() {}, openProblems() {}, openSyncLog() { opened++; } };   // 1101：开发者开关打开才点得开
   const app = { vault: V.vault, workspace: makeWorkspace(), plugins: { plugins: { 'link-brain-actions': plugin }, enablePlugin: async () => {}, disablePlugin: async () => {} }, metadataCache: { getCache: () => null } };
   const A = dataviewBlock({ dom, app, code: LIB + '\n' + SEARCH + '\n' + asset('catalog-view.js') });
   await A.run();
@@ -47,7 +47,7 @@ async function catalogTests() {
   // 插件里还没有 openSyncLog（刚部署、旧实例在内存）：LB.ensure 重载一次插件再调
   {
     delete globalThis.__lbState;
-    const old = { settings: { hiddenCats: [] }, openAttachments() {}, openCategories() {}, openLibraryPage() {} };
+    const old = { settings: { hiddenCats: [], devSyncLog: true }, openAttachments() {}, openCategories() {}, openLibraryPage() {} };
     let reloaded = 0, got = 0;
     const app2 = { vault: makeVault({ [DATA]: JSON.stringify(catalogData()) }).vault, workspace: makeWorkspace(), metadataCache: { getCache: () => null },
       plugins: { plugins: { 'link-brain-actions': old }, disablePlugin: async () => {},

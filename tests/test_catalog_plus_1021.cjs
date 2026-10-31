@@ -50,7 +50,7 @@ const state = () => JSON.parse(globalThis.__lbState['lb:catalog']);
     assert.deepEqual(P.$$('.lbc-scope-tab').map(b => [b.textContent, b.dataset.n]),
       [['全部', '4'], ['今日新增', '2'], ['已收藏', '2'], ['★咖啡', '2'], ['★做饭', '2']], '范围标签 + 前两个星标主题，篇数在 data-n');
     // 1026：类型单独一组（图文 / 视频 / 附件），和范围叠加
-    assert.deepEqual(P.$$('.lbc-type-tab').map(b => [b.textContent, b.dataset.n]), [['视频', '1'], ['附件', '1']]);   // 1031 作者：图文删掉，只剩「视频 · 附件」（1101 中间的竖线去掉——和选中下划线抢同一个位置，叠成一道粗杠）
+    assert.deepEqual(P.$$('.lbc-type-tab').map(b => [b.textContent, b.dataset.n]), [['视频', '1'], ['文件', '1']]);   // 1101 作者：「附件」改叫「文件」   // 1031 作者：图文删掉，只剩「视频 · 附件」（1101 中间的竖线去掉——和选中下划线抢同一个位置，叠成一道粗杠）
     assert.ok(P.$('.lbc-tagpick'), 'Tag ▾'); assert.equal(P.$('.lbc-platpick'), null, '只有一个平台时不出平台选择');
     assert.equal(P.$('.lbc-time').textContent, '最新在前');
     // 字体：@font-face 用资源路径（过 lbPath），不连 Google Fonts

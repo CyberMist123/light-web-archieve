@@ -725,10 +725,11 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-title{font-size:calc(36px * var(--lbc-title-k,1));line-height:1.05;}
 .lbc-top.is-tools-static .lbc-title{font-size:calc(30px * var(--lbc-title-k,1));}
 .lbc-top.is-tools-static .lbc-titleblock{padding:0!important;}
-.lbc-titleblock .lbc-subline{padding:0;gap:2px 6px;flex-wrap:wrap;font:400 13px/1.5 var(--lb-font-body);font-style:normal;color:var(--c-muted);letter-spacing:0;}
-.lbc-titleblock .lbc-subline :is(.lbc-sub,.lbc-count b,.lbc-sub-link){font:inherit!important;font-style:normal!important;color:inherit;}
-.lbc-titleblock .lbc-subline .lbc-count b{color:var(--c-ink);font-weight:600!important;}
-.lbc-titleblock .lbc-subline .lbc-stale{color:var(--lb-warn);}
+/* 1101 作者给的样子：「共 2089 篇 · 更新 11/01 00:32」整行 Cormorant 斜体 + 老式数字（设计稿 .header-meta）；搜索时跳出来的「可能相关 N」「同步中」同一个字 */
+.lbc-titleblock .lbc-subline{padding:0;gap:2px 8px;flex-wrap:wrap;font:italic 500 17px/1.3 var(--lb-font-num);color:var(--c-muted);letter-spacing:.01em;}
+.lbc-titleblock .lbc-subline,.lbc-titleblock .lbc-subline *{font-variant-numeric:oldstyle-nums proportional-nums!important;}
+.lbc-titleblock .lbc-subline :is(.lbc-sub,.lbc-count,.lbc-count b,.lbc-sub-link,.lbc-syncing,.lbc-possible-link,.lbc-updated){font:inherit!important;color:inherit!important;letter-spacing:inherit;}
+.lbc-titleblock .lbc-subline .lbc-stale{color:var(--lb-warn)!important;font:400 12px/1.5 var(--lb-font-body)!important;}
 .lbc-top:not(.is-tools-static)>.lbc-tools{top:8px;}
 .lbc-wrap .lbc-tools{gap:4px;align-items:center;}
 .lbc-wrap .lbc-tools .lbc-jumps{background:transparent;padding:0;gap:8px;margin-right:4px;}
@@ -737,14 +738,36 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-wrap .lbc-tools button.lbc-icon-btn,.lbc-wrap .lbc-tools button.lb-manage{width:36px!important;height:36px!important;min-width:36px;padding:0!important;border:0!important;border-radius:999px!important;background:transparent!important;box-shadow:none!important;color:var(--lb-ink)!important;display:grid;place-items:center;cursor:pointer;}
 .lbc-wrap .lbc-tools button.lbc-icon-btn:hover,.lbc-wrap .lbc-tools button.lb-manage:hover{background:var(--lb-soft)!important;}
 .lbc-wrap .lbc-tools button.lbc-icon-btn svg{width:18px;height:18px;}
-/* 1101 作者「太压抑了」：搜索不要黑下划线——浅灰底圆角，没有描边 */
-.lbc-wrap .lbc-searchbox{border:0!important;border-radius:999px!important;padding:0 14px!important;background:var(--lb-soft)!important;}
+/* ── 1101 作者「那一行都要复刻」：筛选行照设计稿 .toolbar / .tabs / .filters / .search ──
+   整行底下一道浅灰线；全部 / 今日新增 / 已收藏 / ★主题 = 17px 衬线分页，选中墨色加粗 + 2.5px 下划线压在那道线上；
+   B站 / 专辑 / 视频 / 文件 / 排序 = 14px 无衬线小字；搜索 = 透明、宽 220、底下 1px 墨线（没有框） */
+.lbc-wrap .lbc-top .lbc-row:has(> .lbc-rcol > .lbc-m-scope){border-bottom:1px solid var(--c-line);align-items:flex-end!important;}
+.lbc-wrap .lbc-top .lbc-row:has(> .lbc-rcol > .lbc-m-scope) .lbc-ctl.lbc-ctl-piece{padding-bottom:0;align-items:flex-end;}
+.lbc-wrap .lbc-ctl button:is(.lbc-scope-tab,.lbc-topic-tab,.lbc-thq){height:auto!important;padding:12px 0 10px!important;font:400 17px/1.3 var(--f-serif)!important;color:var(--c-muted);}
+.lbc-wrap .lbc-ctl button:is(.lbc-scope-tab,.lbc-topic-tab,.lbc-thq).is-active{color:var(--c-ink);font-weight:600!important;}
+.lbc-wrap .lbc-ctl button:is(.lbc-scope-tab,.lbc-topic-tab,.lbc-thq).is-active::before{bottom:-1px!important;height:2.5px!important;}
+.lbc-wrap .lbc-ctl :is(button.lbc-pick,button.lbc-type-tab,button.lbc-time){height:auto!important;padding:12px 0 10px!important;margin-bottom:0!important;font:400 14px/1.3 var(--lb-font-body)!important;color:var(--c-muted);}
+.lbc-wrap .lbc-ctl :is(button.lbc-pick,button.lbc-type-tab,button.lbc-time).is-active{color:var(--c-ink);font-weight:600!important;}
+.lbc-wrap .lbc-ctl :is(button.lbc-pick,button.lbc-type-tab).is-active::before{bottom:-1px!important;height:2.5px!important;}
+.lbc-wrap .lbc-ctl.lbc-ctl-piece.lbc-blk-search{justify-content:flex-end;padding-bottom:8px;}
+.lbc-wrap .lbc-searchbox{flex:0 1 220px!important;width:220px;height:auto!important;padding:6px 0!important;border:0!important;border-bottom:1px solid var(--c-ink)!important;border-radius:0!important;background:transparent!important;}
+.lbc-wrap .lbc-searchbox input.lbc-search{font:400 14px/1.3 var(--lb-font-body)!important;}
+.lbc-wrap .lbc-ctl.lbc-blk-sort::before{align-self:flex-end;margin-bottom:12px;}
+.lbc-wrap .lbc-ctl button.lbc-time.lbc-pill{height:auto!important;padding:12px 2px 10px!important;font:400 14px/1.3 var(--lb-font-body)!important;}
+.lbc-wrap .lbc-tools button[hidden]{display:none!important;}
 /* 「近 7 天 · 最近导入 ↓」：纯文字按钮，前面一道细竖线隔开（不要胶囊框） */
-.lbc-wrap .lbc-ctl button.lbc-time.lbc-pill{border:0!important;border-radius:0!important;background:transparent!important;padding:0 2px!important;color:var(--c-ink);}
+.lbc-wrap .lbc-ctl button.lbc-time.lbc-pill{border:0!important;border-radius:0!important;background:transparent!important;padding:12px 2px 10px!important;color:var(--c-ink);}
 .lbc-wrap .lbc-ctl.lbc-blk-sort{position:relative;}
 .lbc-wrap .lbc-ctl.lbc-blk-sort::before{content:"";align-self:center;width:1px;height:16px;margin-right:12px;background:var(--c-line);}
 /* 数字一律齐线（Cormorant 默认旧式数字高低不齐；font 简写会把它重置掉，这里兜一次） */
 .lbc-wrap *{font-variant-numeric:lining-nums tabular-nums;}
+/* 1101 作者：不要分类那一整行、不要 Tag、不要「我的收藏 ▾」（编排里也不出） */
+.lbc-wrap .lbc-rcol:has(> .lbc-m-cats),.lbc-wrap .lbc-rcol:has(> .lbc-m-picks),.lbc-wrap .lbc-m-cats,.lbc-wrap .lbc-m-picks{display:none!important;}
+.lbc-wrap .lbc-top .lbc-row:not(:has(.lbc-m:not(.lbc-m-cats):not(.lbc-m-picks))){display:none!important;}
+/* 「B站 ▾」「专辑 ▾」和「已收藏」同一个样子：纯文字，选中墨色加粗 + 下面一道线 */
+.lbc-wrap .lbc-ctl button.lbc-pick.is-active{color:var(--c-ink);font-weight:600;}
+.lbc-wrap .lbc-ctl button.lbc-pick.is-active::before{content:"";position:absolute;left:0;right:0;bottom:2px;height:2px;background:var(--c-ink);}
+.lbc-wrap .lbc-subline .lbc-updated.is-plain{cursor:default;text-decoration:none!important;pointer-events:none;}
 `;
 // 1021：标题 / 数字字体随包发（catalog.py 重建时拷进 _archive/fonts/），@font-face 的地址运行时拼（vault 可能挂在别的库子目录里，过 lbPath；
 // 不连 Google Fonts，离线照样显示；文件不在时浏览器退回系统衬线字体）
@@ -1226,8 +1249,9 @@ async function openUpdated(e) {
   setTimeout(() => document.addEventListener('click', close, true), 0);
   return pop;
 }
-updatedBtn.onclick = e => openUpdated(e);
-syncing.onclick = e => openUpdated(e);
+updatedBtn.onclick = e => (devLog() ? openUpdated(e) : undefined);
+updatedBtn.classList.toggle('is-plain', !devLog());
+syncing.onclick = e => (devLog() ? openUpdated(e) : undefined);
 possibleLink.onclick = () => scrollToPossible();
 // 文件监听（§5.7）：同步状态 / 问题汇总一变只重画入口这几个字；catalog-data 变了 800ms 防抖后核一次新鲜度（F4）
 if (app.vault.on && dv.component?.registerEvent) {
@@ -1259,8 +1283,10 @@ for (const [role, label] of [...(starredPage ? [['catalog', '浏览收藏']] : [
   const b = jumps.createEl('button', { cls: 'lbc-pnav-' + role, text: label }); b.type = 'button';
   b.onclick = () => { const p = provider(); if (role !== 'chat' && typeof p?.openLibraryPage === 'function') p.openLibraryPage(role); else LB.openPage(role); };
 }
+// 1101 作者：同步记录 bug 多，页面上默认不放入口（钟、「更新」、边栏「上次同步」都不点开）；设置 → 修复 → 后台程序「同步记录和进度」打开才出
+function devLog() { return !!provider()?.settings?.devSyncLog; }
 const histTool = tools.createEl('button', { cls: 'lbc-hist lbc-icon-btn' });
-histTool.type = 'button'; histTool.innerHTML = HIST_SVG; histTool.onclick = e => openUpdated(e); histTool.createEl('span', { cls: 'lb-visually-hidden', text: '同步记录' });
+histTool.type = 'button'; histTool.innerHTML = HIST_SVG; histTool.onclick = e => openUpdated(e); histTool.hidden = !devLog(); histTool.createEl('span', { cls: 'lb-visually-hidden', text: '同步记录' });
 const manage = mobile ? null : tools.createEl('button', { cls: 'lb-manage lbc-manage' });
 if (manage) {
   manage.type = 'button'; manage.innerHTML = '<svg class="lbc-manage-dots" viewBox="0 0 18 4" aria-hidden="true"><g fill="currentColor"><circle cx="2" cy="2" r="1.8"/><circle cx="9" cy="2" r="1.8"/><circle cx="16" cy="2" r="1.8"/></g></svg>';
@@ -1430,7 +1456,7 @@ function setScope(key) {
   else if (typeof key === 'string' && key.startsWith('topic:')) activeTopic = key.slice(6);
 }
 // ── 1026 类型 / Tag / 平台：各是一维，和范围、分类、搜索叠加 ──
-const TYPE_LABEL = { image: '图文', video: '视频', attachment: '附件' };
+const TYPE_LABEL = { image: '图文', video: '视频', attachment: '文件' };   // 1101 作者：「附件」叫「文件」（和卡片上的角标一个叫法）
 const hasAtt = it => !!it.attachment && it.attachment !== 'none';
 const typeOk = it => !mediaFilter || (mediaFilter === 'video' ? it.kind === 'video' : mediaFilter === 'attachment' ? hasAtt(it) : it.kind !== 'video');
 const normTag = t => String(t || '').trim().replace(/^#/, '').toLowerCase();
@@ -1529,8 +1555,9 @@ function renderScope() {
       ...platsTab.map(([pl]) => pl).sort((x, y) => (/^(xhs|xiaohongshu)$/.test(y) ? 1 : 0) - (/^(xhs|xiaohongshu)$/.test(x) ? 1 : 0))   // 小红书排第一，其余按篇数
         .map(pl => ({ title: platLabel(pl), checked: pl === activePlat, onClick: () => pickPlat(pl) })),
     ], pchip);
-    if (activePlat && /^(xhs|xiaohongshu)$/.test(activePlat)) {
-      let nv = 0, ni = 0; for (const it of items) if (platOf(it) === activePlat) { if (it.kind === 'video') nv++; else ni++; }
+    // 1101 作者：小红书要「视频」「文件」两个（全部来源时也出）；B 站全是视频，不出
+    if (!activePlat || /^(xhs|xiaohongshu)$/.test(activePlat)) {
+      let nv = 0; for (const it of items) if ((!activePlat || platOf(it) === activePlat) && it.kind === 'video') nv++;
       typeTab('video', TYPE_LABEL.video, nv, mediaFilter === 'video', () => pickType('video'), ' lbc-type-sub');
     }
     // 1031：选了 B 站就不出「附件」（附件只有小红书有，点了也是 0 篇）
@@ -1987,7 +2014,7 @@ if (saved.ts) {
   for (const pair of Array.isArray(saved.fold) ? saved.fold : []) if (Array.isArray(pair) && typeof pair[0] === 'string') foldOverride.set(pair[0], !!pair[1]);
   if (typeof saved.topic === 'string') activeTopic = saved.topic;
   if (typeof saved.album === 'string') activeAlbum = saved.album;   // renderTopicBar 会把已不存在的主题清掉
-  if (typeof saved.src === 'string') { activeSrc = saved.src; applySrc(); }   // 已不存在的来源同样由 renderTopicBar 清掉
+  // 1101 作者：不要「我的收藏 ▾」——来源固定「我的收藏」，以前存过的别的来源不再带进来（页面上已经没地方切回去）   // 已不存在的来源同样由 renderTopicBar 清掉
   todayOnly = !!saved.today; todoOnly = !!saved.todo;
   if (['video', 'attachment'].includes(saved.media)) mediaFilter = saved.media;
   if (typeof saved.tag === 'string') activeTag = saved.tag;
@@ -3790,7 +3817,7 @@ if (app.workspace?.on && dv.component?.registerEvent) {
   // 星标以 catalog-data 为准 + link-brain:star 事件（§5.6）：只换这张卡的 ★，不重排（C2）
   lbEvent(app.workspace, app.workspace.on('link-brain:star', (id, on) => { const it = items.find(x => x.id === id); if (it && !it._starBusy && !!it.starred !== !!on) { it.starred = !!on; paintCard(id); paintSelbar(); } }));
   // 10-03：「…→改标题 / 每行几列」改完就地换（不重建卡片）
-  lbEvent(app.workspace, app.workspace.on('link-brain:catalog-prefs', () => { setTitle(); const c = savedCols(); if (c !== cols) { cols = c; applyCols(); relayoutIfNeeded(); } reloadLayout(); }));
+  lbEvent(app.workspace, app.workspace.on('link-brain:catalog-prefs', () => { setTitle(); histTool.hidden = !devLog(); updatedBtn.classList.toggle('is-plain', !devLog()); const c = savedCols(); if (c !== cols) { cols = c; applyCols(); relayoutIfNeeded(); } reloadLayout(); }));
   lbEvent(app.workspace, app.workspace.on('link-brain:catalog-query', () => { if (takePendingQuery()) saveState(); }));
 }
 { const winTarget = typeof window !== 'undefined' && window && typeof window.addEventListener === 'function' ? window : null;
@@ -3994,8 +4021,8 @@ function paintSync() {
     if (click) { c.type = 'button'; c.onclick = e => { e?.stopPropagation?.(); click(); }; if (tip) c.title = tip; }
     c.createEl('div', { cls: 'lbc-sy-k', text: k }); const big = c.createEl('div', { cls: 'lbc-sy-big' }); if (Array.isArray(v)) { big.append(v[0] + ' '); big.createEl('i', { text: v[1] }); } else big.setText(v || '—'); return big;
   };
-  cell('上次同步', bigWhen(last), 'lbc-sy-last', mobile ? null : () => openUpdated(), '点开看同步记录');
-  if (running) cell('同步中', run.text.replace('同步中', '').trim() || '…', 'lbc-sy-now', mobile ? null : () => openUpdated(), '点开看同步记录');
+  cell('上次同步', bigWhen(last), 'lbc-sy-last', mobile || !devLog() ? null : () => openUpdated(), '点开看同步记录');
+  if (running) cell('同步中', run.text.replace('同步中', '').trim() || '…', 'lbc-sy-now', mobile || !devLog() ? null : () => openUpdated(), '点开看同步记录');
   else cell('下次同步', nx, 'lbc-sy-next', p ? () => openSyncSettings() : null, '改同步时间（设置 · 收藏与同步）');
   m.sec.dataset.state = running ? 'running' : stopped ? 'stopped' : 'idle';
   const bar = b.createEl('div', { cls: 'lbc-sy-bar' }); const fill = bar.createEl('i');
