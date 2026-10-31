@@ -1343,10 +1343,10 @@ function manageItems() {
   // 编排在索引编辑 / 边栏太窄时不出（和以前那颗「编排」钮藏起来的条件一样）
   const arrangeOk = canArrange && !wrap.classList.contains('is-indexview') && !wrap.classList.contains('is-side-narrow');
   return [
+    { title: '设置', icon: 'settings-2', onClick: () => callPlugin('openSetupPage') },   // 1101 作者：设置提到第一行
+    { separator: true },
     arrangeOk && { title: '编排', icon: 'grip-vertical', onClick: () => setArranging(true) },
     { title: '每行几列', icon: 'columns-3', children: COL_CHOICES.map(([n, label]) => ({ title: label, checked: (cols || 0) === n, onClick: () => setCols(n) })) },
-    { separator: true },
-    { title: '设置', icon: 'settings-2', onClick: () => callPlugin('openSetupPage') },
     { separator: true },
     { title: '索引编辑', icon: 'list-tree', onClick: () => openIndexEditor() },
     { title: '刷新目录（手动）', icon: 'refresh-cw', onClick: () => callPlugin('run', ['-m', 'link_brain', 'catalog'], '刷新目录', true) },
