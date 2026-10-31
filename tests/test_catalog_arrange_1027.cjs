@@ -86,7 +86,7 @@ const menuItem = (P, re) => P.dom.document.body.querySelectorAll('.lbc-menu-item
     assert.equal(colOf(P, 'title').style.width, 'calc(34 * 100% / 48)', '页头的块按 48 格定宽');
     assert.equal(colOf(P, 'albums').style.width, '', '筛选小块没拉过宽度：跟内容一样宽');
     assert.ok(colOf(P, 'scope').classList.contains('is-tight') && !colOf(P, 'title').classList.contains('is-tight'), '筛选小块至少有内容那么宽');
-    assert.ok(P.$('.lbc-m-search').contains(P.$('.lbc-search')) && P.$('.lbc-m-meta').contains(P.$('.lbc-count')), '搜索框、计数在各自的块里');
+    assert.ok(P.$('.lbc-m-search').contains(P.$('.lbc-search')) && P.$('.lbc-m-title').contains(P.$('.lbc-count')), '搜索框、计数在各自的块里');
     assert.equal(L(p), null); assert.equal(saves(p).length, 0, '打开不写设置');
     assert.equal(P.$('.lbc-mod-bar'), null, '工具条第一次进编排才建');
     assert.ok(P.$('.lbc-top').firstChild.classList.contains('lbc-tools'), '「编排 / 管理」不属于任何模块，在吸顶区最前');

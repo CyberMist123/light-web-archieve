@@ -745,13 +745,14 @@ ${engrSel}::after{content:attr(data-text);position:absolute;left:0;top:0;color:t
     }
     return nav;
   }
-  // 1101 作者「太压抑了」：当前那一页不再实心黑——浅灰底 + 墨色字；外圈不要描边
-  const siteHeaderCss = () => `.lb-space-switch{flex:none;display:inline-flex;gap:4px;padding:0;border:0;border-radius:var(--lb-radius-pill);background:transparent;}
-.lb-space-switch button.lb-space{height:auto!important;padding:9px 20px!important;margin:0!important;border:0!important;border-radius:var(--lb-radius-pill)!important;background:transparent!important;box-shadow:none!important;font:400 15px/1.4 var(--lb-font-serif)!important;color:var(--lb-muted)!important;cursor:pointer;white-space:nowrap;}
+  // 1101 作者：「整齐的一排」——三页切换是纯文字，当前那一页墨色加粗 + 下面一道黑线（不要胶囊、不要底色），和字标同一排顶格
+  const siteHeaderCss = () => `.lb-space-switch{flex:none;display:inline-flex;align-items:center;gap:26px;padding:0;border:0;background:transparent;}
+.lb-space-switch button.lb-space{position:relative;height:auto!important;padding:6px 0!important;margin:0!important;border:0!important;border-radius:0!important;background:transparent!important;box-shadow:none!important;font:400 15px/1.4 var(--lb-font-serif)!important;color:var(--lb-muted)!important;cursor:pointer;white-space:nowrap;}
 .lb-space-switch button.lb-space:hover{color:var(--lb-ink)!important;}
-.lb-space-switch button.lb-space.is-current{background:var(--lb-soft)!important;color:var(--lb-ink)!important;font-weight:600!important;}
+.lb-space-switch button.lb-space.is-current{color:var(--lb-ink)!important;font-weight:600!important;}
+.lb-space-switch button.lb-space.is-current::after{content:"";position:absolute;left:0;right:0;bottom:0;height:2px;background:var(--lb-ink);}
 .lb-sh-meta{margin-right:14px;font:italic 500 17px/1.2 var(--lb-font-num);font-variant-numeric:lining-nums;color:var(--lb-muted);white-space:nowrap;}
-@media(max-width:760px){.lb-space-switch{display:flex;width:100%;}.lb-space-switch button.lb-space{flex:1 1 0;padding:9px 0!important;}.lb-sh-meta{display:none;}}`;
+@media(max-width:760px){.lb-space-switch{gap:22px;}.lb-sh-meta{display:none;}}`;
 
   return { root, path, provider, ensure, state, data, keep, rekeep, reuseDom, listen, onUnload, scroller, restoreScroll, onScroll, t, mark, role, get container() { return container; },
     brandTitleText, brandFontCss, brandCss, brandTitle, BRAND_FONT_STACK, spaceSwitch, siteHeaderCss,

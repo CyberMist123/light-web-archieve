@@ -492,10 +492,6 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-wrap .lbc-attach-hint{color:var(--c-muted);border-color:var(--c-line);}
 .lbc-wrap .lbc-badges .lbc-prob{pointer-events:auto;cursor:help;color:var(--c-muted);border-color:var(--c-line);}
 .lbc-wrap .lbc-badges svg{display:block;width:14px;height:14px;flex:none;stroke:currentColor;stroke-width:1.6;fill:none;}
-/* 1031 作者：瀑布流封面上的角标和左边的选中圈 / 右边的 ☆ 一样高（30px，同一条线）；列表视图照旧 */
-.lbc-wrap:not(.lbc-simple) .lbc-badges .lbc-attach{height:30px;padding:0 12px;font-size:12px;}
-.lbc-wrap:not(.lbc-simple) .lbc-badges .lbc-attach.lbc-video{padding:0 9px;}
-.lbc-wrap:not(.lbc-simple) .lbc-badges .lbc-attach.lbc-video svg{width:16px;height:16px;}
 /* ☆ / 选中圈（1021 设计稿）：同款 30px 圆，白底黑字细线；没收藏的平时不显示、悬停才出现（1008 作者定），已收藏 = 黑底白星并常显 */
 .lbc-wrap .lbc-star{position:absolute;top:10px;right:10px;z-index:1;box-sizing:border-box;width:30px;height:30px;padding:0!important;border-radius:50%!important;border:1px solid var(--c-ink)!important;background:var(--c-bg)!important;box-shadow:none!important;color:var(--c-ink);display:grid;place-items:center;cursor:pointer;opacity:0;visibility:hidden;pointer-events:none;}
 .lbc-wrap .lbc-star[hidden]{display:none!important;}
@@ -698,43 +694,20 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-wrap select.lbc-tk-capsel:hover,.lbc-wrap select.lbc-tk-capsel:focus{border-color:var(--c-ink);outline:none;}
 .lbc-tk-cap-row{align-items:center;}
 .lbc-m-rs{display:none;}
-/* ── 1101 设计交接包（design/reference/browse.html）：三页同一个页头 ──
-   第一排（标题那一排）：字标 + ＋ ｜ 空间切换胶囊 ｜ 右边「共 N 篇 · 更新 …」（Cormorant 斜体）· 历史钟 · ···；下面一道 1px 墨线 */
-${LB.siteHeaderCss()}
-.lbc-titleblock{gap:16px 40px;}
-.lbc-title{font-size:calc(44px * var(--lbc-title-k,1));line-height:1.02;}
-@container(max-width:1000px){.lbc-title{font-size:calc(40px * var(--lbc-title-k,1));}}
-@container(max-width:640px){.lbc-title{font-size:calc(30px * var(--lbc-title-k,1));}}
-.lbc-wrap .lbc-title button.lbc-import{margin:0 0 0 .12em!important;}
-.lbc-top .lbc-row:has(.lbc-m-title){padding:28px 0 22px;border-bottom:1px solid var(--c-line);align-items:center;}
-.lbc-top:not(.is-tools-static)>.lbc-tools{top:28px;}
-.lbc-top .lbc-row:has(.lbc-m-title) .lbc-blk-meta{align-self:center;padding-bottom:0;}
-.lbc-top:not(.is-tools-static) .lbc-row:has(.lbc-m-title) .lbc-blk-meta{padding-right:calc(var(--lbc-tools-w,120px) + 6px);}
-.lbc-top .lbc-row:has(.lbc-m-title) .lbc-blk-meta .lbc-subline{justify-content:flex-end;font:italic 500 17px/1.2 var(--lb-font-num);color:var(--c-muted);}
-/* 「共 N 篇 · 更新 …」一行不折（窄了往左边空处伸）；只有「数据较旧 / 格式对不上」这种提醒另起一行 */
-/* 页头那一排不按编排的格子排（编排时照旧按格子）：标题 + 胶囊在左、计数行在右；放不下时计数行整行挪到下面一行、靠右——不压到胶囊上，也不一个字一个字折 */
-.lbc-wrap:not(.is-arranging) .lbc-top .lbc-row:has(.lbc-m-title){display:flex!important;flex-wrap:wrap;align-items:center;column-gap:24px;row-gap:6px;}
-.lbc-wrap:not(.is-arranging) .lbc-top .lbc-row:has(.lbc-m-title) > .lbc-rcol{width:auto!important;max-width:100%;container-type:normal;}
-.lbc-wrap:not(.is-arranging) .lbc-top .lbc-row:has(.lbc-m-title) > .lbc-rcol:has(> .lbc-m-title){flex:0 0 auto;max-width:100%;}
-.lbc-wrap:not(.is-arranging) .lbc-top .lbc-row:has(.lbc-m-title) > .lbc-rcol:has(> .lbc-m-meta){flex:1 1 280px;min-width:min(280px,100%);}
-.lbc-top .lbc-row:has(.lbc-m-title) .lbc-blk-meta .lbc-sub{white-space:nowrap;}
-.lbc-wrap:not(.is-arranging) .lbc-top .lbc-row:has(.lbc-m-title) .lbc-head{container-type:normal;}
-.lbc-wrap:not(.is-arranging) .lbc-top .lbc-row:has(.lbc-m-title):has(.lbc-m-meta) .lbc-titleblock{padding-right:0;--lbc-title-pad:0px;}
-.lbc-top.is-tools-static .lbc-title{font-size:calc(30px * var(--lbc-title-k,1));}
-.lbc-top .lbc-row:has(.lbc-m-title) .lbc-blk-meta .lbc-stale{flex-basis:100%;white-space:normal;text-align:right;font:400 12px/1.5 var(--lb-font-body);}
-.lbc-top .lbc-row:has(.lbc-m-title) .lbc-blk-meta .lbc-sub,.lbc-top .lbc-row:has(.lbc-m-title) .lbc-blk-meta .lbc-count b{font:inherit;color:inherit;}
-.lbc-wrap .lbc-tools{gap:2px;}
-.lbc-wrap .lbc-tools button.lbc-icon-btn,.lbc-wrap .lbc-tools button.lb-manage{width:44px!important;height:44px!important;min-width:44px;padding:0!important;border:0!important;border-radius:999px!important;background:transparent!important;box-shadow:none!important;color:var(--lb-ink)!important;display:grid;place-items:center;cursor:pointer;}
-.lbc-wrap .lbc-tools button.lbc-icon-btn:hover,.lbc-wrap .lbc-tools button.lb-manage:hover{background:var(--lb-soft)!important;}
-.lbc-wrap .lbc-tools button.lbc-icon-btn svg{width:20px;height:20px;}
-/* 1101 作者「太压抑了」：搜索不要黑下划线——浅灰底圆角，没有描边 */
-.lbc-wrap .lbc-searchbox{border:0!important;border-radius:999px!important;padding:0 14px!important;background:var(--lb-soft)!important;}
-/* 「近 7 天 · 最近导入 ↓」：纯文字按钮，前面一道细竖线隔开（不要胶囊框） */
-.lbc-wrap .lbc-ctl button.lbc-time.lbc-pill{border:0!important;border-radius:0!important;background:transparent!important;padding:0 2px!important;color:var(--c-ink);}
-.lbc-wrap .lbc-ctl.lbc-blk-sort{position:relative;}
-.lbc-wrap .lbc-ctl.lbc-blk-sort::before{content:"";align-self:center;width:1px;height:16px;margin-right:12px;background:var(--c-line);}
-/* 数字一律齐线（Cormorant 默认旧式数字高低不齐；font 简写会把它重置掉，这里兜一次） */
-.lbc-wrap *{font-variant-numeric:lining-nums tabular-nums;}
+/* ── 1101 作者「复刻 10-23 那一版」（8d3c1e9 的样子，功能照现在）：大号居中的刻线标题、「N 篇 · 更新」跟在标题右下角；
+   右上角描边小胶囊；不要页头线；「最新在前」、搜索都是描边胶囊；「问收藏 →」「Wiki →」在筛选行最右 ── */
+.lbc-wrap:not(.is-arranging) .lbc-top .lbc-row:has(.lbc-m-title){display:block!important;}
+.lbc-wrap:not(.is-arranging) .lbc-top .lbc-row:has(.lbc-m-title) > .lbc-rcol:has(> .lbc-m-meta:empty){display:none;}
+.lbc-wrap:not(.is-arranging) .lbc-top .lbc-row:has(.lbc-m-title) > .lbc-rcol:has(> .lbc-m-title){width:100%!important;max-width:none!important;flex:none!important;margin:0!important;padding:0!important;}
+.lbc-head{container-type:inline-size;}
+.lbc-titleblock{justify-content:center;align-items:flex-end;gap:4px 22px;padding:0 104px;}
+.lbc-titlerow{justify-content:center;align-items:flex-end;}
+.lbc-title{font-size:calc(clamp(30px,6.5cqi,96px) * var(--lbc-title-k,1));line-height:1.02;}
+.lbc-titleblock .lbc-subline{padding-bottom:14px;font:italic 16px/1.3 var(--f-latin);color:var(--c-muted);letter-spacing:.02em;}
+@container(max-width:760px){.lbc-titleblock{padding:0;}}
+.lbc-wrap .lbc-tools button.lb-manage{width:auto!important;min-width:0;height:var(--ctl-h)!important;padding:0 16px!important;border:1px solid var(--c-ink)!important;border-radius:999px!important;background:var(--c-bg)!important;color:var(--c-ink)!important;box-shadow:none!important;display:inline-flex;align-items:center;justify-content:center;}
+.lbc-wrap .lbc-tools button.lb-manage:hover{background:var(--c-ink)!important;color:var(--c-bg)!important;}
+.lbc-wrap .lbc-m-search .lbc-askbtn{flex:none;margin-left:10px;}
 `;
 // 1021：标题 / 数字字体随包发（catalog.py 重建时拷进 _archive/fonts/），@font-face 的地址运行时拼（vault 可能挂在别的库子目录里，过 lbPath；
 // 不连 Google Fonts，离线照样显示；文件不在时浏览器退回系统衬线字体）
@@ -1051,8 +1024,6 @@ titleLabel.dataset.text = titleOf();
 const titleEm = t => Math.max(4, [...t].reduce((n, ch) => n + (/[　-鿿＀-￯]/.test(ch) ? 1.05 : /\s/.test(ch) ? 0.35 : 0.8), 0) + 0.9);
 function setTitle() { const t = titleOf(); if (titleLabel.textContent !== t) titleLabel.setText(t); if (titleLabel.dataset.text !== t) titleLabel.dataset.text = t; const em = titleEm(t).toFixed(2); if (titleText.style.getPropertyValue('--lbc-title-em') !== em) titleText.style.setProperty('--lbc-title-em', em); }
 setTitle();
-// 1101 设计交接包：三页共用页头——字标 + ＋ 后面是空间切换胶囊（浏览收藏 / 问收藏 / Wiki）；星标页也是「浏览收藏」这一边（点了回目录）
-LB.spaceSwitch(titleBlock, starredPage ? '' : 'catalog');
 // 「编排 / 管理」（1027：不属于任何模块——标题挪走 / 移除了也还在）：吸顶区第一个子节点，宽屏绝对定位在右上角，窄了 / 编排中退成最上面一行
 const tools = top.createEl('div', { cls: 'lbc-tools' });
 top.insertBefore(tools, head);
@@ -1242,10 +1213,6 @@ if (app.vault.on && dv.component?.registerEvent) {
 
 // 1021 右上角「管理」细线胶囊（老的「…」菜单 openManageMenu 1027 删了）
 // 1031 作者：「编排」和「管理」并成一颗「···」——菜单里 编排 · 每行几列 · 管理那几样
-// 1101 设计交接包：「···」左边一个历史钟 = 同步记录（和计数行里点「更新」同一个）
-const HIST_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><path d="M12 7v5l3.5 2"/></svg>';
-const histTool = tools.createEl('button', { cls: 'lbc-hist lbc-icon-btn' });
-histTool.type = 'button'; histTool.innerHTML = HIST_SVG; histTool.onclick = e => openUpdated(e); histTool.createEl('span', { cls: 'lb-visually-hidden', text: '同步记录' });
 const manage = mobile ? null : tools.createEl('button', { cls: 'lb-manage lbc-manage' });
 if (manage) {
   manage.type = 'button'; manage.innerHTML = '<svg class="lbc-manage-dots" viewBox="0 0 18 4" aria-hidden="true"><g fill="currentColor"><circle cx="2" cy="2" r="1.8"/><circle cx="9" cy="2" r="1.8"/><circle cx="16" cy="2" r="1.8"/></g></svg>';
@@ -1323,7 +1290,7 @@ const TOP_IDS = ['title', 'meta', 'cats', 'scope', 'topics', 'types', 'albums', 
 const CTL_IDS = ['scope', 'topics', 'types', 'albums', 'picks', 'sort', 'search'];
 const blocks = {};
 for (const id of TOP_IDS) { const b = top.createEl('div', { cls: 'lbc-blk lbc-blk-' + id + ' lbc-m lbc-m-' + id + ' is-core' + (CTL_IDS.includes(id) ? ' lbc-ctl lbc-ctl-piece' : '') }); b.dataset.blk = id; b.dataset.m = id; blocks[id] = b; }
-blocks.title.append(head); blocks.meta.append(subLine); blocks.cats.append(catBar);
+blocks.title.append(head); blocks.cats.append(catBar);   // 1101「复刻 10-23」：计数行留在标题块里（跟在标题右下角），「计数行」模块空着、平时不显示
 const SIDE_SVG = '<svg viewBox="0 0 14 14" aria-hidden="true"><rect x="1" y="1.5" width="12" height="11" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.4"/><rect class="lbc-side-col" x="1.7" y="2.2" width="3.6" height="9.6" stroke="currentColor" stroke-width="1"/></svg>';
 const sideBtn = mobile || simplePage ? null : blocks.scope.createEl('button', { cls: 'lbc-sidetoggle' });   // 星标页 / 手机没有边栏，也就没有这颗钮
 if (sideBtn) {
@@ -1344,7 +1311,11 @@ const searchBox = blocks.search.createEl('label', { cls: 'lbc-searchbox' }); sea
 const search = searchBox.createEl('input', { cls: 'lbc-search' });
 search.type = 'search'; search.placeholder = '搜索收藏 · #标签';
 const searchX = searchBox.createEl('button', { cls: 'lbc-search-x', text: '×' }); searchX.type = 'button'; searchX.hidden = true;
-// 1101：「问收藏 · Wiki」不再跟在搜索框后面——页头里有空间切换胶囊了
+// 1101「复刻 10-23」：搜索框后面「问收藏 →」「Wiki →」两颗描边小胶囊（当时只有问收藏，Wiki 页是后来加的）
+for (const [role, label] of [...(starredPage ? [['catalog', '目录 →']] : []), ['chat', '问收藏 →'], ['wiki', 'Wiki →']]) {
+  const b = blocks.search.createEl('button', { cls: 'lbc-askbtn lbc-pill lbc-pnav-' + role, text: label }); b.type = 'button';
+  b.onclick = () => { const p = provider(); if (role !== 'chat' && typeof p?.openLibraryPage === 'function') p.openLibraryPage(role); else LB.openPage(role); };
+}
 const paintSearchX = () => { searchX.hidden = !search.value; };
 searchX.onmousedown = e => e.preventDefault();
 searchX.onclick = e => { e.preventDefault(); e.stopPropagation(); search.value = ''; search.dispatchEvent(new Event('input', { bubbles: true })); paintSearchX(); search.focus(); };

@@ -1138,28 +1138,28 @@ ${LB.brandCss('.lbchat .lbchat-title', '.lbchat .lbchat-engr')}
 @media(max-width:560px){.lbchat .lbchat-head{grid-template-columns:1fr auto;}.lbchat .lbchat-head .lb-page-nav{grid-column:1/-1;grid-row:2;}.lbchat .lbchat-tools{grid-column:2;}}
 /* 1101 设计交接包 §1「页头」：目录 / 问收藏 / Wiki 三页同一个——字标 + ＋ ｜ 空间切换胶囊 ｜ 右边「已保存」· 历史 · ···，下面一道 1px 墨线，铺满整页宽 */
 ${LB.siteHeaderCss()}
-.lbchat .lbchat-head{display:flex;flex-direction:row;flex-wrap:wrap;justify-content:flex-start;align-items:center;gap:16px 40px;width:auto;max-width:none;box-sizing:border-box;margin:0 0 18px;padding:28px 0 22px;border-bottom:1px solid var(--lb-line);text-align:left;}
+.lbchat .lbchat-head{display:flex;flex-direction:row;flex-wrap:wrap;justify-content:flex-start;align-items:center;gap:12px 32px;width:auto;max-width:none;box-sizing:border-box;margin:0 0 18px;padding:18px 0 14px;border-bottom:1px solid var(--lb-line);text-align:left;}
 .lbchat .lbchat-titleblock{display:flex;flex-direction:row;flex-wrap:wrap;align-items:center;gap:2px;width:auto;max-width:100%;}
 .lbchat .lbchat-head > .lbchat-sub{flex-basis:100%;margin:-6px 0 0;text-align:left;}
 .lbchat .lbchat-titlerow{display:flex;align-items:center;}
-.lbchat .lbchat-title{font-size:44px;line-height:1.02;cursor:default;}
+.lbchat .lbchat-title{font-size:32px;line-height:1.02;cursor:default;}
 .lbchat .lbchat-tools{margin-left:auto;display:flex;align-items:center;flex-wrap:nowrap;gap:2px;}
 .lbchat .lbchat-tools button.lbchat-tab{margin-right:14px;padding:4px 0;border-bottom:0!important;font:400 13px/1.2 var(--lb-font-body)!important;color:var(--lb-muted);}
 .lbchat .lbchat-tools button.lbchat-tab.is-on{color:var(--lb-ink);font-weight:600;}
 .lbchat .lbchat-tools .lbchat-hist,.lbchat .lbchat-head .lb-manage{width:44px!important;height:44px!important;padding:0!important;border:0!important;border-radius:999px!important;background:transparent!important;box-shadow:none!important;display:grid;place-items:center;color:var(--lb-ink);}
 .lbchat .lbchat-tools .lbchat-hist:hover,.lbchat .lbchat-head .lb-manage:hover{background:var(--lb-soft)!important;}
 .lbchat .lbchat-tools .lbchat-hist svg{width:20px;height:20px;}
-@media(max-width:760px){.lbchat .lbchat-title{font-size:30px;}.lbchat .lbchat-head{gap:12px;padding:18px 0 14px;}}
+@media(max-width:760px){.lbchat .lbchat-title{font-size:28px;}.lbchat .lbchat-head{gap:10px 22px;padding:14px 0 12px;}}
 .lbchat-bodywrap > .lbchat-toc.is-float{left:max(4px,calc(50% - 465px))!important;}
 .lbchat-bodywrap.is-ftoc-pin{justify-content:flex-start;padding-left:max(316px,calc(50% - 269px));padding-right:max(16px,calc(50% - 581px));}
 .lbchat-bodywrap.is-ftoc-pin > .lbchat-toc.is-float{left:max(4px,calc(50% - 581px))!important;}
 .lbchat button.lbchat-tab[hidden]{display:none!important;}
 /* 有目录（没钉住）时：输入框和上面那几条也只占正文那一栏（窄窗时以前比正文宽出一截） */
-.lbchat:has(> .lbchat-bodywrap.has-ftoc) :is(.lbchat-composer,.lbchat-srcbar,.lbchat-queue,.lbchat-followbar,.lbchat-bgbar,.lbchat-cfgbar,.lbchat-ro){width:auto;max-width:850px;margin-left:max(44px,calc(50% - 425px));margin-right:max(44px,calc(50% - 425px));}
-.lbchat.ftoc-pinned:has(> .lbchat-bodywrap.has-ftoc) :is(.lbchat-composer,.lbchat-srcbar,.lbchat-queue,.lbchat-followbar,.lbchat-bgbar,.lbchat-cfgbar,.lbchat-ro){transform:none;width:auto;max-width:850px;margin-left:max(316px,calc(50% - 269px));margin-right:max(16px,calc(50% - 581px));}
+.lbchat:has(> .lbchat-bodywrap.has-ftoc) > :is(.lbchat-composer,.lbchat-srcbar,.lbchat-queue,.lbchat-bgbar,.lbchat-cfgbar,.lbchat-ro){width:auto;max-width:850px;margin-left:max(44px,calc(50% - 425px));margin-right:max(44px,calc(50% - 425px));}
+.lbchat.ftoc-pinned:has(> .lbchat-bodywrap.has-ftoc) > :is(.lbchat-composer,.lbchat-srcbar,.lbchat-queue,.lbchat-bgbar,.lbchat-cfgbar,.lbchat-ro){transform:none;width:auto;max-width:850px;margin-left:max(316px,calc(50% - 269px));margin-right:max(16px,calc(50% - 581px));}
 /* 1101：输入框上面那块灰底「追问 · 新问题」比输入框左右各缩 14px（以前窄窗时输入框跟着正文收窄了、灰条没跟，两边各伸出一截） */
-.lbchat:has(> .lbchat-bodywrap.has-ftoc) .lbchat-ctlrow{width:auto;max-width:822px;margin-left:max(58px,calc(50% - 411px));margin-right:max(58px,calc(50% - 411px));}
-.lbchat.ftoc-pinned:has(> .lbchat-bodywrap.has-ftoc) .lbchat-ctlrow{transform:none;width:auto;max-width:822px;margin-left:max(330px,calc(50% - 255px));margin-right:max(30px,calc(50% - 567px));}
+.lbchat:has(> .lbchat-bodywrap.has-ftoc) > .lbchat-ctlrow{width:auto;max-width:822px;margin-left:max(58px,calc(50% - 411px));margin-right:max(58px,calc(50% - 411px));}
+.lbchat.ftoc-pinned:has(> .lbchat-bodywrap.has-ftoc) > .lbchat-ctlrow{transform:none;width:auto;max-width:822px;margin-left:max(330px,calc(50% - 255px));margin-right:max(30px,calc(50% - 567px));}
 /* 1031 她：Ctrl + 加号 / 减号（Ctrl + 滚轮）调问答区的字——只缩放对话那一列，页头和输入框不动 */
 /* 1101 自查：缩放加在对话列里面那一层，不加在滚动的那一层（滚动位置 / 跳到某一问按的是不缩放的坐标） */
 .lbchat .lbchat-body > *{zoom:var(--lbchat-zoom,1);}
