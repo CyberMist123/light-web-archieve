@@ -2606,7 +2606,7 @@ function renderIndexFacets() {
 // 卡片上小字：这一篇帖子的细分标签（标签属于帖子；只在索引视图里，选中这一类那一行里有的排前面）
 let cardTagsShown = false;
 function paintCardFacets() {
-  const on = !!(indexView && idx);
+  const on = false;   // 1101 作者「这里的灰字不要，都删了，不显示」：卡片标题下的细分标签小字一律不出（以前索引视图里出）
   // 不在索引视图：卡片上本来就没字就什么都不做（平常的搜索 / 打字不为它扫一遍卡片）；刚离开索引视图才清一次
   if (!on && !cardTagsShown) return;
   cardTagsShown = on;
@@ -2979,7 +2979,6 @@ function openCardMenu(e, card, it, { row = false } = {}) {
     const n = selected.size;
     list = [
       { title: `导出选中的 ${n} 篇`, onClick: () => exportNow(sel()) },
-      { title: '给 AI（存成选集）', onClick: () => saveSelectionDialog(sel()) },
       { title: sel().every(x => x.starred) ? `取消收藏选中的 ${n} 篇` : `收藏选中的 ${n} 篇`, onClick: () => starMany(sel()) },
       ...reclassItems(sel()),          // 10-11：移到… / 也放进… / 从这里拿掉（有索引才有）
       { title: `删除选中的 ${n} 篇（移到回收站）`, danger: true, onClick: () => confirmDelete(sel()) },
@@ -2991,14 +2990,31 @@ function openCardMenu(e, card, it, { row = false } = {}) {
       row ? null : { title: '编辑标签', onClick: () => openTagEditor(card, it) },
       ...reclassItems([it]),
       it.attachment !== 'none' ? { title: '下载 / 挂本地文件', onClick: () => attachmentPanel([it]) } : null,
-      typeof provider()?.refineImages === 'function' ? { title: '精细识别图片', onClick: () => provider().refineImages(it.item_id || it.id) } : null,
+      // 1101 作者：B 站没有图可识——「精细识别图片」换成「提取封面」；右键里不再有「给 AI（存成选集）」
+      isBili(it) ? (it.cover && !mobile ? { title: '提取封面', onClick: () => extractCover(it) } : null)
+        : typeof provider()?.refineImages === 'function' ? { title: '精细识别图片', onClick: () => provider().refineImages(it.item_id || it.id) } : null,
       { title: '导出', onClick: () => exportNow([it]) },
-      { title: '给 AI（存成选集）', onClick: () => saveSelectionDialog([it]) },
       { title: '多选', onClick: () => toggleSelect(it.id, { force: true }) },
       { title: '删除（移到回收站）', danger: true, onClick: () => confirmDelete([it]) },
     ].filter(Boolean);
   }
   return popMenu(list, e, card, pos);
+}
+
+// 1101 作者「提取封面」：把这篇的封面原图另存一份到「下载」文件夹（文件名 = 标题），在资源管理器里选中它
+function extractCover(it) {
+  try {
+    const fs = require('fs'), path = require('path'), os = require('os');
+    const src = app.vault.adapter.getFullPath(lbPath(it.cover));
+    const ext = path.extname(src) || '.jpg';
+    const name = (String(cardTitle(it) || it.id).replace(/[\\/:*?"<>|\s]+/g, ' ').trim().slice(0, 80) || 'cover') + ext;
+    const dir = path.join(os.homedir(), 'Downloads');
+    let dest = path.join(dir, name);
+    for (let k = 2; fs.existsSync(dest); k++) dest = path.join(dir, name.slice(0, -ext.length) + ` (${k})` + ext);
+    fs.copyFileSync(src, dest);
+    try { require('electron').shell.showItemInFolder(dest); } catch {}
+    LB.say('封面已存到「下载」：' + path.basename(dest));
+  } catch (e) { LB.say('封面没存下来：' + (e?.message || e), { kind: 'error' }); }
 }
 
 // ── 收藏（C3：乐观更新 + busy，失败回滚；一次批量只起 1 个 Python 进程；CM3：写完 adopt，下次重跑 0 读） ──

@@ -60,7 +60,7 @@ const ymd = d => [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), St
 
   // ⑬ 有选中时右键：右键的这张没选上就一起算进来；「导出」立即导出、默认带图，不弹二次选项
   card('d20').oncontextmenu(ev);
-  assert.deepEqual(menuItems().map(b => b.textContent), ['导出选中的 3 篇', '给 AI（存成选集）', '收藏选中的 3 篇', '删除选中的 3 篇（移到回收站）', '退出多选']);
+  assert.deepEqual(menuItems().map(b => b.textContent), ['导出选中的 3 篇', '收藏选中的 3 篇', '删除选中的 3 篇（移到回收站）', '退出多选']);
   await pick('导出选中的 3 篇').onclick(ev); await tick(5);
   assert.equal(exports.length, 1);
   assert.deepEqual(exports[0].ids.sort(), ['d20', 'd3', 'old']);
@@ -85,13 +85,16 @@ const ymd = d => [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), St
   card('d3').querySelector('.lbc-check').onclick(ev);
   // 没选中时右键单张：导出这一篇（立即）、给 AI、多选、删除
   card('today').oncontextmenu(ev);
-  assert.deepEqual(menuItems().map(b => b.textContent), ['收藏', '编辑标签', '导出', '给 AI（存成选集）', '多选', '删除（移到回收站）']);
+  assert.deepEqual(menuItems().map(b => b.textContent), ['收藏', '编辑标签', '导出', '多选', '删除（移到回收站）']);
   await pick('导出').onclick(ev); await tick(5);
   assert.deepEqual(exports[2].ids, ['today']); assert.equal(exports[2].images, true);
 
   // ⑭ 选集：选两篇 graph → 右键「给 AI（存成选集）」→ 默认名 graph+MMDD，可改名 → 存进 selections.json
   card('old').querySelector('.lbc-check').onclick(ev); card('d3').querySelector('.lbc-check').onclick(ev);
-  card('d3').oncontextmenu(ev); pick('给 AI（存成选集）').onclick(ev);
+  // 1101 作者：右键菜单里不再有「给 AI（存成选集）」——选集从多选栏的同名按钮存（没选上的先勾上，打开对话框后再取消勾选，不改后面的状态）
+  const aiFor = id => { const was = card(id).classList.contains('is-selected'); if (!was) card(id).querySelector('.lbc-check').onclick(ev);
+    $$('.lbc-selbar button').find(b => b.textContent === '给 AI（存成选集）').onclick(); if (!was) card(id).querySelector('.lbc-check').onclick(ev); };
+  aiFor('d3');
   const dlg = () => dom.document.body.querySelector('.lbc-dialog');
   const d = new Date(), mmdd = String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0');
   assert.equal(dlg().querySelector('input').value, 'graph' + mmdd);
@@ -132,10 +135,10 @@ const ymd = d => [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), St
   assert.equal(dlg(), null);
   // 默认名的退路：没有共同标签 / 主题 / 大类（「其他」不算）→ 第一篇标题前 8 个字（去掉标点空格）
   for (const id of ['old', 'd3']) card(id).querySelector('.lbc-check').onclick(ev);
-  card('d20').oncontextmenu(ev); pick('给 AI（存成选集）').onclick(ev);
+  aiFor('d20');
   assert.equal(dlg().querySelector('input').value, '二十天前的Obs' + mmdd);
   dlg().querySelectorAll('button').find(b => b.textContent === '取消').onclick();
-  card('today').oncontextmenu(ev); pick('给 AI（存成选集）').onclick(ev);
+  aiFor('today');
   assert.equal(dlg().querySelector('input').value, '咖啡' + mmdd, '标签前面的 # 去掉');
   dlg().querySelectorAll('button').find(b => b.textContent === '取消').onclick();
 
