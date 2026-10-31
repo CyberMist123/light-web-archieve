@@ -30,6 +30,8 @@ const FEATURE_TEXT = {
 const AI_ORDER = ['ocr', 'asr', 'capslock', 'ai_text', 'ai_vision'];
 
 const num = v => (v === null || v === undefined || v === '' || typeof v === 'boolean' || !Number.isFinite(Number(v)) ? null : Number(v));
+// 1028：后台补评论多久没刷新算停了——状态文件里 Python 写的 stale_min 优先（comment_fill.STALE_MIN），旧文件按 15 分钟
+const fillStaleMs = st => (Number(st?.stale_min) > 0 ? Number(st.stale_min) : 15) * 60000;
 
 // —— 选择规则（纯函数，单测直接测；搬自第 7 批 setup-ui.js）——
 function compMap(comps) { return new Map((comps || []).map(c => [c.id, c])); }
@@ -112,7 +114,7 @@ function applyRunEvent(run, ev) {
 }
 // 评论补齐那一行（状态文件 + fill-status 的统计）
 function fillLine(st, info, now = Date.now()) {
-  const live = st && ['running', 'waiting', 'paused'].includes(st.state) && now - Date.parse(st.updated_at || '') < 10 * 60000;
+  const live = st && ['running', 'waiting', 'paused'].includes(st.state) && now - Date.parse(st.updated_at || '') < fillStaleMs(st);
   if (live) return st.message || '后台在补评论';
   if (info && info.ok) return info.pending ? `${info.pending} 篇的评论还没补齐（共缺 ${info.missing} 条回复）` + (info.stuck ? ` · ${info.stuck} 篇连着补不上（见问题列表）` : '')
     : '评论都补齐了' + (info.stuck ? `（${info.stuck} 篇连着补不上，见问题列表）` : '');
@@ -314,7 +316,7 @@ module.exports = function homeUI(obsidian, plugin) {
       if (!alive) return;
       const line = fillLine(st, S().fillInfo);
       fill.setDesc(line || '读取中…');
-      const live = st && ['running', 'waiting', 'paused'].includes(st.state) && Date.now() - Date.parse(st.updated_at || '') < 10 * 60000;
+      const live = st && ['running', 'waiting', 'paused'].includes(st.state) && Date.now() - Date.parse(st.updated_at || '') < fillStaleMs(st);
       fillBtn?.toggleClass?.('is-hidden', !!live || !(S().fillInfo?.pending > 0));
       const n = sum ? (num(sum.needs_human) || 0) : 0, auto = sum ? (num(sum.auto) || 0) + (num(sum.gave_up) || 0) : 0;
       if (probs) probs.setDesc(!sum ? '还没有问题记录' : n ? `⚠ ${n} 件要你处理` + (auto ? ` · 另有 ${auto} 条在自动处理 / 已放弃` : '')

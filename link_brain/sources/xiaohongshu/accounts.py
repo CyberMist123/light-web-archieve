@@ -227,6 +227,14 @@ def _account_guard() -> None:
 CAPTCHA_PAUSE_S = float(os.environ.get('LWA_CAPTCHA_PAUSE_S') or 300)
 CAPTCHA_AUTO_MAX = int(os.environ.get('LWA_CAPTCHA_AUTO_MAX') or 3)
 _auto_cleared = 0
+_auto_clear_deadline: float | None = None   # time.monotonic()；1028（B2）有预算的夜跑步骤设它：歇完会超过就不自动解
+
+
+def set_auto_clear_deadline(deadline: float | None) -> None:
+    """有预算的批量步骤（夜跑 comments --fill-pending --budget-min）告诉这里截止时刻（time.monotonic()）：
+    歇 CAPTCHA_PAUSE_S 再重发会超过它就不进自动解熔断，照旧抛错停车（别在预算尽头歇 5 分钟被整棵杀）。None = 不限。"""
+    global _auto_clear_deadline
+    _auto_clear_deadline = deadline
 
 
 def _captcha_hold(exc_or_hold) -> bool:
@@ -243,6 +251,9 @@ def _pause_and_clear(why: str, wait_s: float) -> bool:
     """歇够再解除熔断；能接着跑回 True（这个进程的次数用完 / 解除失败回 False，调用方照旧停车）。"""
     global _auto_cleared
     if _auto_cleared >= CAPTCHA_AUTO_MAX:
+        return False
+    if _auto_clear_deadline is not None and time.monotonic() + max(0.0, wait_s) + 60 > _auto_clear_deadline:
+        print(f'[accounts] {why}：剩的时间不够歇 {wait_s / 60:.0f} 分钟再重发，这次不自动解熔断', file=sys.stderr)
         return False
     _auto_cleared += 1
     if wait_s > 0:
@@ -333,8 +344,29 @@ def _note_account(code: str, detail: str = '') -> None:
         pass
 
 
+# 1028（审查 A5）：拉起读取服务跨进程限流——组件起不来（exe 坏 / 端口被半死的旧进程占着 / 下载浏览器失败）时，
+# 以前后台补评论每 60 秒 ensure_reader 一次就 spawn 一次，12 小时能拉起 400 多次。现在 SPAWN_GAP_S 内只拉一次，
+# 其余时候只问 /login/session；时间戳落盘（home()/reader-spawn.txt），别的进程也认。
+SPAWN_GAP_S = float(os.environ.get('LWA_READER_SPAWN_GAP_S') or 600)
+
+
+def _spawn_stamp() -> Path:
+    return home() / 'reader-spawn.txt'
+
+
+def last_spawn_age() -> float | None:
+    """上次拉起读取服务是几秒前；没拉过 / 读不出 → None。"""
+    try:
+        ts = float(_spawn_stamp().read_text('utf-8').strip())
+    except (OSError, ValueError):
+        return None
+    age = time.time() - ts
+    return age if age >= 0 else None
+
+
 def ensure_reader(*, wait: float = 40):
-    """服务没起就在本机拉起（脱离父进程，插件/同步退出后仍在）；远程地址不代管。"""
+    """服务没起就在本机拉起（脱离父进程，插件/同步退出后仍在）；远程地址不代管。
+    1028：SPAWN_GAP_S 秒内刚拉起过就不再拉，直接报 DISCONNECTED（说明几分钟前拉过、还没应答）。"""
     try:
         return api('GET', '/api/v1/login/session', timeout=5)
     except ReaderError as exc:
@@ -348,6 +380,14 @@ def ensure_reader(*, wait: float = 40):
         raise ReaderError('NOT_INSTALLED')
     home().mkdir(parents=True, exist_ok=True)
     log = home() / 'reader.log'
+    age = last_spawn_age()
+    if age is not None and age < SPAWN_GAP_S:
+        raise ReaderError('DISCONNECTED', f'读取服务 {age / 60:.0f} 分钟前刚拉起过、还没应答；'
+                          f'{(SPAWN_GAP_S - age) / 60:.0f} 分钟后再试拉起', '日志：' + str(log))
+    try:
+        _atomic_write_text(_spawn_stamp(), str(time.time()))
+    except OSError:
+        pass
     # 只监听本机：这个服务握着小红书登录，不能对局域网开放。
     # CONVENTIONS §6.3（根治 0929）：经短命中转拉起，读取服务不是任何 Python 的子孙——
     # 插件 / 夜跑超时杀 Python 进程树时够不着它和它的浏览器。参数、环境变量、工作目录与以前完全一样。
