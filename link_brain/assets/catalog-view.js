@@ -588,10 +588,8 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 /* 1028 筛选条拆成的小块：每块一行按钮，靠左；块和块之间的距离由编排的列宽 / 间距定 */
 .lbc-wrap .lbc-ctl.lbc-ctl-piece{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-start;gap:2px 22px;margin:calc(14px * var(--lbc-sp,1)) 0 0;padding:0 0 12px;min-width:0;}
 .lbc-wrap .lbc-ctl-piece.lbc-blk-search .lbc-searchbox{flex:1 1 160px;min-width:0;}
-/* 1101：搜索框和「问收藏 | Wiki」并排一行（不再折到下面）；两个之间一道细竖线，和「视频 | 附件」一样 */
+/* 1101：搜索那一块不折行 */
 .lbc-wrap .lbc-ctl.lbc-ctl-piece.lbc-blk-search{flex-wrap:nowrap;}
-.lbc-wrap .lbc-type-tab.lbc-type-sep{position:relative;margin-left:-8px;}
-.lbc-wrap .lbc-type-tab.lbc-type-sep::before{content:"";position:absolute;left:-7px;top:50%;height:1em;margin-top:-.5em;border-left:1px solid var(--c-line);}
 /* 1031 作者「搜索框是否需要扩大点，方便选到」：搜索那一列吃掉这一排剩下的宽度（最窄 150px，挤的时候 120px），整颗胶囊都能点进去 */
 .lbc-row.is-free>.lbc-rcol.is-grow{flex:1 1 150px;width:auto!important;min-width:150px;max-width:340px;margin-left:auto!important;}
 /* 这一排里内容是空的小块（比如没选来源时的「专辑」）不占位，也不多出一道空 */
@@ -708,7 +706,7 @@ ${LB.siteHeaderCss()}
 @container(max-width:1000px){.lbc-title{font-size:calc(40px * var(--lbc-title-k,1));}}
 @container(max-width:640px){.lbc-title{font-size:calc(30px * var(--lbc-title-k,1));}}
 .lbc-wrap .lbc-title button.lbc-import{margin:0 0 0 .12em!important;}
-.lbc-top .lbc-row:has(.lbc-m-title){padding:28px 0 22px;border-bottom:1px solid var(--c-ink);align-items:center;}
+.lbc-top .lbc-row:has(.lbc-m-title){padding:28px 0 22px;border-bottom:1px solid var(--c-line);align-items:center;}
 .lbc-top:not(.is-tools-static)>.lbc-tools{top:28px;}
 .lbc-top .lbc-row:has(.lbc-m-title) .lbc-blk-meta{align-self:center;padding-bottom:0;}
 .lbc-top:not(.is-tools-static) .lbc-row:has(.lbc-m-title) .lbc-blk-meta{padding-right:calc(var(--lbc-tools-w,120px) + 6px);}
@@ -729,8 +727,8 @@ ${LB.siteHeaderCss()}
 .lbc-wrap .lbc-tools button.lbc-icon-btn,.lbc-wrap .lbc-tools button.lb-manage{width:44px!important;height:44px!important;min-width:44px;padding:0!important;border:0!important;border-radius:999px!important;background:transparent!important;box-shadow:none!important;color:var(--lb-ink)!important;display:grid;place-items:center;cursor:pointer;}
 .lbc-wrap .lbc-tools button.lbc-icon-btn:hover,.lbc-wrap .lbc-tools button.lb-manage:hover{background:var(--lb-soft)!important;}
 .lbc-wrap .lbc-tools button.lbc-icon-btn svg{width:20px;height:20px;}
-/* 搜索：只有一道 1px 墨色下划线（不要圆角框） */
-.lbc-wrap .lbc-searchbox{border:0!important;border-bottom:1px solid var(--c-ink)!important;border-radius:0!important;padding:0 2px!important;background:transparent!important;}
+/* 1101 作者「太压抑了」：搜索不要黑下划线——浅灰底圆角，没有描边 */
+.lbc-wrap .lbc-searchbox{border:0!important;border-radius:999px!important;padding:0 14px!important;background:var(--lb-soft)!important;}
 /* 「近 7 天 · 最近导入 ↓」：纯文字按钮，前面一道细竖线隔开（不要胶囊框） */
 .lbc-wrap .lbc-ctl button.lbc-time.lbc-pill{border:0!important;border-radius:0!important;background:transparent!important;padding:0 2px!important;color:var(--c-ink);}
 .lbc-wrap .lbc-ctl.lbc-blk-sort{position:relative;}
@@ -1521,10 +1519,10 @@ function renderScope() {
       typeTab('video', TYPE_LABEL.video, nv, mediaFilter === 'video', () => pickType('video'), ' lbc-type-sub');
     }
     // 1031：选了 B 站就不出「附件」（附件只有小红书有，点了也是 0 篇）
-    if (!activePlat || /^(xhs|xiaohongshu)$/.test(activePlat)) typeTab('attachment', TYPE_LABEL.attachment, nAtt, mediaFilter === 'attachment', () => pickType('attachment'), typesBox.querySelector('.lbc-type-tab') ? ' lbc-type-sep' : '');
+    if (!activePlat || /^(xhs|xiaohongshu)$/.test(activePlat)) typeTab('attachment', TYPE_LABEL.attachment, nAtt, mediaFilter === 'attachment', () => pickType('attachment'));
   } else {
     typeTab('video', TYPE_LABEL.video, nVideo, mediaFilter === 'video', () => pickType('video'));
-    typeTab('attachment', TYPE_LABEL.attachment, nAtt, mediaFilter === 'attachment', () => pickType('attachment'), ' lbc-type-sep');
+    typeTab('attachment', TYPE_LABEL.attachment, nAtt, mediaFilter === 'attachment', () => pickType('attachment'));
   }
   // Tag ▾：当前条件下最多的 40 个标签，选一个再缩小
   if (!starredPage || items.length) {

@@ -74,7 +74,7 @@ LB.style('lb-wiki-style', LB.brandFontCss() + fontFace('LB Digits Inline', FONT_
 /* 页头（10-31 晚和问收藏对齐）：一行——小号刻线标题 + 三页切换（透明底，当前那页白底小卡）；右边「AI · 历史 · …」方形带框按钮；下面篇数行压一条墨线 */
 /* 1101 设计交接包 §1「页头」：三页同一个——字标 + ＋ ｜ 空间切换胶囊 ｜ 右边 meta · 历史 · ···；下面一道 1px 墨线 */
 ${LB.siteHeaderCss()}
-.lbw-hrow{display:flex;align-items:center;flex-wrap:wrap;gap:16px 40px;padding:28px 0 22px;border-bottom:1px solid var(--lb-ink);}
+.lbw-hrow{display:flex;align-items:center;flex-wrap:wrap;gap:16px 40px;padding:28px 0 22px;border-bottom:1px solid var(--lb-line);}
 .lbw-brandbox{display:flex;align-items:center;gap:2px;}
 .lbw .lbw-brand{font-size:44px;line-height:1.02;transform-origin:left center;padding-left:.04em;}
 .lbw .lbw-plus{width:40px;height:44px;display:grid;place-items:center;font:500 30px/1 var(--lb-font-title);color:var(--lb-ink);transition:transform .2s;}
@@ -534,7 +534,7 @@ ${LB.brandCss('.lbw .lbw-brand', '.lbw .lbw-engr')}
 .lbw .lbw-ltab.is-on{color:var(--lb-ink);font-weight:600;border-bottom-color:var(--lb-ink);}
 .lbw .lbw-lnew{margin-left:auto;width:32px;height:32px;display:grid;place-items:center;color:var(--lb-ink);border-radius:999px;}
 .lbw .lbw-lnew:hover{background:var(--lb-soft);}
-.lbw-findw{gap:8px;height:38px;margin:0 0 18px;border-bottom:1px solid var(--lb-ink);color:var(--lb-muted);}
+.lbw-findw{gap:8px;height:36px;margin:0 0 18px;padding:0 12px;border:0;border-radius:999px;background:var(--lb-soft);color:var(--lb-muted);}
 .lbw-findw .lbw-ico{width:15px;height:15px;flex:none;}
 .lbw .lbw-find{font-size:14px;}
 .lbw-tmap{border-bottom:0;}

@@ -1138,7 +1138,7 @@ ${LB.brandCss('.lbchat .lbchat-title', '.lbchat .lbchat-engr')}
 @media(max-width:560px){.lbchat .lbchat-head{grid-template-columns:1fr auto;}.lbchat .lbchat-head .lb-page-nav{grid-column:1/-1;grid-row:2;}.lbchat .lbchat-tools{grid-column:2;}}
 /* 1101 设计交接包 §1「页头」：目录 / 问收藏 / Wiki 三页同一个——字标 + ＋ ｜ 空间切换胶囊 ｜ 右边「已保存」· 历史 · ···，下面一道 1px 墨线，铺满整页宽 */
 ${LB.siteHeaderCss()}
-.lbchat .lbchat-head{display:flex;flex-direction:row;flex-wrap:wrap;justify-content:flex-start;align-items:center;gap:16px 40px;width:auto;max-width:none;box-sizing:border-box;margin:0 0 18px;padding:28px 0 22px;border-bottom:1px solid var(--lb-ink);text-align:left;}
+.lbchat .lbchat-head{display:flex;flex-direction:row;flex-wrap:wrap;justify-content:flex-start;align-items:center;gap:16px 40px;width:auto;max-width:none;box-sizing:border-box;margin:0 0 18px;padding:28px 0 22px;border-bottom:1px solid var(--lb-line);text-align:left;}
 .lbchat .lbchat-titleblock{display:flex;flex-direction:row;flex-wrap:wrap;align-items:center;gap:2px;width:auto;max-width:100%;}
 .lbchat .lbchat-head > .lbchat-sub{flex-basis:100%;margin:-6px 0 0;text-align:left;}
 .lbchat .lbchat-titlerow{display:flex;align-items:center;}
