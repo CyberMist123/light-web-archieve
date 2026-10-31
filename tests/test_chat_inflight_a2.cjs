@@ -25,7 +25,7 @@ const { tick, makePlugin, openChat } = require('./_fake_L2.cjs');
   assert.equal(P.plugin.chatInFlight.phase, '生成回答：用 3 条材料');
   assert.ok(!B.q('.lbchat-stop').hidden, 'B 上也有 ■');
 
-  // (7) 1026 她「还在回答，切不了」：作答中「清空」照样能点（这一问在后台接着答、答完进它自己那段；细节见 test_chat_bg_1026）
+  // (7) 1026 作者「还在回答，切不了」：作答中「清空」照样能点（这一问在后台接着答、答完进它自己那段；细节见 test_chat_bg_1026）
   const n0 = B.saved().turns.length;
   const clear = B.q('.lbchat-clearall');
   assert.ok(!clear.disabled, '作答中「清空」不再锁住');

@@ -6,7 +6,7 @@ lb_search 走同一套关键词筛选规则（retrieval.keyword_hits，与目录
 - selection_for_prompt（ask.py）：从首屏窗口里挑几篇、每篇多少字送模型；
 - answer（ask.py）：作答。
 首屏窗口 window = 各路前几名保底（POOL_HEADS）的篇，按融合顺序，最多 POOL_MAX 篇——页面「主要依据 + 其他相关」就从它切，
-和她验收过的样子一样。窗口外的篇不丢：按同一顺序排在 candidates 后面（分页参数 / 以后的「继续看」从这里续取）。
+和作者验收过的样子一样。窗口外的篇不丢：按同一顺序排在 candidates 后面（分页参数 / 以后的「继续看」从这里续取）。
 各路的完整名单都在 routes 里，评测（tests/tools/ask_eval.py）据此证明「检出了却从候选集里静默消失」的篇数为 0。
 
 四个入口同一个问题、同一份配置时，candidates 的顺序完全一样；条数差异只来自各入口显式的分页参数（top_k / limit / offset）。
@@ -81,7 +81,7 @@ class Probe:
 
 
 def previous_question(history):
-    """上一轮她问的话（意图分类判断「接着问 / 换话题」用）；没有 = ''。"""
+    """上一轮用户问的话（意图分类判断「接着问 / 换话题」用）；没有 = ''。"""
     for m in reversed(list(history or [])[-8:]):
         if isinstance(m, dict) and m.get("role") == "user" and str(m.get("content") or "").strip():
             return str(m["content"])[:300]
@@ -200,7 +200,7 @@ def candidates(question, items, *, settings=None, history=None, semantic=True, e
     heads |= followup_heads
     sem_all = ask._merge_sem(sem, sem_expanded)
     if WINDOW_GATE:
-        # 1020 她：「可能相关」不管相关不相关都凑满 80。各路保底名次只是名次、不看分：语义分挤在 0.40–0.65 一个窄带里，
+        # 1020 作者：「可能相关」不管相关不相关都凑满 80。各路保底名次只是名次、不看分：语义分挤在 0.40–0.65 一个窄带里，
         # 前 40 名总有几十篇不沾边的；词法前 40 名里只沾一个碎词（「cp」「坏」）的也算。现在只收有证据的篇（见 _evident），
         # 追问继承上一问的篇照留；没证据的留在候选集里不丢。
         evident = _evident(matches, lexical_hits, sem_all, semantic_ids, expand_full, place_ids,
@@ -263,7 +263,7 @@ def candidates(question, items, *, settings=None, history=None, semantic=True, e
 
 GENERIC_DF = 0.4  # 全库四成以上的篇都有的词算泛（同 ask.EXPAND_GENERIC）
 # 首屏证据门槛（1020，WINDOW_GATE=True）：一篇进首屏要有下面任一条证据，否则只留在候选集里。
-# 阈值在真库 53 题回归集（44 题带金标）+ 她 12 个真实提问上离线扫过：金标进首屏 0.951 → 0.939（掉的两篇原排 38 / 59 名），
+# 阈值在真库 53 题回归集（44 题带金标）+ 用户 12 个真实提问上离线扫过：金标进首屏 0.951 → 0.939（掉的两篇原排 38 / 59 名），
 # 首屏中位数 80 → 17。
 #   lex_rel       原词 BM25 分 ≥ 第一名的这个比例（只沾一个碎词 / 单字的长尾分很低）；而且要么覆盖查询词 idf 权重的
 #                 lex_cover 以上，要么 BM25 ≥ 第一名的 lex_strong（「中国旅行推荐」里只在标题沾「中国」的篇 BM25 不低，靠覆盖率拦）

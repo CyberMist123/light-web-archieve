@@ -9,7 +9,7 @@
 | `pytest tests/test_raw_staging.py` | 全绿；`test_backfill_crash_mid_download_leaves_no_version`、`test_half_version_is_not_counted_but_its_number_is_never_reused` 在修前（旧 `existing_versions` / 旧 backfill）是红的 | 修前红 → 修后绿 |
 | `pytest tests/test_xiaohongshu.py::test_raw_version_is_immutable tests/test_videos.py tests/test_remove.py tests/test_tomb_p0_1024.py tests/test_tomb_p0fix.py tests/test_doctor_dataview.py` | 全绿（`ensure_raw_dir` 老路径不变） | 绿 |
 | 全量 pytest（TZ=Australia/Sydney）+ node 与 main 对比 | 无新增失败 | 见 PR 描述 |
-| 真库 `python -m link_brain doctor`（或插件「检查环境」） | 多一行「RAW 版本」：✓ 版本目录完整；或 ⚠ 「N 篇有写一半的旧版本目录，M 个过期暂存目录」+ 一句不影响使用 | **待她：一步** |
+| 真库 `python -m link_brain doctor`（或插件「检查环境」） | 多一行「RAW 版本」：✓ 版本目录完整；或 ⚠ 「N 篇有写一半的旧版本目录，M 个过期暂存目录」+ 一句不影响使用 | **待作者：一步** |
 
 ## 复审（Opus 复审车，1025）
 修了再合 → 已修：doctor 命令行输出的符号表补 `notice` → ⚠（原来会打成 ❌）；`videos backfill` 整段拿单篇锁（原来只在改 meta 时拿，
@@ -22,5 +22,5 @@
 - 收编孤儿版本（有完整 vNNNN 没 meta）→ PR⑤。
 - 老半截版本：只报数不删（主审定）。
 
-## 待她：一步
+## 待作者：一步
 部署后点一次「检查环境」，看「RAW 版本」那行是 ✓ 还是 ⚠（⚠ 也正常，说明以前某次下载中崩过，重抓一次那篇就有完整版本）。

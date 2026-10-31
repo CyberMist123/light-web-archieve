@@ -19,7 +19,7 @@ def test_clean_name_rules():
 
 def test_final_tags_human_wins():
     p = {"ai": ["牛排", "做梦"], "human_add": ["牛排", "悉尼"], "human_remove": ["做梦"]}
-    assert pt.final_tags(p) == ["牛排", "悉尼"]      # ai + 她加的，去重、按序；她去掉的永远赢
+    assert pt.final_tags(p) == ["牛排", "悉尼"]      # ai + 用户加的，去重、按序；用户去掉的永远赢
     assert pt.final_tags({}) == []
     assert pt.final_tags({"ai": ["a"], "human_remove": ["A"]}) == []  # 去掉按 key 比，大小写不敏感
 

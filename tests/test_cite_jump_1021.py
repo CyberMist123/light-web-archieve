@@ -1,4 +1,4 @@
-"""1021 她：问收藏回答里点引用要跳到正文那一处（Gemini 式索引对照）。
+"""1021 作者：问收藏回答里点引用要跳到正文那一处（Gemini 式索引对照）。
 
 后端这半边：
 - render：正文每段 <p data-p=段序号>、评论 <article data-cid=楼号>（楼号同 llm.comment_labels / 机读版）；

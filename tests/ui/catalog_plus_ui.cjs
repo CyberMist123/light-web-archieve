@@ -62,14 +62,14 @@ function fixture() {
       });
       assert.ok(m.fontOk, `${tag}：随包的 Cinzel 真加载上了（${m.titleFamily}）`);
       assert.equal(m.dataText, m.titleText, `${tag}：刻线层和标题同字`);
-      // 1023 她要分类单行铺开（space-between）；1026 她：窗口窄了不许裁——放不下就换行居中
+      // 1023 用户要分类单行铺开（space-between）；1026 作者：窗口窄了不许裁——放不下就换行居中
       assert.ok(m.catsScroll <= 1 && (m.catsWrap === 'nowrap' ? m.catsJustify === 'space-between' : m.catsJustify === 'center' && m.catsWrap === 'wrap'), `${tag}：分类行放得下单行铺开、放不下换行居中，都不横向滚 ${JSON.stringify(m)}`);
       if (width < 1000) assert.equal(m.catsWrap, 'wrap', `${tag}：窄屏换行`);
       assert.ok(m.ctl.every(h => h === 34), `${tag}：控制行右组同高 34px ${m.ctl}`);
       assert.ok(m.hOverflow <= 1, `${tag}：没有横向滚动 ${m.hOverflow}`);
       if (width >= 1000) {
         assert.ok(m.sub.left >= m.title.right - 1, `${tag}：篇数 / 更新在标题右侧 ${JSON.stringify([m.title, m.sub])}`);
-        // 1031 她「和问收藏对齐」：标题改成小号一行、和右上角按钮顶对齐，计数行在按钮下面
+        // 1031 作者「和问收藏对齐」：标题改成小号一行、和右上角按钮顶对齐，计数行在按钮下面
         assert.ok(m.sub.top >= m.manage.bottom - 2, `${tag}：计数行在「管理」下面 ${JSON.stringify([m.manage, m.sub])}`);
         assert.ok(m.manage.right >= m.wrap.right - 40 && m.manage.top <= m.title.top + 10, `${tag}：「管理」在右上角 ${JSON.stringify(m.manage)}`);
       } else {
@@ -121,7 +121,7 @@ function fixture() {
       await page.hover('.lbc-topic-wrap >> nth=1'); await S.settle(60);
       assert.equal(await page.evaluate(() => getComputedStyle(document.querySelectorAll('.lbc-topic-del')[1]).display), 'grid', '悬停胶囊出 ×');
       shots.push(await S.screenshot('catalog-plus-topics'));
-      // 1027b 她：最近导入不要「查看全部」——折成一行，点开就在边栏里往下滚（收藏墙不动）
+      // 1027b 作者：最近导入不要「查看全部」——折成一行，点开就在边栏里往下滚（收藏墙不动）
       assert.equal(await page.$('.lbc-rec-all'), null);
       await page.click('.lbc-mod-recent .lbc-fold-sum'); await S.settle();
       const list = await page.evaluate(() => { const ul = document.querySelector('.lbc-mod-recent .lbc-rec'); return { grid: document.querySelector('.lbc-grid').hidden, rows: ul.querySelectorAll('li').length, scrolls: ul.scrollHeight > ul.clientHeight + 4, oy: getComputedStyle(ul).overflowY }; });

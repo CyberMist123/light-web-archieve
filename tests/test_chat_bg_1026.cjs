@@ -1,11 +1,11 @@
-// 1026 第三轮（她录屏 04 / 05 / 06 问收藏那几段）：
+// 1026 第三轮（作者录屏 04 / 05 / 06 问收藏那几段）：
 //   ① 发出去 1 秒内就看得见这一问（不等写盘、不等模型）；生成状态在问题下面（还没出字：阶段 + 秒数；出字后：回答顶上一行）
 //   ② 正在答时照样能切历史 / 清空：这一问在后台接着答、答完进它自己那段；输入框上面一行「后台还在回答 · 回去看」，回去接着看出字；
 //      隐私模式那段（切走就找不回）才拦
 //   ③ 换页切走、整页暂存再挂回新视图（recreate）后：「问这篇」照样取走、来源固定在输入框里那枚小条上（改前 root 指着旧容器，直接返回）
-//   ④ 报告：动作（目录 / 来源 / 编辑 / 复制 / 导出 / 存到已保存）——1028 她：在这一答最下面、来源之后（顶上那版是 bug），没有「展开细节」；
+//   ④ 报告：动作（目录 / 来源 / 编辑 / 复制 / 导出 / 存到已保存）——1028 作者：在这一答最下面、来源之后（顶上那版是 bug），没有「展开细节」；
 //      存上后旁边「已保存 · 打开」，点了到「已保存」那一条
-//   ⑤ 1028 她：右栏顶上的证据条（← 回到报告 · 来源：xxx · 上一条 / 下一条）不画了；点引用照样右栏定位、左栏不动、左边那一处亮着；
+//   ⑤ 1028 作者：右栏顶上的证据条（← 回到报告 · 来源：xxx · 上一条 / 下一条）不画了；点引用照样右栏定位、左栏不动、左边那一处亮着；
 //      找不到时原帖开着、提示里给「再找一次」；从「可能相关」打开也不画条
 'use strict';
 const assert = require('node:assert/strict');
@@ -114,7 +114,7 @@ async function reportTop() {
   await C.ask('ai 做梦');
   const ans = C.answers()[0];
   assert.ok(ans.classList.contains('is-report'));
-  // 1028 她：操作条在这一答最下面（来源之后），上边一道细线
+  // 1028 作者：操作条在这一答最下面（来源之后），上边一道细线
   const top = ans.querySelector('.lbchat-actions-report');
   assert.ok(top && ans.lastElementChild === top, '动作在这一答最下面');
   assert.ok(!ans.querySelector('.lbchat-actions-top'), '顶上不再有操作条');
@@ -175,7 +175,7 @@ async function evidenceBar() {
   C.body.scrollTop = 37; C.body.dispatchEvent(new C.dom.Event('scroll')); await tick(5);
   const cites = () => C.answers()[0].querySelectorAll('.lbchat-md button.lbchat-cite');
   const bar = () => [...container.children].find(x => x.classList.contains('lb-evbar'));
-  // 1028 她：右栏顶上不再画证据条（回到报告 / 来源：xxx / 上一条 / 下一条 都不要）；定位、左栏不动、左边亮着照旧
+  // 1028 作者：右栏顶上不再画证据条（回到报告 / 来源：xxx / 上一条 / 下一条 都不要）；定位、左栏不动、左边亮着照旧
   cites()[0].onclick({ stopPropagation() {} }); await tick(400);
   assert.ok(!bar(), '右栏顶上没有证据条');
   assert.ok(!container.textContent.includes('回到报告'));

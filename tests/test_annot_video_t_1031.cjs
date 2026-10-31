@@ -1,5 +1,5 @@
-// 1031 她「弹幕直接复用批注」：B 站视频笔记里，批注框下面一个「记在当前时间」的勾——勾着写的批注带 video_t（秒），
-// 就是她的弹幕（插件 danmaku.js 读它飘）。这里直接跑生产那份 assets/annotate-view.js（和 bootstrap 一样用 AsyncFunction 起），查：
+// 1031 作者「弹幕直接复用批注」：B 站视频笔记里，批注框下面一个「记在当前时间」的勾——勾着写的批注带 video_t（秒），
+// 就是用户的弹幕（插件 danmaku.js 读它飘）。这里直接跑生产那份 assets/annotate-view.js（和 bootstrap 一样用 AsyncFunction 起），查：
 // ①时间取「开始写这一条那一刻」的播放位置（写的工夫里视频接着走也不变）、3 位小数；视频还没开始播不带；勾掉不带；勾的状态不让输入框失焦；
 // ②写盘走原来那套（persist：读盘合并、墓碑），改字保留 video_t；③列表里带时间的前面一个「▶ 0:12」，点了跳到那一秒并播放；
 // ④每次存完发 link-brain:annotations（itemId, {annotations, deleted}），danmaku.annotationItems 认得出（删掉的不算）；⑤小红书笔记什么都不加。

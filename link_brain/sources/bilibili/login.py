@@ -1,7 +1,7 @@
 """B 站登录态（阶段一，1029）：扫码登录一次，之后复用。
 
 凭证**不在 vault、不在仓库**：Netscape 格式的 cookie 文件住 `~/.link-brain/bilibili/cookies.txt`
-（`storage.link_brain_home()`；`~/.link-brain/config.json` 里 `bilibili.cookies_file` 可指到别处，比如她自己从浏览器导出的那份）。
+（`storage.link_brain_home()`；`~/.link-brain/config.json` 里 `bilibili.cookies_file` 可指到别处，比如用户自己从浏览器导出的那份）。
 下载器（yt-dlp，见 ytdlp.py）用 `--cookies <文件>` 直接读它；本模块只做三件事：扫码写入、查登录状态、给只读接口一个带 cookie 的 httpx 客户端。
 
 规矩：永远不把 cookie 值（SESSDATA / bili_jct / 二维码口令）打印到终端、写进日志 / vault / 测试快照。状态只说

@@ -1,4 +1,4 @@
-"""1031 她「给一个（扫码）就行」：电视端扫码成功的响应里带 cookie_info，网页端 cookie 一并存进 cookies.txt。"""
+"""1031 作者「给一个（扫码）就行」：电视端扫码成功的响应里带 cookie_info，网页端 cookie 一并存进 cookies.txt。"""
 from __future__ import annotations
 
 from link_brain.sources.bilibili import login, tvapi

@@ -1,4 +1,4 @@
-"""B 站「稍后再看」：和收藏夹一起同步，当成一个叫「稍后再看」的专辑（1031 她：「稍后再看也一起同步」）。
+"""B 站「稍后再看」：和收藏夹一起同步，当成一个叫「稍后再看」的专辑（1031 作者：「稍后再看也一起同步」）。
 
 接口（bilibili-API-collect 的 history&toview/toview.md，要登录态 Cookie）：`GET x/v2/history/toview`
 → `data = {count, list: [{aid, bvid, title, videos（分 P 数）, duration, owner{mid,name}, add_at（加入时间）, state, cid, pubdate…}]}`，

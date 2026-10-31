@@ -21,7 +21,7 @@ function itemText(it) { const fs = it.search_fields; return (fs ? Object.values(
 //    模糊命中的整篇放进「可能相关」区，排在精确命中之后，不混排。
 // 3. 拼音只认整音节：「悉尼」= xi·ni 两个完整音节按顺序相邻；xin 撞不上 xi·ni；至少两个音节才算。
 // 4. 多个词 = 都要中（AND）。排序先看分数，星标只 ×1.15（与 retrieval.rank 同口径），同分星标在前。
-// notes = 她自己的批注（第 10 批进检索，和标签同权；与 retrieval.WEIGHTS 一致）
+// notes = 用户自己的批注（第 10 批进检索，和标签同权；与 retrieval.WEIGHTS 一致）
 const SEARCH_WEIGHTS = {title:12,tags:10,notes:10,highlights:10,body:7,attachments:6,transcript:6,screen:6,ocr:5,comments:3,comment_ocr:3,summary:2,author:1};
 const SEARCH_FIELD_LABELS = {title:'标题',tags:'标签',notes:'批注',highlights:'划重点',body:'正文',attachments:'附件',transcript:'视频文字稿',screen:'视频画面文字',ocr:'图片文字',comments:'评论',comment_ocr:'评论区图片',summary:'概要',author:'作者'};
 const STAR_BOOST = 1.15;
@@ -171,7 +171,7 @@ function matchItem(it, query, chars = {}, aliases = [], opts = {}) {
   if (!q) return {score: 1, fuzzy: false, hits: []};
   if (q.startsWith('#')) {
     const wanted = q.split(/[\s#]+/).filter(Boolean);
-    // 批次 D · N9：标签 ∪ 原帖话题（正文里显示的是原帖话题；她改过的 frontmatter tags 可能删掉了其中某个）
+    // 批次 D · N9：标签 ∪ 原帖话题（正文里显示的是原帖话题；用户改过的 frontmatter tags 可能删掉了其中某个）
     const own = [...(it.tags || []), ...(it.hashtags || [])].map(tag => normalize(tag).replace(/^#/, ''));
     return wanted.some(t => own.includes(t)) ? {score: 10, fuzzy: false, hits: [{term: q, kind: 'exact', field: 'tags', variant: ''}]} : null;
   }
@@ -359,8 +359,8 @@ function hitSummary(m) {
   return [...fuzzy, ...(exact.length ? ['命中' + exact.join('、')] : [])].join(' · ');
 }
 
-// 10-03（她定）：置信度低的命中（同义词 / 换语种 / 扩词 / 拼音相近 / 标题错字 / 漏字 / 语义）在卡片标题下浅色显示检索到的那段；
-// 原词命中仍只显示标题（她的规矩：搜索卡片只留标题）。命中明细来自 matchItem 的 hits[].kind（exact 以外都算低置信度，
+// 10-03（作者定）：置信度低的命中（同义词 / 换语种 / 扩词 / 拼音相近 / 标题错字 / 漏字 / 语义）在卡片标题下浅色显示检索到的那段；
+// 原词命中仍只显示标题（用户的规矩：搜索卡片只留标题）。命中明细来自 matchItem 的 hits[].kind（exact 以外都算低置信度，
 // 以后加的 kind 如 semantic 也算）；结果里带了现成片段（match.snippet / hit.snippet）就直接用。
 const LOW_LABELS = {...FUZZY_LABELS, alias: '同义词', semantic: '意思相近', translate: '换语种', expand: '扩词'};
 // 卡片用的入口：优先用第 10 批 rankItems 结果里的 row.hit（confidence 判得更准：同语种同义词 = 高置信度，不出片段）；
@@ -398,7 +398,7 @@ function spokenKeywords(text) {
   return [...new Set(parts)].join(' ');
 }
 
-// ── 批次 D · C9 按行瀑布流（她定：小红书式，每张放进当前最矮的一列）：纯函数，页面和单测都从这里取 ──
+// ── 批次 D · C9 按行瀑布流（作者定：小红书式，每张放进当前最矮的一列）：纯函数，页面和单测都从这里取 ──
 // 列数：cols 在 2–6 之间就直接用；否则按列宽 230（窄屏 145）+ 间距 24（窄屏 14）能放几列（和原来 CSS columns 的算法一致）
 function lbcColumns(width, {cols = 0, narrow = false} = {}) {
   if (cols >= 2 && cols <= 6) return Math.round(cols);

@@ -305,7 +305,7 @@ def _resolve_target(target: str) -> str:
 
 def prune_actor(actor: str = "system", *, vault: Path | None = None, dry_run: bool = False) -> dict[str, Any]:
     """1020：删掉某个角色留的留言（默认 system——lwa 以前每收一篇就在正文留言层留一句「收好了」戳 Fable，
-    没人看、还占着她的笔记）。只动留言层；她手写的 / Fable 回的不碰。对象级 comments.jsonl 追加一条 prune 记录。"""
+    没人看、还占着用户的笔记）。只动留言层；用户手写的 / Fable 回的不碰。对象级 comments.jsonl 追加一条 prune 记录。"""
     vault = vault or storage.vault_root()
     touched, removed = [], 0
     for meta_path in sorted(storage.archive_root().glob("*/*/meta.json")):

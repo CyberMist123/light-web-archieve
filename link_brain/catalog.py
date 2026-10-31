@@ -3,12 +3,12 @@
 Owner 2026-09-15 拍板改法（推翻 09-07 的「小模型 category 分文件夹」）：
 - **组织轴是 tag，不是文件夹**。文件夹分类一条笔记只能进一个夹子、丢多维信息，且
   移文件是破坏性的（E2N 就得靠「只在子目录移、不删正文」自保）。tag 不动文件、随便加减，
-  天生贴合她「加减 tag」的习惯，也给以后的模糊搜索留好轴。tag 数据本来就在每篇 frontmatter 里
-  （Lot 4 归一 + 合并 + 她手写），这里直接拿来当筛选轴。
+  天生贴合用户「加减 tag」的习惯，也给以后的模糊搜索留好轴。tag 数据本来就在每篇 frontmatter 里
+  （Lot 4 归一 + 合并 + 用户手写），这里直接拿来当筛选轴。
 - 页面 = 无标签封面墙 + 本地模糊检索；右键卡片编辑后台标签。
 - 硬约束 #8「不做 Obsidian 插件」：页面靠 **Dataview 的 dataviewjs**（用户装的社区插件，不是我们自研）
   渲染——它能渲染真·Obsidian 链接（绕开「裸 HTML 的 a href 打不开本地笔记」那个坑）、能跑 JS、
-  样式由 JS 自注入（不依赖她手动开 CSS snippet）。
+  样式由 JS 自注入（不依赖用户手动开 CSS snippet）。
 - Python 这侧只做**数据管线**：纯程序拼，不联网、不花钱——概要读 derived/extracted.json，
   封面取 manifest 第一张成功图，tag 读可见笔记 frontmatter，其余读 meta.json，
   全部落 `_archive/catalog-data.json`；md 页面里那段 dataviewjs 读它来渲染。
@@ -75,9 +75,9 @@ _FRONTMATTER_RE = re.compile(r"\A---\r?\n(.*?)\r?\n---\r?\n", re.S)
 
 
 def effective_big_cats() -> list[tuple[str, tuple[str, ...]]]:
-    """大类清单：Owner 在插件设置里编辑过就用她的（data.json 的 `catalogCats`），否则用内置 BIG_CATS。
+    """大类清单：Owner 在插件设置里编辑过就用用户的（data.json 的 `catalogCats`），否则用内置 BIG_CATS。
 
-    她的格式是 `[{"name": "人机恋", "keywords": ["人机恋","ai伴侣"]}, ...]`（设置页那个可编辑文本框解析出来的）。
+    用户的格式是 `[{"name": "人机恋", "keywords": ["人机恋","ai伴侣"]}, ...]`（设置页那个可编辑文本框解析出来的）。
     改完要重跑 `catalog` 才生效（这个函数只在重建目录时读一次）。fail-open：读不动就用内置。
     """
     try:
@@ -235,7 +235,7 @@ def _problem(code: str, reason: str | None, action: str | None = None, next_at: 
             "action": action or problems.DEFAULT_ACTION.get(cls, "retry_later")}
 
 
-# 1008（L6·B2）：卡片角标要减去她隐藏的 (item_id, 细分码)，接口那一侧的码以 ai-health 为准。
+# 1008（L6·B2）：卡片角标要减去用户隐藏的 (item_id, 细分码)，接口那一侧的码以 ai-health 为准。
 # 这两份是全库共用的：一次 catalog build 只读一回（按两个文件的 mtime 缓存），不在每篇里各读一遍 problems.jsonl。
 _CTX: dict[str, Any] = {"key": None, "val": None}
 # 卡片上的接口码来自哪份对象文件 → 那个能力在 ai-health.json 里的名字
@@ -287,7 +287,7 @@ def item_problems(obj_dir: Path, report: dict[str, Any], vision: dict[str, Any],
     vision.json（第一层识图接口故障；1017 起第二层精细识别放弃不再出标）· extracted.json（概要失败）· enrich-state.json（连着失败暂时放弃）。
     SKIPPED（没配置 / 关了）不算问题，不列。
 
-    1008：她在问题面板隐藏了的 (item_id, 细分码) 不出标；接口那一侧的码（key 失效 / 欠费 / 断网 / 限流 / 5xx / 服务忙）
+    1008：用户在问题面板隐藏了的 (item_id, 细分码) 不出标；接口那一侧的码（key 失效 / 欠费 / 断网 / 限流 / 5xx / 服务忙）
     只在 ai-health.json 里这个能力确实还开着时才照原码出标，否则降成灰色「待补识图 / 概要」（这篇确实还缺，照实显示）；
     补查判定「原帖打不开」的（derived/web_recheck.json 的 gone）出「原帖已删除」标（只上卡片、不进问题列表）。"""
     out: dict[str, dict[str, str]] = {}
@@ -299,9 +299,9 @@ def item_problems(obj_dir: Path, report: dict[str, Any], vision: dict[str, Any],
             return
         caps = cap if isinstance(cap, tuple) else ((cap,) if cap else ())
         if caps and all(c in ctx.get("ai_off", ()) for c in caps):
-            return  # 1009 她：轻量版（没勾 AI）本来就不做识图 / 概要，卡片上什么都不标
+            return  # 1009 作者：轻量版（没勾 AI）本来就不做识图 / 概要，卡片上什么都不标
         if cap and str(code) in ctx["api_codes"] and not (set(caps) & ctx["ai_open"]):
-            # 1009 她：当时接口出错、接口现在已经好了的——后台静默补（状态栏一行进度），不上卡片角标
+            # 1009 作者：当时接口出错、接口现在已经好了的——后台静默补（状态栏一行进度），不上卡片角标
             # （1008 的灰色「待补识图 / 概要」撤掉；接口还坏着的照原码出，问题面板里那一条照旧）
             return
         try:
@@ -327,8 +327,8 @@ def item_problems(obj_dir: Path, report: dict[str, Any], vision: dict[str, Any],
         if isinstance(err, dict) and err.get("error"):
             add("TRANSIENT.DOWNLOAD_FAILED", str(err["error"])[:200])
     status = transcript.get("status") if isinstance(transcript, dict) else None
-    # 10-04 她定：「视频里没人说话」不上卡片（连画面字幕也没读到的也不标）——问题面板里有就够了（videos.py 照旧记进 problems.jsonl）
-    # 10-04 20:00 她定：「视频没有音轨」（no_audio）同样不上卡片，问题面板照旧
+    # 10-04 作者定：「视频里没人说话」不上卡片（连画面字幕也没读到的也不标）——问题面板里有就够了（videos.py 照旧记进 problems.jsonl）
+    # 10-04 20:00 作者定：「视频没有音轨」（no_audio）同样不上卡片，问题面板照旧
     if status == "failed":
         add(transcript.get("code") or "TRANSIENT.SERVICE_BUSY", transcript.get("error") or "语音识别失败",
             "retry_later", transcript.get("retry_after"))
@@ -378,7 +378,7 @@ def _is_comment_image(image: dict[str, Any]) -> bool:
 
 
 def highlight_text(visible_text: str | None, notes_doc: dict[str, Any] | None = None) -> str:
-    """她划的重点（1015 第二批进检索）：可见笔记里的 <mark> / ==x== + notes.json 的 highlights（[{text}] 或 [str]，
+    """用户划的重点（1015 第二批进检索）：可见笔记里的 <mark> / ==x== + notes.json 的 highlights（[{text}] 或 [str]，
     带 deleted 的不算）。一条一行；读不出 = 空（fail-open）。"""
     out: list[str] = []
     try:
@@ -435,7 +435,7 @@ def collect(vault: Path, source: str | None = None) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     big_cats = effective_big_cats()
     base = vault / "_archive" / source
-    try:   # 1019 专辑：她在小红书里给收藏分的组（albums sync 读来的），和标签分开
+    try:   # 1019 专辑：用户在小红书里给收藏分的组（albums sync 读来的），和标签分开
         album_map = src.note_albums() if "albums" in src.capabilities else {}
     except Exception:  # noqa: BLE001 - 读不到就当没有专辑
         album_map = {}
@@ -481,15 +481,15 @@ def collect(vault: Path, source: str | None = None) -> list[dict[str, Any]]:
             "screen": str((transcript.get("screen") or {}).get("text") or ""),
             "body": str(note.get("body") or ""),
             # 评论只放原文进检索：评论者昵称不进（昵称「不是鱼露是鲈鱼」会被当成内容命中）；说话人由问收藏证据阶段另挂
-            # 1026 她：评论里 @ 的人名也是噪音（「@喵喵酱」「@Murrrrrphy」被当成内容命中）——@人名、「回复 某某：」不进检索
+            # 1026 作者：评论里 @ 的人名也是噪音（「@喵喵酱」「@Murrrrrphy」被当成内容命中）——@人名、「回复 某某：」不进检索
             "comments": "\n".join(_comment_search_text(c.get("text")) for c in _flat_comments(source_doc.get("comments") or [])),
             # 图片文字 + 识图结果（表格 Markdown / 图片描述）一起进检索；精细识图（第二层 refined）成功就用它替代第一层
             "ocr": "\n".join(filter(None, (_image_search_text(im) for im in ok_images if not _is_comment_image(im)))),
             "comment_ocr": "\n".join(filter(None, (_image_search_text(im) for im in ok_images if _is_comment_image(im)))),
             "attachments": "\n\n".join(p.read_text(encoding="utf-8") for p in sorted((obj_dir / "derived" / "attachments").glob("*.md"))),
-            # 第 10 批：她自己的批注进检索（词法 + 语义）；问收藏另按 notes.json 的修改时间现读，不必等重建目录
+            # 第 10 批：用户自己的批注进检索（词法 + 语义）；问收藏另按 notes.json 的修改时间现读，不必等重建目录
             "notes": annotation_text(notes_doc),
-            # 1015 第二批 ask：她划的重点进检索（和批注同权）
+            # 1015 第二批 ask：用户划的重点进检索（和批注同权）
             "highlights": highlight_text(visible_text, notes_doc),
         }
         # 新加的三路空着就不写（catalog-data 体积不涨）；老字段照旧总在
@@ -522,12 +522,12 @@ def collect(vault: Path, source: str | None = None) -> list[dict[str, Any]]:
                 "pinyin": pinyin_text(str(meta.get('title') or ''), summary, *tags),
                 "tags": tags,
                 "albums": album_map.get(source_id, []),
-                # 批次 D · N9：原帖话题（正文里显示的那一串 #）；目录「#x」筛选看 tags ∪ hashtags（她改过的 tags 可能删掉了某个）
+                # 批次 D · N9：原帖话题（正文里显示的那一串 #）；目录「#x」筛选看 tags ∪ hashtags（用户改过的 tags 可能删掉了某个）
                 "hashtags": [str(t).strip().lstrip('#') for t in (note.get('hashtags') or []) if str(t).strip().lstrip('#')][:30],
                 "cats": _cats(tags, big_cats),
                 "kind": meta.get("kind", "image"),
                 "date": archived.strftime("%Y-%m-%d") if archived else "",
-                # 1015 第二批：发帖日期（她说「2024 年存的」多半指那年的帖子；date 是入库日期）
+                # 1015 第二批：发帖日期（用户说「2024 年存的」多半指那年的帖子；date 是入库日期）
                 "published": str(note.get("published_at") or "")[:10],
                 "ts": archived.isoformat() if archived else "",
                 "comments": comment_count,
@@ -536,7 +536,7 @@ def collect(vault: Path, source: str | None = None) -> list[dict[str, Any]]:
                 "attachment_reason": _attachment_reason(obj_dir, meta, badge),
                 # 第 4 批：卡片悬停的问题原因（label / hover 已从 problems 登记表取好；attachment_reason 照留）
                 "problems": item_problems(obj_dir, report, vision, transcript, extracted),
-                # 1020 谁收的：""=她自己的收藏；fable / 项目名（规则在 domain.py）。目录默认只看 ""
+                # 1020 谁收的：""=用户自己的收藏；fable / 项目名（规则在 domain.py）。目录默认只看 ""
                 "src": collected_by(meta),
                 # 1025：TG 发给 Fable 的并进 fable 组，这里记一个 "tg" 还分得清（页面暂不用）
                 "via": via(meta),
@@ -958,7 +958,7 @@ def patch_items(updates: dict[str, dict[str, Any]], vault: Path | None = None, *
 
 
 def drop_items(item_ids: list[str], vault: Path | None = None, *, wait_s: float = 5) -> bool:
-    """删除后把这几篇就地摘出 catalog-data.json，不整份重建（1019 她：删 5 篇要好几秒——整份重建冷跑十几秒）。
+    """删除后把这几篇就地摘出 catalog-data.json，不整份重建（1019 作者：删 5 篇要好几秒——整份重建冷跑十几秒）。
     和 build / patch_items 抢同一把锁；拿不到、文件不在或读坏了返回 False，调用方退回整份重建。"""
     vault = vault or storage.vault_root()
     data_path = vault / "_archive" / DATA_NAME
@@ -1010,7 +1010,7 @@ def run(args) -> int:
             result['message'] += f"；第一次建了 {LAST_INDEX.get('file')}（按原来的分类，顶部分类不变）"
         elif LAST_INDEX.get('warnings'):
             result['message'] += f"；{LAST_INDEX.get('file')} 有 {LAST_INDEX['warnings']} 处写法要看一眼（目录页「索引」里有）"
-    # 只在真没装 / 没开 JS 查询时提示（10-03 她：已经装了还每次刷新目录都弹这句）
+    # 只在真没装 / 没开 JS 查询时提示（10-03 作者：已经装了还每次刷新目录都弹这句）
     from .doctor import dataview_ready
     if not dataview_ready(storage.vault_root() / ".obsidian"):
         result['dataview_hint'] = 'Dataview 的 JS 查询没开，页面显示不出来'

@@ -1,4 +1,4 @@
-// 1026 她：问收藏点 [来源N] 跳原帖时灵时不灵 + [来源1] 太多（交接《LWA 引用跳转修复 + NotebookLM 式证据对照》第五节）。
+// 1026 作者：问收藏点 [来源N] 跳原帖时灵时不灵 + [来源1] 太多（交接《LWA 引用跳转修复 + NotebookLM 式证据对照》第五节）。
 // 假右栏照真机的毛病搭：阅读格复用，openFile 先切文件、内容晚一拍才画（画好之前上一篇的 DOM 还在）；新的打开会取消上一次还没画的。
 // 验的是结果：右栏文件、看得见的 data-lb-item、高亮元素（图片 src / 评论楼号 / 段序号）、日志里的请求号四者对得上。
 'use strict';
@@ -220,7 +220,7 @@ const DATA = '_archive/catalog-data.json';
   await click(0, 0); await tick(300);
   assert.equal(group.front, leaf, '原帖页切回前面');
   assert.equal(lastLog().target, 'para:0');
-  // 定位历史留最近几次（她一轮点好几处时排障用）
+  // 定位历史留最近几次（用户一轮点好几处时排障用）
   assert.ok(JSON.parse(V.get('_archive/locate-history.json')).length >= 10);
 
   // ⑮ 回答里的图：单独一段的图挪进它前面那段开头，靠右并排（不再插在两段字中间），空出来的那段拿掉

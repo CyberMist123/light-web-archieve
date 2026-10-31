@@ -9,7 +9,7 @@ const { tick, src, rel, makePlugin, openChat } = require('./_fake_L2.cjs');
   const C = await openChat({ plugin: P });
   const toc = () => C.q('.lbchat-toc');
   const items = () => toc().querySelectorAll('.lbchat-ftoc-item');
-  // (a) 1031 她：「目录：一问也显示」默认开——1 问、没小标题也有目录；关掉回到老规则（没有目录）；不再有「目录」按钮
+  // (a) 1031 作者：「目录：一问也显示」默认开——1 问、没小标题也有目录；关掉回到老规则（没有目录）；不再有「目录」按钮
   await C.ask('担担面有没有汤');
   assert.equal(toc().hidden, false, '默认一问也显示'); assert.equal(C.q('.lbchat-tocbtn').hidden, true);
   P.plugin.settings.tocOneAsk = false; C.app.workspace.trigger('link-brain:chat-prefs'); await tick();
@@ -23,7 +23,7 @@ const { tick, src, rel, makePlugin, openChat } = require('./_fake_L2.cjs');
   // (b) 第 2 问起出现：横线条（is-float），按钮一直不出
   assert.equal(toc().hidden, false); assert.ok(toc().classList.contains('is-float')); assert.equal(C.q('.lbchat-tocbtn').hidden, true);
   // (c) 条目：问题 / 小标题 / 引用过的帖子（没引用的主要b 不列）；失败那问只有问题
-  // 1028 她：不再挂「问 / H2 / H3 / 帖」小字；帖子序号去掉方括号、单独一段斜体数字（.lbchat-ftoc-n）；问题行 is-q、帖子行 is-post
+  // 1028 作者：不再挂「问 / H2 / H3 / 帖」小字；帖子序号去掉方括号、单独一段斜体数字（.lbchat-ftoc-n）；问题行 is-q、帖子行 is-post
   assert.equal(toc().querySelectorAll('.lbchat-ftoc-tag').length, 0, '没有层级小字');
   const kind = r => (r.classList.contains('is-q') ? 'q' : r.classList.contains('is-post') ? 'post' : 'h');
   const rows = items().map(r => [r.dataset.level, kind(r), r.querySelector('.lbchat-ftoc-n')?.textContent || '', r.querySelector('.lbchat-ftoc-text').textContent]);
@@ -71,7 +71,7 @@ const { tick, src, rel, makePlugin, openChat } = require('./_fake_L2.cjs');
   assert.ok(tocRules.length && tocRules.every(l => !l.includes('sticky')));
   assert.ok(tocRules.some(l => l.startsWith('.lbchat-toc.is-float{') && l.includes('scrollbar-width:none')));
   assert.ok(/\.lbchat \.lbchat-body,[^{]*\{scrollbar-width:none;\}/.test(css));
-  // (j) 1028 她：目录样式——问题加粗大一号墨色；帖子楷体（局部变量）浅灰、行距 1.9、比节标题多缩一级；序号用数字字体斜体；当前那一节墨色细线 + 500，不用紫色
+  // (j) 1028 作者：目录样式——问题加粗大一号墨色；帖子楷体（局部变量）浅灰、行距 1.9、比节标题多缩一级；序号用数字字体斜体；当前那一节墨色细线 + 500，不用紫色
   const rule = sel => { const i = css.indexOf(sel + '{'); assert.ok(i >= 0, '缺规则 ' + sel); return css.slice(i + sel.length + 1, css.indexOf('}', i)); };
   const q = rule('.lbchat-ftoc-item.is-q > .lbchat-ftoc-text');
   assert.ok(q.includes('font-size:var(--lb-fs-body)') && q.includes('font-weight:700') && q.includes('color:var(--lb-ink)'), q);

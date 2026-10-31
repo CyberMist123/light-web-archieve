@@ -197,7 +197,7 @@ def _update_baseline(status, payload):
     """1001 / 10-04 F1：基准（last_favorites）只认「靠得住的全量」。
 
     - 只读到一截（partial）/ 可疑（suspicious）/ 0 条：一律不动基准（不然第二晚再截断就不报了，还会把 expect 带歪）；
-    - 读取服务明说读到底了（stop_reason=has_more_false）：认，哪怕比上次少很多（她真删了收藏）；
+    - 读取服务明说读到底了（stop_reason=has_more_false）：认，哪怕比上次少很多（用户真删了收藏）；
     - 其余：不比基准明显低（≥ BASELINE_DROP_RATIO）才认；明显低于基准、又没读到底的数不参与基准更新。
     以前「连着 3 晚同一个数就认作新基准」会把读取服务每晚只读到的 50 条认成基准（10-03 实证），已去掉；
     suspect_favorites 只记最近几晚读到的可疑条数（给人看），不再拿它顶基准。"""

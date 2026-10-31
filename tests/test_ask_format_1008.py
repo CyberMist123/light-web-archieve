@@ -19,7 +19,7 @@ def test_prompt_carries_task_template_and_image_placeholder_rule(monkeypatch, tm
 
 
 def test_excerpt_tag_carries_image_and_comment_identity():
-    # 1015 第二批：标签改成她看得懂的来源类型名；locate_excerpts 实际给的键是 comment_labels（以前只认 comments，楼号从没带上），
+    # 1015 第二批：标签改成用户看得懂的来源类型名；locate_excerpts 实际给的键是 comment_labels（以前只认 comments，楼号从没带上），
     # 评论另带说话人
     assert ask._excerpt_tag({"field": "ocr", "text": "x", "images": ["图2", "图3"]}) == "[图片文字 图2、图3]"
     assert ask._excerpt_tag({"field": "comments", "text": "x", "comments": ["c5", "c5.1"]}) == "[评论区 c5、c5.1]"

@@ -1,10 +1,10 @@
-"""谁收的（1020 她定）：目录默认只看她自己的收藏，别的按来源分组。
+"""谁收的（1020 作者定）：目录默认只看用户自己的收藏，别的按来源分组。
 
-- 她自己的收藏（收藏同步进来的 / 她在电脑上自己导入的）→ ""（主收藏）
-- 她在 TG 发给 Fable 的链接 → 「fable」（1023 她定：TG 发来的算 Fable；1025 PR① 起不再单独叫「聊天分享」，`domain.via` 记 "tg"）
+- 用户自己的收藏（收藏同步进来的 / 用户在电脑上自己导入的）→ ""（主收藏）
+- 用户在 TG 发给 Fable 的链接 → 「fable」（1023 作者定：TG 发来的算 Fable；1025 PR① 起不再单独叫「聊天分享」，`domain.via` 记 "tg"）
 - Fable 自己逛到收的 → 「fable」
 - CC / GPT 做项目收的 → 项目名（catch --project，比如 graph / ai群聊）；没给项目名就记 actor 名字
-后来她自己收藏了同一篇（meta.favorited_by 有值）→ 回到主收藏。
+后来用户自己收藏了同一篇（meta.favorited_by 有值）→ 回到主收藏。
 规则本体 1025 挪进 `domain.py`（collected_by / clean_project / FABLE / via），这里留转发；`relabel` 有副作用，留在这里。
 """
 from __future__ import annotations
@@ -19,7 +19,7 @@ CHAT_SHARE = "聊天分享"   # 旧分组名（1020–1025），只给认旧值�
 
 def relabel(refs: list[str], *, actor: str | None = None, origin: str | None = None,
             project: str | None = None) -> list[dict[str, Any]]:
-    """改「谁收的」（1020：19 号 CC 调研顺手收的帖被 lwa 记成了她在 TG 分享的）。改 meta + 索引 relations 里对应那行；
+    """改「谁收的」（1020：19 号 CC 调研顺手收的帖被 lwa 记成了用户在 TG 分享的）。改 meta + 索引 relations 里对应那行；
     改完自动重建目录（1023）。project="" 表示清掉项目名。"""
     from . import index as index_mod, storage
     from .adapters import xiaohongshu as xhs

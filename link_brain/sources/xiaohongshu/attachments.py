@@ -289,7 +289,7 @@ def probe_state(obj: Path) -> str:
 
     checked = 入库时网页探测成功，或补查成功且没有未完成的下载；
     unprobed = 入库时被挡 / 早期入库根本没探过 / 补查下到一半失败——都要（再）查；
-    补查过但游客也读不到的仍算 unprobed，每晚重试，直到读到或她删掉这篇。
+    补查过但游客也读不到的仍算 unprobed，每晚重试，直到读到或用户删掉这篇。
     """
     mark = obj / "derived" / "web_recheck.json"
     if mark.exists():
@@ -448,7 +448,7 @@ def recheck(*, limit: int = 0, verbose: bool = False, budget_left=None) -> dict[
 #   只读本地熔断文件；每篇前只读看一眼账号锁（号正被同步 / lwa 占着就收工，别和号的活动从同一个 IP 叠在一起）；
 #   无条件保险丝：连续 2 篇游客读不到 / 游客浏览器自己出错 → 当晚停；游客页上出现验证专用词 → 立刻停、不起浏览器兜底、
 #   登记步骤级 TRANSIENT.WEB_PROBE_BLOCKED。探到附件只登记（--all 去下），不下载。
-#   熔断夜（她 1008 答：照跑）：开关 LWA_GUEST_RECHECK_DURING_HOLD 默认开，开了也守 ≤10 篇、离验证 ≥60 分钟。
+#   熔断夜（作者 1008 答：照跑）：开关 LWA_GUEST_RECHECK_DURING_HOLD 默认开，开了也守 ≤10 篇、离验证 ≥60 分钟。
 # 收尾段（--recheck --logged-in-tail，碰号）：只看游客读不到的，每晚 ≤5 篇；原有门槛一条不少（熔断、账号锁、pace、
 #   撞验证即停）；第一次遇到服务那侧的失败（TIMEOUT / BUSY / 连不上）就收工。
 # 「原帖打不开」终态：登录号落到 /explore 或 /404、页面上没有这条笔记、不是游客、没有登录按钮——两个不同的晚上各看到
@@ -654,7 +654,7 @@ def recheck_tail(*, limit: int = shared.TAIL_LIMIT, verbose: bool = False, budge
         item_id = meta.get("item_id") or domain.item_id(xhs.SOURCE, obj.name)
         from . import restricted
         if restricted.is_restricted(obj.name):
-            continue  # 1011：网页版要验证才能看的，等她点「打开验证」，碰号的补查不替她开页
+            continue  # 1011：网页版要验证才能看的，等用户点「打开验证」，碰号的补查不替用户开页
         fresh = fresh_token(obj.name)
         logged = _probe_logged_in(obj.name, fresh or _old_token(obj, meta))
         out["checked"] += 1
@@ -680,7 +680,7 @@ def recheck_tail(*, limit: int = shared.TAIL_LIMIT, verbose: bool = False, budge
             break
         from . import restricted
         if logged.get("gone_like") and restricted.is_restricted(obj.name):
-            # 1011：读取组件判过「网页版要验证才能看」的——她浏览器里打得开，不是原帖没了：不判「原帖打不开」，等她点「打开验证」
+            # 1011：读取组件判过「网页版要验证才能看」的——用户浏览器里打得开，不是原帖没了：不判「原帖打不开」，等用户点「打开验证」
             shared._write_mark(obj, logged_at=now, error=err[:200], stage="restricted")
             continue
         if logged.get("gone_like"):

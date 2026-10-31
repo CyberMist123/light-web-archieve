@@ -17,5 +17,5 @@
 ## 复审（Opus 复审车，1025）
 修了再合 → 已修：「本机私有路径」补回忽略大小写（旧规则带 `re.I`）；条数 11→12 / 17→16；ARCH-AUDIT 里不存在的 `test_single_source.cjs` 说法删掉；`--write` 默认只接受变少，`--allow-grow` 才接受变多。老问题留后：「手写原子写」正则只认 `.tmp'`，漏 `with_suffix(".tmp")` / `NamedTemporaryFile`，另开 PR 补。
 
-## 待她：一步
+## 待作者：一步
 无。合并后不用部署、不用重建目录。

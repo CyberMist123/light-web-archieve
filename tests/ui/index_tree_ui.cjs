@@ -5,7 +5,7 @@
 //      网格上面一行说清选的是什么；树钉在吸顶区下面、自己滚、不露滚动条
 //   ④ 上面一行：「未归类 N 篇」· 按内容归类的状态 + 按钮 · 「建议新增」chips（点 = 右边看那几篇 + 加进索引 / 不要）
 //   ⑤ AI 建的子类（标「AI 建」，保留 / 不要）· 空分类变淡带 0（删 / 留）· 卡片上「归类…」→ 移到… / 也放进…（选分类小窗，能筛）
-//   ⑥ index-data.json 一变（她保存 索引.md / 后台归完）→ 300ms 后换新，卡片元素不重建
+//   ⑥ index-data.json 一变（用户保存 索引.md / 后台归完）→ 300ms 后换新，卡片元素不重建
 //   ⑦ 窄屏 / 手机：树叠在网格上面、没有横向溢出；⑧ 没有 index-data.json（旧后端）照旧按 cats_order，不出「索引」
 // 截图落 LWA_QA_DIR（不提交、不必逐张看）
 'use strict';
@@ -147,10 +147,10 @@ const calls = async (S, name) => (await S.calls()).filter(c => c[0] === name);
       await clickRow(page, '做饭/家常菜'); await S.settle();
       assert.equal((await cardTitles(page)).length, count('做饭/家常菜'), `${theme}：点「家常菜」右边只剩这几篇`);
       const head = await page.evaluate(() => document.querySelector('.lbi-head').textContent);
-      assert.match(head, /做饭 › 家常菜.*篇.*天天吃的那种/, `${theme}：网格上面一行说清选的是什么 + 她写的说明 ${head}`);
+      assert.match(head, /做饭 › 家常菜.*篇.*天天吃的那种/, `${theme}：网格上面一行说清选的是什么 + 用户写的说明 ${head}`);
       assert.ok(await inIndex(page), `${theme}：点节点不跳出索引视图`);
       assert.match(await page.evaluate(() => document.querySelector('.lbc-count').textContent), new RegExp(`^筛出 ${count('做饭/家常菜')} 篇（共 120）`));
-      // ④ 上面一行（1031 她「懒人，不要出现这么多东西」）：整理分类 · 已归类 · 未归类 · 要她点的状态 · ⋯ 更多 · 完成
+      // ④ 上面一行（1031 作者「懒人，不要出现这么多东西」）：整理分类 · 已归类 · 未归类 · 要用户点的状态 · ⋯ 更多 · 完成
       const bar = await page.evaluate(() => ({ text: document.querySelector('.lbi-bar').textContent, chips: document.querySelectorAll('.lbi-chip').length }));
       assert.match(bar.text, /整理分类已归类 \d+ \/ 120未归类 \d+/, `${theme}：顶条 ${bar.text}`);
       assert.match(bar.text, /还有 3 篇没按内容归，约 ¥0\.02/, `${theme}：按内容归类的状态`);
@@ -198,7 +198,7 @@ const calls = async (S, name) => (await S.calls()).filter(c => c[0] === name);
       await card.locator('.lbc-reclass').click(); await S.settle();
       const menu = await page.evaluate(() => [...document.querySelectorAll('.menu .menu-item-title, .lbc-menu .lbc-menu-item')].map(e => e.textContent));
       assert.deepEqual(menu.slice(0, 3), ['移到…（只放这一类）', '也放进…', '从「家常菜」拿掉（只改分类，帖子还在）'], `${theme}：归类菜单 ${menu}`);
-      // 1015 她：标签逐条列出太长 → 收进「标签 ▸」二级（测试外壳没有 setSubmenu：平铺在「标签」下面、前面空一格）
+      // 1015 作者：标签逐条列出太长 → 收进「标签 ▸」二级（测试外壳没有 setSubmenu：平铺在「标签」下面、前面空一格）
       assert.ok(menu.includes('标签') && menu.includes('　红烧') && menu.includes('　加一个标签…') && !menu.some(t => t.startsWith('标签：')), `${theme}：归类菜单里标签收进二级 ${menu}`);
       await page.evaluate(() => [...document.querySelectorAll('.menu .menu-item, .lbc-menu .lbc-menu-item')].find(e => e.textContent.includes('移到')).click()); await S.settle();
       const pick = await page.evaluate(() => ({ rows: [...document.querySelectorAll('.lbi-pick-row')].map(b => b.textContent), virt: [...document.querySelectorAll('.lbi-pick-row')].some(b => b.dataset.path === '做饭/空气炸锅'),
@@ -208,7 +208,7 @@ const calls = async (S, name) => (await S.calls()).filter(c => c[0] === name);
       const assigned = await calls(S, 'indexAssign');
       assert.deepEqual(assigned[0].slice(2), ['move', '做饭/烘焙'], `${theme}：移到 = indexAssign(ids, 'move', 路径) ${JSON.stringify(assigned)}`);
       assert.equal(await page.evaluate(() => !!document.querySelector('.lbc-dialog-back')), false, `${theme}：选完小窗关掉`);
-      // ⑥ 她改完索引：index-data.json 变了 → 换新，卡片元素不重建
+      // ⑥ 用户改完索引：index-data.json 变了 → 换新，卡片元素不重建
       await clickRow(page, 'AI'); await S.settle();
       await page.evaluate(() => { const c = document.querySelector('.lbc-grid .lbc-card'); c.dataset.keep = '1'; });
       const fresh = makeIndexData(data.items, { rename: '吃饭', running: true });

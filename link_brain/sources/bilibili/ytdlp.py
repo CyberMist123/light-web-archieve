@@ -32,7 +32,7 @@ from . import login
 # 可播放优先：AVC 视频流 + 最好音轨，退到任意视频流 + 音轨，再退到单文件；-S res:1080 按短边限到 1080（竖屏 1080x1920 也对）
 FORMAT = "bv*[vcodec^=avc1]+ba/bv*+ba/b"
 SORT = "res:1080"
-# 1031 她：画质要最高。三档 max | 1080 | 720，默认 max（环境变量 LWA_BILI_QUALITY 可改；sync / 设置页按次传）。
+# 1031 作者：画质要最高。三档 max | 1080 | 720，默认 max（环境变量 LWA_BILI_QUALITY 可改；sync / 设置页按次传）。
 # max = 拿得到的最高分辨率 → 最高帧率 → 同档编码 AV1 > HEVC > AVC（登录且有大会员时 4K / 8K 才会出来），
 # 但要能在 Obsidian（Electron / Chromium）里放：杜比视界排除（Chromium 放不了 DV 的增强层，画面发紫发绿）——
 # 按 yt-dlp 给 B 站格式标的 dynamic_range=DV，再按编码前缀 dvh* / dva* 兜一道；`!=?` 让没这个字段的格式照样能选。
@@ -48,7 +48,7 @@ QUALITY_ARGS = {
 
 
 def normalize_quality(q: Any) -> str:
-    """'1080p' / '1080' / 'MAX' → 三档之一；认不出的回 max（她要最高画质）。"""
+    """'1080p' / '1080' / 'MAX' → 三档之一；认不出的回 max（用户要最高画质）。"""
     s = str(q or "").strip().lower().rstrip("p")
     return s if s in QUALITIES else "max"
 
@@ -257,7 +257,7 @@ def classify_error(stderr: str) -> tuple[str, str]:
     return "TRANSIENT.DOWNLOAD_FAILED", "下载器失败"
 
 
-# 1029 她：收藏同步并行下载。瓶颈是单连接拉 CDN（实测 130–430 KB/s），入库本身几秒——所以只并行 yt-dlp 这一步：
+# 1029 作者：收藏同步并行下载。瓶颈是单连接拉 CDN（实测 130–430 KB/s），入库本身几秒——所以只并行 yt-dlp 这一步：
 # sync 把后面几条先丢进 prefetch，入库照旧一条一条走，走到那条时 run() 直接拿已下好的结果。
 # 同一进程内存登记、不落盘；临时目录照旧归调用方（入库后清），没被领走的由 prefetch_stop 清。
 _PREFETCH: dict[str, Future] = {}
@@ -332,7 +332,7 @@ def _ytdlp(argv: list[str], out_dir: Path, timeout_s: int) -> tuple[int, str, st
 
 
 def _download(url: str, *, log=lambda _m: None, timeout_s: int | None = None, use_cookies: bool = True) -> dict[str, Any]:
-    """1031 她：优先无水印片源。电视端登录过（tvapi）且没关：yt-dlp 只取字幕 / 弹幕 / 封面 / 信息（--skip-download），
+    """1031 作者：优先无水印片源。电视端登录过（tvapi）且没关：yt-dlp 只取字幕 / 弹幕 / 封面 / 信息（--skip-download），
     视频本体走电视端取流；电视端任何一步不成就在同一个目录里让 yt-dlp 照原样把网页流下完（stream=web，tv_error 记原因）。"""
     from . import tvapi
     out_dir = new_tmp_dir()

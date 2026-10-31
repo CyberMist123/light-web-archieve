@@ -1,4 +1,4 @@
-"""批注里 @ 她的 AI（1020 她定）：「@名字」开头的批注 → 交给通知命令送到 AI 那里；AI 的回复落回同一个批注框。
+"""批注里 @ 用户的 AI（1020 作者定）：「@名字」开头的批注 → 交给通知命令送到 AI 那里；AI 的回复落回同一个批注框。
 
 - 打标在前端（annotate-view.js：设置「批注留言对象」填了名字才开，`to_fable=true`）和 `note add`。
 - `note notify`：扫全库 notes.json，没送过的 to_fable 批注一条一条交给通知命令（stdin 一个 JSON），
@@ -7,7 +7,7 @@
 - 通知命令：环境变量 `LINK_BRAIN_NOTIFY_CMD` 优先，其次 `~/.link-brain/notify-cmd.txt` 第一行（同 alert-cmd.txt 的写法）。
   没配就什么都不送、也不记账（配上以后照样补送）。
 - `note reply`：AI 回一条，写进同一个 notes.json（`reply_to` 指着被回的那条，`author` 显示名字），
-  批注框里显示在她那条下面；前端保存时先读盘再合并，所以不会被覆盖。
+  批注框里显示在用户那条下面；前端保存时先读盘再合并，所以不会被覆盖。
 """
 
 from __future__ import annotations
@@ -106,7 +106,7 @@ def pending() -> list[dict[str, Any]]:
 
 def _send(command: str, payload: dict[str, Any]) -> tuple[bool, str]:
     try:
-        # 同 alert._run：命令行是她自己配的，交给 shell 拆（Windows 带引号路径 shlex 拆不对）
+        # 同 alert._run：命令行是用户自己配的，交给 shell 拆（Windows 带引号路径 shlex 拆不对）
         proc = subprocess.run(command, shell=True, input=json.dumps(payload, ensure_ascii=False),
                               capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60)
     except Exception as exc:  # noqa: BLE001 - 一条送不出去不该拖垮整轮

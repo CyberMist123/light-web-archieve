@@ -12,7 +12,7 @@ LB.style('lb-trash-style', `
 /* C1 同理：Dataview 的行内 overflow-x:auto、实时预览 :hover{overflow:hidden} 会让页头吸顶失效 */
 .lb-trashpage .block-language-dataviewjs{overflow:visible!important;}
 .markdown-source-view.lb-trashpage .cm-embed-block.cm-lang-dataviewjs,.markdown-source-view.lb-trashpage .cm-embed-block.cm-lang-dataviewjs:hover{overflow:visible!important;}
-/* 10-04（她定）整页外面那层 dataviewjs 代码块的框隐形 */
+/* 10-04（作者定）整页外面那层 dataviewjs 代码块的框隐形 */
 .lb-trashpage :is(.el-pre:has(.block-language-dataviewjs),pre:has(.block-language-dataviewjs),.block-language-dataviewjs,.cm-embed-block:has(.block-language-dataviewjs),.cm-preview-code-block.cm-lang-dataviewjs),.lb-trashpage :is(.cm-embed-block:has(.block-language-dataviewjs),.cm-preview-code-block.cm-lang-dataviewjs):hover{border:0!important;background:transparent!important;box-shadow:none!important;outline:0!important;border-radius:0!important;}
 .lb-trashpage :is(.cm-embed-block:has(.block-language-dataviewjs),.cm-lang-dataviewjs) .edit-block-button{display:none!important;}
 .lbt-wrap{max-width:820px;margin:0 auto;padding:22px 16px 40px;box-sizing:border-box;font-family:var(--lb-font-body);}

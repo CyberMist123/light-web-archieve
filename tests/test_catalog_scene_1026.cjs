@@ -1,8 +1,8 @@
-// 1026 她的录屏（场景 02 首页编排 / 03 找资料 / 08 首页同步入口）：假 DOM 上真跑整段目录页脚本。
+// 1026 作者的录屏（场景 02 首页编排 / 03 找资料 / 08 首页同步入口）：假 DOM 上真跑整段目录页脚本。
 //   ① 筛选条各维度叠加：平台（B站 / 小红书）→ 主题 → Tag → 类型，一路缩小、前面选的不丢；换到 Wiki 再回瀑布流筛选还在；在 Wiki 里点筛选 = 回瀑布流看结果
-//   ② 最近导入（1027b 她：不要「查看全部」）：折成一行，点开往下是列表，框里滚到底接着出更早的
+//   ② 最近导入（1027b 作者：不要「查看全部」）：折成一行，点开往下是列表，框里滚到底接着出更早的
 //   ③ Wiki = 长期研究主题（标了 [wiki] 的分类：打开 wiki / 看这些帖子 / 生成）；未归类兜底队列一直露着（分类行 0 篇也留着）
-//   ④ 管理（1027b 她：只留 设置 / 索引编辑 / 刷新目录 / 导出资料 / 回收站，设置最上面）；删除一个分类在索引树上右键，说清帖子去哪（并进 / 回到未归类，帖子不删）
+//   ④ 管理（1027b 作者：只留 设置 / 索引编辑 / 刷新目录 / 导出资料 / 回收站，设置最上面）；删除一个分类在索引树上右键，说清帖子去哪（并进 / 回到未归类，帖子不删）
 //   ⑤ 编排：1027 起八个模块平级、拖到任何位置、调宽、就地调整——用例挪到 tests/test_catalog_arrange_1027.cjs
 //   ⑥ 删除后的提示带「打开回收站」
 'use strict';
@@ -27,7 +27,7 @@ const pickMenu = (P, re) => { const b = P.menuItems().find(x => re.test(x.textCo
   // ── ① 维度叠加 ──
   {
     const P = await openCatalog({ data: dataOf(base()), plugin: { settings: { hiddenCats: [] } } });
-    // 1031 她：两个平台时「图文 / 视频」换成一个来源下拉（不带数）
+    // 1031 作者：两个平台时「图文 / 视频」换成一个来源下拉（不带数）
     assert.ok(P.$('.lbc-platpick') && !P.cat('图文') && !P.cat('视频'), '两个平台：来源下拉，图文 / 视频不在顶层');
     P.$('.lbc-platpick').onclick(ev()); assert.deepEqual(P.menuItems().map(x => x.textContent), ['✓ 全部来源', '小红书', 'B站'], '不带数，小红书在前'); pickMenu(P, /^B站$/);
     assert.deepEqual(P.ids().sort(), ['bili-c', 'bili-d', 'bili-e'], 'B站');
@@ -78,7 +78,7 @@ const pickMenu = (P, re) => { const b = P.menuItems().find(x => re.test(x.textCo
     const plugin = { settings: { hiddenCats: [] } };
     const P = await openCatalog({ data: dataOf(items), plugin, files: { '_archive/index-data.json': JSON.stringify(index), 'wiki/咖啡.md': '# 咖啡', '索引.md': '- 咖啡 [wiki]\n- 吃的\n' } });
     assert.ok(P.cat('未归类'), '分类行有未归类');
-    // 1031 她：页头「分类 Wiki」退场——分类的 wiki 在索引编辑里每个分类后面；索引编辑从「管理 → 索引编辑」进，「退出索引编辑」出来
+    // 1031 作者：页头「分类 Wiki」退场——分类的 wiki 在索引编辑里每个分类后面；索引编辑从「管理 → 索引编辑」进，「退出索引编辑」出来
     assert.equal(P.$('.lbc-wiki'), null);
     P.$('.lb-manage').onclick(ev()); await tick(5); pickMenu(P, /^索引编辑$/);
     assert.ok(P.$('.lbc-wrap').classList.contains('is-indexview'));
@@ -103,7 +103,7 @@ const pickMenu = (P, re) => { const b = P.menuItems().find(x => re.test(x.textCo
     const P = await openCatalog({ data: dataOf(base()), plugin, frontmatter: { '回收站.md': { 'lb-page': 'trash' } },
       files: { '回收站.md': '---\nlb-page: trash\n---\n', '_archive/index-data.json': JSON.stringify(index), '_archive/trash-data.json': JSON.stringify({ items: [{ item_id: 'x', has_files: true }, { item_id: 'y', has_files: true }, { item_id: 'z', has_files: false }] }) } });
     P.$('.lb-manage').onclick(ev()); await tick(5);
-    // 1027b 她：管理只留五样，设置在最上面
+    // 1027b 作者：管理只留五样，设置在最上面
     const titles = P.menuItems().map(b => b.textContent);
     assert.deepEqual(titles, ['设置', '索引编辑', '刷新目录（手动）', '导出资料', '回收站（2 篇）']);
     assert.equal(P.dom.document.body.querySelectorAll('.lbc-menu-label').length, 0, '不再分组');

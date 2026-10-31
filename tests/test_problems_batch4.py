@@ -151,7 +151,7 @@ def _blocked(code, account="xhs"):
 def test_record_blocked_by_account_is_needs_human_on_login(pushes):
     sync_state.record("finished", payload=_blocked("CAPTCHA_REQUIRED"))
     sync_state.record("finished", payload=_blocked("CAPTCHA_REQUIRED"))  # 第二晚还是：不重推
-    assert _codes() == [("login", "TRANSIENT.NIGHT_CAPTCHA")] and len(pushes) == 0  # 1019：先冷却自查，不叫她
+    assert _codes() == [("login", "TRANSIENT.NIGHT_CAPTCHA")] and len(pushes) == 0  # 1019：先冷却自查，不叫用户
     assert json.loads(sync_state.path().read_text("utf-8"))["state"] == "blocked"  # sync-status.json 照写
 
 
@@ -388,7 +388,7 @@ def test_item_problems_from_object_files(tmp_path, monkeypatch):
     catalog.build()
     it, _ = _item("v1")
     codes = {p["code"]: p for p in it["problems"]}
-    # 10-04 她定：「视频里没人说话」（no_speech）不上卡片，问题面板里有就够了
+    # 10-04 作者定：「视频里没人说话」（no_speech）不上卡片，问题面板里有就够了
     # 1017：b.webp 精细识别没过、退回第一层不再出「AI 结果不可用」（机读版标识图存疑）
     assert set(codes) == {"NEEDS_HUMAN.AUTH_FAILED", "TRANSIENT.HTTP_5XX", "TRANSIENT.DOWNLOAD_FAILED"}
     assert all(set(p) == {"code", "label", "hover", "group", "action"} for p in it["problems"])
@@ -403,7 +403,7 @@ def test_item_problems_from_object_files(tmp_path, monkeypatch):
 
 
 def test_no_audio_video_gets_no_card_badge(tmp_path, monkeypatch):
-    """10-04 20:00 她定：「视频没有音轨」和「没人说话」一样不上卡片（问题面板照旧由 videos.py 登记）。"""
+    """10-04 20:00 作者定：「视频没有音轨」和「没人说话」一样不上卡片（问题面板照旧由 videos.py 登记）。"""
     monkeypatch.setenv(storage.ENV_VAULT, str(tmp_path))
     _make_object(tmp_path, "v2", title="无声视频", tags=[], summary="", stem="视频v2", kind="video")
     obj = storage.object_dir("xiaohongshu", "v2")

@@ -10,18 +10,18 @@
 //       风控 / 登录类（等你处理组）保持原来的人工按钮，绝不自动处理。
 // 1008（L6）：
 //   B2 隐藏——「已放弃」的行有「隐藏」、组标题旁「全部隐藏（N）」（problems dismiss），列表底部默认收起的「已隐藏 · N」可「恢复显示」
-//      （problems undismiss）；隐藏是她手动、可恢复、照样导出，不弹确认框。已放弃的行按钮叫「再试一次」。
+//      （problems undismiss）；隐藏是用户手动、可恢复、照样导出，不弹确认框。已放弃的行按钮叫「再试一次」。
 //   C20 先画缓存、修完只换那一行——plugin.problemsCache 有就立刻按它画（标题旁「正在刷新…」），后台再读；签名没变只去掉
 //      「正在刷新」，变了整体重画但保住滚动；「现在修」/ 人工按钮结束后只替换那一行（修好的标「✓ 已修好」、不删行免得跳动）。
-//   B1 验证——关窗后熔断还在（verify_result）时多一个「没看到验证，恢复」（plugin.restoreHold，她亲手确认才发）；
+//   B1 验证——关窗后熔断还在（verify_result）时多一个「没看到验证，恢复」（plugin.restoreHold，用户亲手确认才发）；
 //      出事时落了证据（evidence_id）的给「查看截图」（plugin.openRiskEvidence，直接打开本机文件，路径不出本机）。
 //   X8「打开设置」直达 AI 分页（plugin.openSetupPage('ai')）。
-// 1011（她：自愈的就不要显示报错）：已解决 / 轻微的（Python 标 minor：评论楼中楼只缺 ≤2 条）不进列表、不进组计数——只在「复制报错」里。
+// 1011（作者：自愈的就不要显示报错）：已解决 / 轻微的（Python 标 minor：评论楼中楼只缺 ≤2 条）不进列表、不进组计数——只在「复制报错」里。
 //   「现在修」修好的那一行先就地标「✓ 已修好」（点完那一刻不跳），停 RESOLVED_LINGER_MS 后从列表里拿掉（组空了连组标题一起拿掉）。
-// 1017（她：原因清楚的毛病挂在「已放弃」里看着闹心）：分区改按「是什么事」——登录验证 / AI 接口 / 拉取没拿全 / 其他 / 未开启
+// 1017（作者：原因清楚的毛病挂在「已放弃」里看着闹心）：分区改按「是什么事」——登录验证 / AI 接口 / 拉取没拿全 / 其他 / 未开启
 //   （Python 给每行 category）；「等你处理 / 自动处理 / 已放弃」只留在每行自己的状态和按钮上。分区里有能隐藏的，标题旁「全部隐藏（N）」
 //   只隐藏这一区的（problems dismiss --category）。限频冷却这类自己会好的号状态 Python 已标 minor，不画。
-// 1017（她：多条合并一条就行）：Python 把同一种「一篇一条」的毛病并成一行（folded，items = 每一篇），这里在那行下面列每篇
+// 1017（作者：多条合并一条就行）：Python 把同一种「一篇一条」的毛病并成一行（folded，items = 每一篇），这里在那行下面列每篇
 //   （标题 +「查看」，网页版打不开的再加「打开验证」）；某篇修好 Python 就不再给它，全修好整行消失。
 'use strict';
 module.exports = function (obsidian, plugin) {
@@ -300,7 +300,7 @@ module.exports = function (obsidian, plugin) {
         for (const x of list) this.row(sec, x);
       }
       if (hidden.length) {
-        // 默认收起：她隐藏过的条目在这里，可以恢复；同一原因又出现过几次照实写
+        // 默认收起：用户隐藏过的条目在这里，可以恢复；同一原因又出现过几次照实写
         const sec = body.createDiv({ cls: 'lb-problems-group lb-problems-hidden is-hidden-group' });
         const toggle = sec.createEl('button', { cls: 'lb-problems-hidden-toggle', text: `已隐藏 · ${hidden.length}` });
         const list = sec.createDiv({ cls: 'lb-problems-hidden-list' });

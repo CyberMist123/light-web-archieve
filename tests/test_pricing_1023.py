@@ -169,7 +169,7 @@ def test_summary_can_pick_opencode_preset():
     table = ai_config.ai_table(settings)
     assert "cli" in table["caps"]["summaryAI"]["modes"] and "http" in table["caps"]["summaryAI"]["modes"]
     assert "opencode" in [c.get("preset") for c in table["cli"]]
-    # 她自己在问收藏下拉里加的命令行，也列进去给概要选
+    # 用户自己在问收藏下拉里加的命令行，也列进去给概要选
     mine = ai_config.ai_table({"models": [{"name": "OpenCode DS", "mode": "cli", "command": "opencode run -m x/y"}]})
     assert any(c["command"] == "opencode run -m x/y" for c in mine["cli"])
 

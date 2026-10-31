@@ -1,6 +1,6 @@
 # 样式偏差清单（tools/style_audit.py 生成，别手改）
 
-模版见 `docs/style-guide.html`。每一条 = 一处没按模版来；**先列不改**，她定了再按类一批批换。
+模版见 `docs/style-guide.html`。每一条 = 一处没按模版来；**先列不改**，作者定了再按类一批批换。
 注意：目录页边栏四块（RECENT / SYNC / TOKEN / OVERVIEW）和设置页在 1027b 已经把 serif / 数字字体变量改指正文字，
 那里的 A 类条目页面上已经是正文字了（这里按源码列，换的时候顺手删掉旧写法）。
 

@@ -87,7 +87,7 @@ module.exports = function (obsidian, plugin) {
       const c = this.contentEl;
       c.empty();
       c.createEl('h2', { text: '同步记录' });
-      // 10-03（她定）：顶部「立即同步」「改定时」
+      // 10-03（作者定）：顶部「立即同步」「改定时」
       const top = c.createDiv({ cls: 'lb-synclog-top' });
       const task = top.createDiv({ cls: 'lb-synclog-now' });
       const paintTask = () => {

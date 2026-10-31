@@ -73,7 +73,7 @@ function setup({ answers = {}, confirm = true, settings = {}, layoutReady = null
     release(); await tick();
     assert.equal(S.notices.length, shown, '同一批写法提示不重复弹');
   }
-  // 1015：第 4 级并进第 3 级（level=info）是她要的写法，不弹「有 N 处写法要看一眼」
+  // 1015：第 4 级并进第 3 级（level=info）是用户要的写法，不弹「有 N 处写法要看一眼」
   {
     const S = setup({ answers: { 'index build': { ok: true, message: '索引已更新', warnings: [{ line: 40, level: 'info', text: '第 40 行是第 4 级' }] } } });
     S.fire('modify', 'LB/索引.md'); await S.flush(); await tick();

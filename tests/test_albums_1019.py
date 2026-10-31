@@ -121,7 +121,7 @@ def test_sync_named_unknown_board_reads_list_first(reader):
 
 
 def test_captcha_hold_pauses_clears_and_retries(monkeypatch):
-    """1028 她：熔断 → 停 5 分钟 → 解除 → 接着跑；次数用完照旧停车；掉登录不自动接。"""
+    """1028 作者：熔断 → 停 5 分钟 → 解除 → 接着跑；次数用完照旧停车；掉登录不自动接。"""
     from link_brain.sources.xiaohongshu import accounts as acc
     calls, slept = [], []
     state = {"fail": 1}

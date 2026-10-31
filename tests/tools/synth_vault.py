@@ -15,7 +15,7 @@
   · 视频：--videos N 篇视频笔记（默认 3），话题带 --video-tag（默认「健身」），manifest 的 video 条目指向拷进去的 tiny-1s.mp4，
     source.note.video.duration_sec=1。
   · 高亮和批注：每 6 篇有 1 篇正文带 <mark> 高亮（render.set_highlight 真改），notes.json 有两条批注 + 一条删除墓碑（deleted）。
-  · 一篇照她那次改坏的笔记：内容层清空，外面多一行 ==🟡==（给笔记页的「改坏提示」和恢复用）。
+  · 一篇照用户那次改坏的笔记：内容层清空，外面多一行 ==🟡==（给笔记页的「改坏提示」和恢复用）。
   · 1000 篇规模：--n 1000（几分钟）。
 - 星标一部分（notes.json），写 .obsidian：启用 Dataview（刷新 2.5 秒，和作者本机一致）、link-brain-actions（插件从本 worktree 的
   obsidian-plugins/ 拷），CSS 片段。**不再拷贝、启用旧插件 link-brain-native-media-nav**（它开着时并入版 media-nav 会让路，
@@ -299,7 +299,7 @@ def build(n: int, out: Path, dataview_from: Path | None, *, videos: int = 3, vid
         if notes["starred"] or notes["annotations"]:
             storage.write_json(obj / "notes.json", notes)
 
-    # 一篇照她那次改坏的：内容层清空，外面多一行 ==🟡==（挑一篇普通图文笔记）
+    # 一篇照用户那次改坏的：内容层清空，外面多一行 ==🟡==（挑一篇普通图文笔记）
     victim = next((p for p in plan if not p["video"] and p["comments"] == "one" and not p["highlight"] and p["i"] > 0), None)
     if victim:
         meta = storage.read_json(objects / victim["id"] / "meta.json")

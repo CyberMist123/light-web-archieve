@@ -65,7 +65,7 @@ def raw_config(cap: str, settings: dict[str, Any] | None = None) -> dict[str, An
             from .ai_config import endpoint_host
             own_host = endpoint_host(str(own.get("endpoint") or ""))
             if own_host and own_host != endpoint_host(str(text.get("endpoint") or "")):
-                # 1026：「继承」却自带另一家的接口（她的：Gemini 接口 + key 池）——整条按自己的接口走。
+                # 1026：「继承」却自带另一家的接口（用户的：Gemini 接口 + key 池）——整条按自己的接口走。
                 # 以前只把 model 叠到文本 AI 的接口上，gemini-3.5-flash 发给 DeepSeek → HTTP 400（概要 / 细分标签 / 归类都撞）
                 return {**own, "mode": "http"}
             cfg = {k: v for k, v in text.items()}
@@ -115,7 +115,7 @@ def read_key_file(path: str, field: str = "apiKey") -> tuple[dict[str, str] | No
 
 
 # --------------------------------------------------------------------------
-# 1016 key 轮流用（keyPool）：一家给了好几把 key（她的 Gemini 免费 key ×4），设置里写 `"keyPool": "gemini"`。
+# 1016 key 轮流用（keyPool）：一家给了好几把 key（用户的 Gemini 免费 key ×4），设置里写 `"keyPool": "gemini"`。
 # 每次取第一把今天还没用坏的；撞 401 / 403 / 429 / 欠费 → 这把记作今天用坏、换下一把；全坏了才算这一家失败（走备用）。
 # key 来源（ARCH-AUDIT 第 2 批起只有这里一份，夜跑也调它）：
 #   ① 环境变量（名字 = 设置 visionAI.refineKeysEnv，空 = LWA_GEMINI_KEYS；夜跑取到后注入子进程的就是它）

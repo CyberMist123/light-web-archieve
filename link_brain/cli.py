@@ -108,7 +108,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--progress", action="store_true",
                    help="手动抓一篇时 stdout 一行一个进度事件 JSON（等号 / 读评论区 / 下评论图 / 写进笔记），最后一行照旧是结果（插件笔记页画进度用）")
 
-    p = sub.add_parser("note-verify", help="1011：这篇在小红书网页版要验证才能看——开验证窗口到这篇，她过完验证关窗后自动补抓评论 / 附件")
+    p = sub.add_parser("note-verify", help="1011：这篇在小红书网页版要验证才能看——开验证窗口到这篇，你过完验证关窗后自动补抓评论 / 附件")
     p.add_argument("target", help="item_id（xhs-<note_id>）")
     p.add_argument("--wait", action="store_true", help="等窗口关掉再如实回报结果（只轮询读取服务内存状态，不开页）")
 
@@ -145,7 +145,7 @@ def build_parser() -> argparse.ArgumentParser:
     pb.add_argument("--skip-folder", dest="skip_folder", action="append", default=None,
                     help="1031：跳过这些收藏夹（id，可多次；toview = 稍后再看）：不扫、不下")
     pb.add_argument("--allow", action="append", default=None, help="放行这些 BV（不看时长上限，可多次）")
-    # 1031 她：画质默认最高；弹幕默认存
+    # 1031 作者：画质默认最高；弹幕默认存
     pb.add_argument("--quality", choices=("max", "1080", "720"), default=None,
                     help="画质：max 最高（排除杜比视界，同分辨率 AV1 > HEVC > AVC）/ 1080 / 720；默认 max 或 LWA_BILI_QUALITY")
     pb.add_argument("--no-danmaku", dest="no_danmaku", action="store_true", help="不存弹幕（字幕照存）")
@@ -171,7 +171,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--actor", default="system")
     p.add_argument("--dry-run", dest="dry_run", action="store_true")
 
-    p = sub.add_parser("relabel", help="改「谁收的」（meta + 索引）：比如 AI 调研收的帖被记成了她分享的；改完跑 catalog")
+    p = sub.add_parser("relabel", help="改「谁收的」（meta + 索引）：比如 AI 调研收的帖被记成了你分享的；改完跑 catalog")
     p.add_argument("items", nargs="+", help="笔记 id（xhs- 前缀可省）")
     p.add_argument("--actor", help="human 或 ai:<name>")
     p.add_argument("--origin", choices=ORIGINS)
@@ -212,7 +212,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--since", help="入库日期从（YYYY-MM-DD）")
     p.add_argument("--until", help="入库日期到（YYYY-MM-DD）")
     p.add_argument("--tag", help="按标签（整词优先、无则包含）")
-    p.add_argument("--album", help="按她的小红书专辑（整名优先、无则包含）")
+    p.add_argument("--album", help="按你的小红书专辑（整名优先、无则包含）")
     p.add_argument("--limit", type=int, default=30)
     p.add_argument("--offset", type=int, default=0)
     p.add_argument("--json", action="store_true", help="机器可读版")
@@ -344,7 +344,7 @@ def build_parser() -> argparse.ArgumentParser:
     from . import indextree, wiki as wiki_mod
     indextree.add_parser(sub)
     wiki_mod.add_parser(sub)
-    # 10-29 个人 Wiki（PersonalWiki/，她自己写的页；和上面的节点 wiki 是两回事）
+    # 10-29 个人 Wiki（PersonalWiki/，用户自己写的页；和上面的节点 wiki 是两回事）
     from . import personal_wiki
     personal_wiki.add_parser(sub)
 

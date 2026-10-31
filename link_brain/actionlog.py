@@ -6,7 +6,7 @@
 落在 `~/.link-brain/account-actions.jsonl`（本机，不进 vault、不进 git），一行一条：
   {"ts", "action", "trigger", "item", "ok", "code", "error_code", "reject", "secs", "detail", ...}
 - action：favorites（读收藏列表）· note（只开笔记正文）· comments（滚评论 / 展开楼中楼）· attachments · search_token · login_check · 其他按接口名
-- trigger：谁让做的——环境变量 LWA_TRIGGER（夜跑 / 补评论 / 交替抓取 / 她点的）> 账号锁的持有者 > 进程命令行
+- trigger：谁让做的——环境变量 LWA_TRIGGER（夜跑 / 补评论 / 交替抓取 / 用户点的）> 账号锁的持有者 > 进程命令行
 - error_code / reject：从读取服务报错里取的小红书 error_code（300011 / 300013 …）与被拒接口种类（sub_comments …）
 
 写不进去绝不影响主流程。超过 5 MB 轮转成 .1（只留一份）。

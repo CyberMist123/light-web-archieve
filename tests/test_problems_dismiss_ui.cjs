@@ -195,7 +195,7 @@ async function pluginTests() {
   await tick(5);
   assert.equal(calls.length, 1, '缓存里的不起进程');
   assert.ok(box2.textContent.includes('3 分钟前确认'), box2.textContent);
-  // 1027b 她：登着时卡片上不另放「换个账号」大按钮；⋯ 里是 状态检查 / 切换账号 / 退出账号，各一处（设置页卡片和「＋ → 账号登录 / 换号」同一套）
+  // 1027b 作者：登着时卡片上不另放「换个账号」大按钮；⋯ 里是 状态检查 / 切换账号 / 退出账号，各一处（设置页卡片和「＋ → 账号登录 / 换号」同一套）
   const cardBox = dom.document.body.createDiv();
   p.renderAccountRow(cardBox, { id: 'xhs', name: '小红书', status: (pl, deep) => pl.accountStatus({ deep }) }, { inCard: true });
   await tick(5);
@@ -229,7 +229,7 @@ async function pluginTests() {
   await p.restoreHold();
   assert.equal(JSON.stringify(calls.at(-1).args), JSON.stringify(['login', '--clear-hold', '--by-owner', '--json']));
   assert.ok(confirms[0].body.includes('「收藏」页签'));
-  // 10-26 她截图：账号面板写着「点『没看到验证，恢复』」却没有这个按钮——关窗后熔断还在时账号行也要给，已登录时不给
+  // 10-26 用户截图：账号面板写着「点『没看到验证，恢复』」却没有这个按钮——关窗后熔断还在时账号行也要给，已登录时不给
   const restoreBtn = bx => [...bx.querySelectorAll('button')].find(b => b.textContent === '没看到验证，恢复');
   const shown = b => !!b && b.isShown();
   p.accountCache = { row: { state: 'captcha', verify_result: 'no_captcha_seen', message: '窗口里没出现验证，暂停还在', next_step: '如果你确实没看到滑块：点「没看到验证，恢复」' }, at: Date.now(), deep: false };
@@ -263,11 +263,11 @@ async function pluginTests() {
   assert.equal(Plugin.lastRiskNote({ last_risk: { at: '2026-01-01T00:00:00Z', open: false } }), '');
   assert.equal(Plugin.lastRiskNote({}), '');
   const src = fs.readFileSync(path.join(ROOT, PLUGIN_DIR, 'main.js'), 'utf8');
-  assert.ok(!/syncNow\(\)\s*\{[^}]*cooldown/.test(src), '不加冷却闸（她 1008 答）');
+  assert.ok(!/syncNow\(\)\s*\{[^}]*cooldown/.test(src), '不加冷却闸（作者 1008 答）');
   console.log('PASS account row S4: shallow by default (20s, single-flight), 10-min cache paints N 分钟前确认 with 0 spawns, account event invalidates, 重新检查 deep; openVerify --wait; restoreHold confirms first; evidence by name only; sync row says 上次 HH:MM 判到验证');
 }
 
-// 1015（她截图：「等你处理 · 0」下面还挂着两张卡）：修一条的同时别的行也没了（同一次熔断解除，ACCOUNT_RISK / RISK_HOLD
+// 1015（用户截图：「等你处理 · 0」下面还挂着两张卡）：修一条的同时别的行也没了（同一次熔断解除，ACCOUNT_RISK / RISK_HOLD
 // 一起解决）——不能只换 key 那一行、留下不存在的卡片；整体重画，空组不出现。
 async function staleRowsTest() {
   const dom = makeDom(), notices = [];
@@ -295,7 +295,7 @@ async function staleRowsTest() {
   console.log('PASS problems 1015: repair while other rows vanished repaints (no stale card under 等你处理 · 0)');
 }
 
-// 1017（她：多条合并一条）：Python 并好的一行（items）在面板里列每一篇：标题 +「查看」，网页版打不开的多「打开验证」
+// 1017（作者：多条合并一条）：Python 并好的一行（items）在面板里列每一篇：标题 +「查看」，网页版打不开的多「打开验证」
 async function foldedRowTest() {
   const dom = makeDom(), notices = [];
   const obsidian = fakeObsidian(dom, notices);

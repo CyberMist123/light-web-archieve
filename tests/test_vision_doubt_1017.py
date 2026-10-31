@@ -172,7 +172,7 @@ def test_old_rows_resolved_on_panel_read(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv(storage.ENV_VAULT, str(tmp_path))
     a = problems.report("vision.refine", REFINE, "image-006.webp：出现复读；…已退回第一层识图结果", item_id="xhs-a")
     b = problems.report("vision.refine", REFINE, "image-002.webp：出现复读", item_id="xhs-b")
-    problems.dismiss(key=b["key"])  # 她隐藏过的那几条一样收掉
+    problems.dismiss(key=b["key"])  # 用户隐藏过的那几条一样收掉
     problems.report("ai.refine", "TRANSIENT.HTTP_429", "限流")  # 接口那一侧的照旧
     problems.report("vision.refine", "PERMANENT.CONTENT_FILTERED", "审核拦下", item_id="xhs-c")  # 别的码不碰
     assert cli.main(["problems", "list"]) == 0

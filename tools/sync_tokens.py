@@ -4,7 +4,7 @@
 - CSS 变量 + 共用类：源 link_brain/assets/lb-tokens.css（整份就是一块 /* lb-tokens:begin ... lb-tokens:end */），
   副本在 lb-page-lib.js 的 LB_SHARED_CSS（页面自己注入 head，手机上没有插件也有）、插件 styles.css（设置页）、
   link-brain.css 和它的逐字副本 note.css（笔记页的 CSS 片段，手机上也加载）。
-- 她的「Aa 样式」→ 行内变量的那段 JS：源在 lb-page-lib.js 的 /* lb-theme:begin ... lb-theme:end */，
+- 用户的「Aa 样式」→ 行内变量的那段 JS：源在 lb-page-lib.js 的 /* lb-theme:begin ... lb-theme:end */，
   副本在插件 lb-theme.js（设置页 / 插件侧用同一套换算）。
 副本里只替换标记之间那一段，标记外面的东西不动。tests/test_tokens_1027.py 锁住逐字相同。
 """

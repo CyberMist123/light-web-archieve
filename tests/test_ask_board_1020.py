@@ -26,7 +26,7 @@ def test_board_format_block_only_when_report_switch_and_board_skill():
 
 
 def test_research_skill_no_longer_claims_deep_report():
-    """1020 她：问题里写「深度报告」被路由成调研对比，出了表格 + 大段文字。报告改由页面开关触发。"""
+    """1020 作者：问题里写「深度报告」被路由成调研对比，出了表格 + 大段文字。报告改由页面开关触发。"""
     r = {s["id"]: s for s in skills.load_all()[0]}["research"]
     assert "深度报告" not in r["description"] and "深度报告" not in r["aliases"]
 
@@ -74,7 +74,7 @@ def test_unseen_links_checks_bare_domains_in_board_rows():
 
 
 def test_report_mode_reads_tentative_sources_too(monkeypatch):
-    """1020 她：报告版比普通回答薄（只读了 3 篇）。报告模式把判定「沾边」的篇也送读（上限同 SELECT_HARD_MAX），普通回答不变。"""
+    """1020 作者：报告版比普通回答薄（只读了 3 篇）。报告模式把判定「沾边」的篇也送读（上限同 SELECT_HARD_MAX），普通回答不变。"""
     items = [{"id": str(i), "title": f"播客清单 {i}", "tags": [], "summary": "", "note": f"{i}.md", "url": "",
               "search_fields": {"body": f"推荐播客 {i}：节目甲、节目乙。"}} for i in range(8)]
     monkeypatch.setattr(ask, "load_items", lambda: [dict(x) for x in items])
@@ -92,7 +92,7 @@ def test_report_mode_reads_tentative_sources_too(monkeypatch):
 
 
 def test_board_images_map_post_and_comment_images(tmp_path):
-    """1020 她：问游戏的报告没把评论区的图放进去。报告里 [看图：来源N 评论cX的图N] / [看图：来源N 图M] → 同一行里的 ![[路径|配图]]
+    """1020 作者：问游戏的报告没把评论区的图放进去。报告里 [看图：来源N 评论cX的图N] / [看图：来源N 图M] → 同一行里的 ![[路径|配图]]
     （不换行，否则会把陈列那一行切断）；评论区的图按证据片段 images ↔ assets 对应找文件，对不上的删掉。"""
     from link_brain import storage
     obj = storage.vault_root() / "_archive" / "xiaohongshu" / "abc"

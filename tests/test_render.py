@@ -81,7 +81,7 @@ def test_visible_filename_is_clean_title(tmp_path):
     )
     assert render_mod.resolve_visible_path(vd, "标题", "0000000000000000deadbeef", item).name == "标题.md"
 
-    # Owner 手写的同名老文件（没有 link_brain 块）→ 退回后缀名，绝不覆盖她的东西
+    # Owner 手写的同名老文件（没有 link_brain 块）→ 退回后缀名，绝不覆盖用户的东西
     (vd / "标题.md").write_text("我手写的笔记\n", encoding="utf-8")
     assert (
         render_mod.resolve_visible_path(vd, "标题", "0000000000000000deadbeef", item).name
@@ -231,7 +231,7 @@ def test_rerender_keeps_owner_highlights_in_body(tmp_path, monkeypatch):
 
     after = md_path.read_text(encoding="utf-8")
     marked = f"<mark>{render_mod._safe(phrase)}</mark>"
-    assert marked in after, "重渲染之后她划的重点应该还在"
+    assert marked in after, "重渲染之后用户划的重点应该还在"
     assert after.count(marked) == 1, "不该重复包"
 
 

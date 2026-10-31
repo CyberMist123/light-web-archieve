@@ -1,4 +1,4 @@
-// provider-icons.js — 本机 AI 应用 / 服务商的图标（1018 她：图标照 Claudian 的，别自己画）。
+// provider-icons.js — 本机 AI 应用 / 服务商的图标（1018 作者：图标照 Claudian 的，别自己画）。
 // SVG 数据原样取自 Claudian src/shared/icons.ts（https://github.com/YishenTu/claudian），MIT License，Copyright (c) 2025 Yishen Tu：
 //   Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files
 //   (the "Software"), to deal in the Software without restriction ... The above copyright notice and this permission notice shall be

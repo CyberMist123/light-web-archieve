@@ -84,7 +84,7 @@ def test_partial_with_failed_notes_still_one_row_and_no_retry_code(env, capsys):
 
 
 @pytest.mark.parametrize("payload,last,want", [
-    ({"favorites_total": 1059, "stop_reason": "has_more_false", "partial": False}, 1159, 1059),   # 她真删了：认
+    ({"favorites_total": 1059, "stop_reason": "has_more_false", "partial": False}, 1159, 1059),   # 用户真删了：认
     ({"favorites_total": 1120, "stop_reason": "budget", "partial": True, "suspicious": "x"}, 1159, 1159),  # 一截：不认
     ({"favorites_total": 1170, "stop_reason": "budget", "partial": True, "suspicious": "x"}, 1159, 1159),  # 一截哪怕更多：不认
     ({"favorites_total": 1100, "stop_reason": "stable", "partial": False}, 1159, 1159),  # 明显低于基准（<95%）没读到底：不认

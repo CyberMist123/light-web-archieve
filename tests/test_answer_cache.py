@@ -171,7 +171,7 @@ def test_corrupt_prompt_equals_empty_index_prompt(monkeypatch, model):
     ask.answer(Q_OTHER)                      # 空索引 → 基线
     ac.index_path().write_text("{坏", encoding="utf-8")
     ask.answer(Q_OTHER)                      # 坏索引
-    answers = [m for m in model if m.startswith("【她的原话】")]   # 第一次调用是判定选篇，作答那次才比
+    answers = [m for m in model if m.startswith("【用户的原话】")]   # 第一次调用是判定选篇，作答那次才比
     assert len(answers) == 2 and answers[0] == answers[1]
     assert ac.index_path().with_name("answers.json.corrupt").read_text(encoding="utf-8") == "{坏"
 

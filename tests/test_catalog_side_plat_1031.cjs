@@ -1,4 +1,4 @@
-// 1031 她：目录页左侧栏分平台看（小红书 / B 站）——假 DOM 上真跑整段目录页脚本。
+// 1031 作者：目录页左侧栏分平台看（小红书 / B 站）——假 DOM 上真跑整段目录页脚本。
 //   ① 只有一个平台的库：SYNC / OVERVIEW 小标题行不出切换，Token 照常
 //   ② 两个平台：SYNC、OVERVIEW 标题行各一个「小红书 / B 站」（同一个状态，存 LB.state，返回后还在），默认小红书
 //   ③ 切到 B 站：SYNC 读 _archive/bilibili-sync/last-sync.json——上次同步、这次新下 / 失败、「手动同步 · 不定时」、「去同步 →」（openBiliSync），

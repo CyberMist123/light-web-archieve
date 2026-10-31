@@ -1,4 +1,4 @@
-"""索引树 10-11：解析器认她的真实写法 + 按内容归类（假模型）+ 建议新增 / AI 建子类 + 手动改归属 + 空节点。
+"""索引树 10-11：解析器认用户的真实写法 + 按内容归类（假模型）+ 建议新增 / AI 建子类 + 手动改归属 + 空节点。
 
 全部走 tmp vault，模型一律换成假的（`indexai._call`），按标题里的关键词给答案，同时记下每次调用（验「不重复花钱」）。
 """
@@ -36,7 +36,7 @@ def write_index(vault: Path, text: str):
     (vault / "索引.md").write_bytes(text.encode("utf-8"))
 
 
-# 照她真文件的样子：前面一句需求、Tab 缩进的树、括号说明、占位、第 4 级、后面几行零散说明
+# 照用户真文件的样子：前面一句需求、Tab 缩进的树、括号说明、占位、第 4 级、后面几行零散说明
 OWNER = (
     "%%\n写法说明\n%%\n\n"
     "需求：最多3级分类，分类可以兼容，一个帖子可以多个分类\n\n"
@@ -275,7 +275,7 @@ def test_full_run_classifies_by_content_facets_proposals_and_caches(vault, fake)
     # 有 AI 结果的篇不再按名字字面找：普通游戏攻略不进「AI/ai功能/游戏」
     assert R["AI/ai功能/游戏"]["items"] == ["xhs-0010"]
     assert R["游戏/游戏/宫崎英高"]["items"] == ["xhs-0009"]
-    # 10-11 她：树只来自 索引.md——AI 不再往树里建子类；「菜谱」下面是细分标签（多选：空气炸锅烤鸡 = 空气炸锅 + 鸡肉）
+    # 10-11 作者：树只来自 索引.md——AI 不再往树里建子类；「菜谱」下面是细分标签（多选：空气炸锅烤鸡 = 空气炸锅 + 鸡肉）
     assert not any(n.get("virtual") for n in data["nodes"]) and "美食/菜谱/空气炸锅菜" not in R
     facets = {f["name"]: f for f in R["美食/菜谱"]["facets"]}
     # 1015：只有 2 篇的「鸡肉」收进末尾的「其他」
@@ -308,7 +308,7 @@ def test_new_node_only_asks_about_that_node_and_new_note_only_itself(vault, fake
     write_index(vault, OWNER)
     indexai.run(vault)
     n = len(fake.calls)
-    # 她加了一个节点：只问「哪些属于它」，不整篇重判
+    # 用户加了一个节点：只问「哪些属于它」，不整篇重判
     write_index(vault, OWNER.replace("\t\t综合\n", "\t\t综合\n\t\t澳洲超市好物\n"))
     est = indexai.estimate(vault)
     assert est["full"] == 0 and est["changed"] == ["美食/澳洲超市好物"] and est["work"] >= len(ITEMS)
@@ -374,7 +374,7 @@ def test_auto_run_respects_budget(vault, fake, monkeypatch):
     data = it.load(vault, fresh=False)
     assert data["classify"]["blocked"]["pending"] == len(ITEMS)
     assert it.maybe_classify(vault, data) == "over-budget"
-    assert indexai.run(vault)["full"] == len(ITEMS)           # 她手动点：不受自动上限管
+    assert indexai.run(vault)["full"] == len(ITEMS)           # 用户手动点：不受自动上限管
 
 
 def test_no_model_configured_keeps_rules_and_says_why(vault, monkeypatch):
@@ -399,7 +399,7 @@ def test_manual_move_add_remove_undo_win_over_ai(vault, fake):
     assert data["assign"]["xhs-0006"] == ["AI/ai功能/游戏"] and "xhs-0006" not in rows(data)["游戏/游戏"]["items"]
     indexai.assign(["xhs-0006"], "add", "游戏/游戏推荐", vault)
     assert sorted(it.load(vault, fresh=False)["assign"]["xhs-0006"]) == ["AI/ai功能/游戏", "游戏/游戏推荐"]
-    # AI 重跑也压不过她（换了内容让它重判）
+    # AI 重跑也压不过用户（换了内容让它重判）
     items2 = [dict(x, summary="改过的概要") if x["id"] == "xhs-0006" else x for x in ITEMS]
     write_catalog(vault, items2, built_at="2026-10-11T02:00:00+11:00")
     indexai.run(vault)
@@ -431,7 +431,7 @@ def test_accept_proposal_writes_index_keep_format_and_no_rebilling(vault, fake):
     assert R["游戏/游戏/空洞骑士"]["count"] == 6 and R["游戏/游戏"]["count"] == 7
     assert "空洞骑士" not in {p["name"] for p in data["proposals"]}
     assert list((vault / "_archive" / "index-history").glob("索引-*-accept.txt"))
-    # 根上的建议：插在树的最后一行后面（不插到她末尾的说明下面）
+    # 根上的建议：插在树的最后一行后面（不插到用户末尾的说明下面）
     root = next(p for p in it.load(vault, fresh=False)["proposals"] if p["name"] == "澳洲超市好物")
     assert it.accept_proposal(root["id"], vault)["ok"]
     raw = (vault / "索引.md").read_bytes().decode("utf-8")
@@ -502,7 +502,7 @@ def test_post_tags_incremental_manual_history_restore(vault, fake):
     assert fake.calls[n:].count("tags") == 1
     F = {f["name"]: f for f in rows(it.load(vault, fresh=False))["美食/菜谱"]["facets"]}
     assert "xhs-0022" in F["空气炸锅"]["items"]
-    # 她手动：加一个新标签、去掉 AI 打的 = 改帖子的标签（human）；AI 重打压不过；能撤销；历史一行不少
+    # 用户手动：加一个新标签、去掉 AI 打的 = 改帖子的标签（human）；AI 重打压不过；能撤销；历史一行不少
     r = indexai.set_facet(["xhs-0001"], "美食/菜谱", "add", "东北菜", vault)
     assert r["ok"] and r["undo"].startswith("t:")
     assert it.load(vault, fresh=False)["item_tags"]["xhs-0001"] == ["菜谱", "东北菜"]
@@ -512,7 +512,7 @@ def test_post_tags_incremental_manual_history_restore(vault, fake):
     assert "鸡肉" not in {f["name"] for f in rows(it.load(vault, fresh=False))["美食/菜谱"]["facets"]}
     items2 = [dict(x, summary="改过的概要") if x["id"] == "xhs-0016" else x for x in more]
     write_catalog(vault, items2, built_at="2026-10-11T05:00:00+11:00")
-    indexai.run(vault)                                            # AI 重打这一篇也压不过她
+    indexai.run(vault)                                            # AI 重打这一篇也压不过用户
     assert "鸡肉" not in it.load(vault, fresh=False)["item_tags"]["xhs-0016"]
     assert indexai.assign([], "undo", r["undo"], vault)["ok"]
     assert "东北菜" not in it.load(vault, fresh=False)["item_tags"].get("xhs-0001", [])

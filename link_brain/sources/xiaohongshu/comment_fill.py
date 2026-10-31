@@ -1,9 +1,9 @@
 """评论补齐（1009 Owner）：设置里「评论楼层」选 N = 前 N 楼的评论、每楼全部楼中楼都要抓全。
 
-她的规则（10-09 晚）：
+作者的规则（10-09 晚）：
 - 楼数 = 至少抓到这么多。调小不删已抓的（续读一律并集合并，删掉的评论也留着）；调大 = 旧笔记自动排进后台续读，补到新楼数。
-- 同步读不完的自动续读直到补齐，不靠她手点；缺口 > 0 的每晚都续；连着几次补不上才进问题面板，照实说原因。
-- 碰号照旧：读取服务的熔断 / 开页间隔 / 账号锁一样不少。撞验证就停，等她过完验证自动接着跑；夜跑在跑时让路。
+- 同步读不完的自动续读直到补齐，不靠用户手点；缺口 > 0 的每晚都续；连着几次补不上才进问题面板，照实说原因。
+- 碰号照旧：读取服务的熔断 / 开页间隔 / 账号锁一样不少。撞验证就停，等用户过完验证自动接着跑；夜跑在跑时让路。
 
 缺口按**存下来的评论**现算（不靠读取组件当时报的 comment_load）：前 N 楼里「原站显示的回复数 > 存下的回复数」就是缺口。
 10-08 以前入库的笔记没有 comment_load，以前的续读只认 comment_load 里的缺口，这批（10-09 实查 195 篇、5863 条）永远排不上——这就是漏的根因。
@@ -187,7 +187,7 @@ def expand_window_resume(source: dict[str, Any], targets: list[str]) -> str | No
 # （「缺 53 → 53」「缺 213 → 213」原地打转）。现在把每楼存下的最后一条回复当游标交给读取组件，它点之前把页面里
 # 这楼的游标改过去，站点就从那里接着往后拉（读取组件 reader-10 起认 expand_resume，老组件忽略即从头展开）。
 
-SUB_LIMIT_MAX = 150  # 1029 她：120 测过没撞墙，试 120–150；和读取组件 sub_budget.go 的 subLimitMax 一起改
+SUB_LIMIT_MAX = 150  # 1029 作者：120 测过没撞墙，试 120–150；和读取组件 sub_budget.go 的 subLimitMax 一起改
 SUB_PER_HOUR = 30  # 读取组件楼中楼闸：每小时最多点几次「展开回复」（XHS_SUB_PER_HOUR，同 reader 的默认）
 
 
@@ -259,7 +259,7 @@ REPLIES_PER_CLICK = 5  # 站点每点一次「展开回复」大约给几条（n
 
 
 def fill_plan(source: dict[str, Any], state: dict[str, Any] | None = None, floors: int | None = None) -> dict[str, Any]:
-    """1018 她：一级评论拉完之后，把要展开的楼列成计划——哪些楼、各缺多少、预计点几次、要多久。读全了的楼不在里面（不碰）。"""
+    """1018 作者：一级评论拉完之后，把要展开的楼列成计划——哪些楼、各缺多少、预计点几次、要多久。读全了的楼不在里面（不碰）。"""
     floors = floors or FLOOR_ALL
     sc = scope(source, floors, state or {})
     comments = (source.get("comments") or [])[:floors]
@@ -361,14 +361,14 @@ def last_open(source: dict[str, Any], state: dict[str, Any]) -> datetime | None:
               _parse((cap.get("comment_load") or {}).get("fill_last_at"))]
     sid = source.get("source_id")
     if sid:
-        # 1011：她在验证窗口里刚开过这篇——同一篇照旧隔 45 分钟再开（别让补抓紧跟着验证窗口）
+        # 1011：用户在验证窗口里刚开过这篇——同一篇照旧隔 45 分钟再开（别让补抓紧跟着验证窗口）
         from . import restricted
         stamps.append(_parse(restricted.load(sid).get("verified_at")))
     stamps = [s for s in stamps if s]
     return max(stamps) if stamps else None
 
 
-# 1016（她：已放弃的不要放弃）：补不上的不再永久停，按 3 / 7 / 14 天慢慢再试一次（之后每 14 天一次）。
+# 1016（作者：已放弃的不要放弃）：补不上的不再永久停，按 3 / 7 / 14 天慢慢再试一次（之后每 14 天一次）。
 STUCK_RETRY_DAYS = (3, 7, 14)
 
 # 1016：这些停因说明这次根本没真去点（楼中楼闸关着 / 预算 / 限频 / 风控停下），不算「续读没多拿到」。
@@ -387,7 +387,7 @@ def stuck_retry_due(state: dict[str, Any], now: datetime | None = None) -> bool:
 
 
 def is_skipped(state: dict[str, Any]) -> bool:
-    """1029 她：这篇不补了（撞过风控的那篇）——后台补评论永远跳过，手动「现在抓全部评论」照跑。`comments <id> --unskip` 撤回。"""
+    """1029 作者：这篇不补了（撞过风控的那篇）——后台补评论永远跳过，手动「现在抓全部评论」照跑。`comments <id> --unskip` 撤回。"""
     return bool(state.get("skip"))
 
 
@@ -397,7 +397,7 @@ def set_skip(item_id: str, on: bool, reason: str = "") -> dict[str, Any]:
     source_key = {"xhs": "xiaohongshu"}.get(source_key, source_key)
     state = load_state(source_key, source_id)
     if on:
-        state.update(skip=True, skip_at=_now().isoformat(timespec="seconds"), skip_reason=reason or "她说不补了")
+        state.update(skip=True, skip_at=_now().isoformat(timespec="seconds"), skip_reason=reason or "你说不补了")
     else:
         for k in ("skip", "skip_at", "skip_reason"):
             state.pop(k, None)
@@ -432,7 +432,7 @@ def current_source(source_key: str, source_id: str) -> tuple[dict[str, Any], dic
     return meta, source
 
 
-# 1018 她：指定帖子（--only）的开页节奏「20 分钟最多 2 次」——上一趟结束隔 ONLY_GAP_MIN 分钟再开，且 20 分钟内已开过 2 次就等
+# 1018 作者：指定帖子（--only）的开页节奏「20 分钟最多 2 次」——上一趟结束隔 ONLY_GAP_MIN 分钟再开，且 20 分钟内已开过 2 次就等
 ONLY_GAP_MIN = 10
 ONLY_WINDOW_MIN, ONLY_MAX_OPENS = 20, 2
 
@@ -447,7 +447,7 @@ def opens_within(state: dict[str, Any], minutes: int, now: datetime | None = Non
 def survey(floors: int | None = None, now: datetime | None = None, gap_min: int | None = None,
            window: tuple[int, int] | None = None) -> dict[str, Any]:
     """全库还有哪些篇要续：ready（现在就能续，缺得少的在前）/ cooling（同一篇 45 分钟内刚开过）/ stuck（进了问题面板）/
-    restricted（1011：网页版要验证才能看，等她点「打开验证」，不再自动开页）。
+    restricted（1011：网页版要验证才能看，等用户点「打开验证」，不再自动开页）。
     gap_min / window（1018，--only 用）：同一篇隔几分钟再开、(分钟, 最多几次) 窗口内开页次数上限。"""
     from . import restricted as restricted_mod
     floors = floors or floor_target()
@@ -515,7 +515,7 @@ def fill_one(item_id: str, *, floors: int | None = None, verbose: bool = False, 
     """续读一篇：按 plan_fill 选 expand / floors，抓完和旧的并集合并（新 RAW 版本只在真多拿到东西时才写），
     记续读状态，补齐了消问题、连着补不上进问题面板，最后重渲染可见页。碰号：调用方要拿着账号锁。
 
-    manual=True（她点的「再试一次 / 现在抓全部评论」）：不看 45 分钟间隔、不看「已放弃」，照跑一次。"""
+    manual=True（用户点的「再试一次 / 现在抓全部评论」）：不看 45 分钟间隔、不看「已放弃」，照跑一次。"""
     from ... import catch as catch_mod, ingest as ingest_mod, index as index_mod, problems
     floors = floors or floor_target()
     conn = index_mod.connect()
@@ -538,7 +538,7 @@ def fill_one(item_id: str, *, floors: int | None = None, verbose: bool = False, 
             _settle(source_key, source_id, state, item_id, problems)
         return {**base, "filled": False, "missing_after": 0, "reason": "没有缺口", "refreshed_unchanged": True}
     if not manual and is_skipped(state):
-        return {**base, "filled": False, "missing_after": sc["missing"], "reason": "这篇她说不补了"}
+        return {**base, "filled": False, "missing_after": sc["missing"], "reason": "这篇你说不补了"}
     if not manual and is_stuck(state, floors):
         return {**base, "filled": False, "missing_after": sc["missing"], "reason": "连着几次补不上，已记进问题面板"}
 
@@ -546,7 +546,7 @@ def fill_one(item_id: str, *, floors: int | None = None, verbose: bool = False, 
     from . import restricted
     from . import adapter as xhs
     if not manual and restricted.is_restricted(source_id):
-        # 1011：网页版要验证才能看的，等她点「打开验证」，后台不再自动开页
+        # 1011：网页版要验证才能看的，等用户点「打开验证」，后台不再自动开页
         return {**base, "filled": False, "missing_after": sc["missing"], "restricted": True, "reason": restricted.TEXT}
 
     # 1017 断点续展：上次带游标续了却一条没多拿到（游标那条被删了之类），这次从头展开一次
@@ -580,7 +580,7 @@ def fill_one(item_id: str, *, floors: int | None = None, verbose: bool = False, 
     else:
         restricted.clear(source_id, item_id=item_id, why="评论续读打开了这篇")
     if summary.get("status") == "trashed":
-        # 1025 第二波 PR⑤a：续读的时候她把这篇删了——没发布新版本，别再读状态 / 重渲染一篇已进回收站的
+        # 1025 第二波 PR⑤a：续读的时候用户把这篇删了——没发布新版本，别再读状态 / 重渲染一篇已进回收站的
         return {**base, "filled": False, "trashed": True, "missing_after": sc["missing"]}
     meta2, source2 = current_source(source_key, source_id)
     now = _now().isoformat(timespec="seconds")
@@ -718,7 +718,7 @@ def view_for_render(source: dict[str, Any], state: dict[str, Any] | None, floors
     if source.get("source_id"):
         from . import restricted
         restricted_view = restricted.view(source["source_id"])   # 1011：网页版要验证才能看（笔记页给「打开验证」）
-    # 1026：她手动「抓全部评论」过的这篇，评论区顶上照实写抓到哪了（已抓楼数 / 翻没翻到最后一页 / 还缺什么、为什么），能接着补抓
+    # 1026：用户手动「抓全部评论」过的这篇，评论区顶上照实写抓到哪了（已抓楼数 / 翻没翻到最后一页 / 还缺什么、为什么），能接着补抓
     full = fetch_report(source, state) if state.get("full_at") else None
     return {**sc, "stuck": stuck, "attempts": _int(state.get("attempts")), "why": reason_text(main) if main else "",
             "gap_reasons": {g["comment_id"]: g["reason"] for g in sc["gaps"] + sc["settled"]},
@@ -726,11 +726,11 @@ def view_for_render(source: dict[str, Any], state: dict[str, Any] | None, floors
 
 
 # --------------------------------------------------------------------------
-# 1026 手动「抓全部评论」：抓到哪了、能不能接着补（她：「抓全部评论这里有 bug……有一些它会不齐」）
+# 1026 手动「抓全部评论」：抓到哪了、能不能接着补（作者：「抓全部评论这里有 bug……有一些它会不齐」）
 # --------------------------------------------------------------------------
 # 根因（真库只读实查 10-26）：①一篇翻到底的（306 楼、has_more=false）之后被按设置楼数（10 楼）的续展冲掉——
 # comments_complete 退回 false、游标退回第 20 楼，页面又说没读全（全库 22 篇）；②抓完只说「评论已更新：N 条」，
-# 楼中楼因为每小时额度（sub_paused）停下的 19 楼缺 25 条没人告诉她；③再点一次是从第 1 楼整篇重抓，
+# 楼中楼因为每小时额度（sub_paused）停下的 19 楼缺 25 条没人告诉用户；③再点一次是从第 1 楼整篇重抓，
 # 而不是接着补缺的那几楼 / 从停下的那一页往后翻。
 
 
@@ -752,7 +752,7 @@ def _declared_total(source: dict[str, Any]) -> int | None:
 def fetch_report(source: dict[str, Any], state: dict[str, Any] | None = None) -> dict[str, Any]:
     """全部楼层口径（不看设置里的楼数）的抓取结果：已抓楼数 / 回复数、原帖显示的总数（含回复，站点只给这个）、
     翻没翻到最后一页（没到：停在哪、为什么、下次从第几楼接着翻）、哪几楼的楼中楼还缺、为什么、上次失败的原因，
-    以及还能不能接着补（resumable）。text 是给她看的一句话。"""
+    以及还能不能接着补（resumable）。text 是给用户看的一句话。"""
     from . import adapter as xhs
     state = state or {}
     comments = source.get("comments") or []
@@ -795,7 +795,7 @@ def fetch_report(source: dict[str, Any], state: dict[str, Any] | None = None) ->
 
 
 def manual_plan(source: dict[str, Any], state: dict[str, Any] | None) -> str:
-    """她点「抓全部评论」这一下做什么：'resume'（整篇抓过、还有没齐的 → 接着补：没翻到底就从停下那页往后翻，翻到底了就只展开缺的楼）
+    """用户点「抓全部评论」这一下做什么：'resume'（整篇抓过、还有没齐的 → 接着补：没翻到底就从停下那页往后翻，翻到底了就只展开缺的楼）
     / 'full'（没整篇抓过，或者全齐了想刷新 → 整篇读一遍，和存下的并集合并）。"""
     state = state or {}
     if not (state.get("full_at") or reached_end(source.get("capture")) or _int(state.get("floors_done")) >= FLOOR_ALL):
@@ -1067,7 +1067,7 @@ def run(args, *, sleep: Callable[[float], None] = time.sleep) -> int:
 
     夜跑这一步（不带 --until-done）：预算内能续的各续一次；号要人处理退出 5、号被占退出 6；没补完、带 --then-background
     就拉起后台补跑接着补（它会等夜跑做完再开始碰号）。
-    后台（--until-done）：一直补到全库没有能续的缺口；撞验证 / 掉登录就停下等（只看内存状态，不开页），她处理好自动接着；
+    后台（--until-done）：一直补到全库没有能续的缺口；撞验证 / 掉登录就停下等（只看内存状态，不开页），用户处理好自动接着；
     夜跑在跑、或别的任务要用号就让路。单实例：已经有一个在跑就直接退出 0。"""
     from . import accounts
     from . import adapter as xhs
@@ -1096,7 +1096,7 @@ def run(args, *, sleep: Callable[[float], None] = time.sleep) -> int:
         remember_reached_end()
     except Exception as exc:  # noqa: BLE001 - 迁移没成不挡补评论
         print(f"[comments] 旧的「已放弃」没解开：{type(exc).__name__}: {exc}", file=sys.stderr)
-    # 1017 她：「对特定帖子能跑完楼层」——--only 只补这几篇、按 --floors 的楼数（不改全局设置），stuck 的也照补
+    # 1017 作者：「对特定帖子能跑完楼层」——--only 只补这几篇、按 --floors 的楼数（不改全局设置），stuck 的也照补
     only = [x if domain.parse_item_id(x) else domain.item_id(xhs.SOURCE, x) for x in
             (s.strip() for s in ",".join(getattr(args, "only", None) or []).split(",")) if x]
     only_floors = None
@@ -1189,7 +1189,7 @@ def run(args, *, sleep: Callable[[float], None] = time.sleep) -> int:
                     continue
             code, why = account_wait_reason()
             if code == "CAPTCHA_REQUIRED" and until_done and night_captcha.unattended():
-                # 1011：后台补评论撞的验证先不叫她——冷却后自查一次（night_captcha），干净就接着补，还在就今天先停（不推）
+                # 1011：后台补评论撞的验证先不叫用户——冷却后自查一次（night_captcha），干净就接着补，还在就今天先停（不推）
                 r = night_captcha.recover(wait=False)
                 res = r.get("result")
                 if res in ("cleared", "no_hold"):
@@ -1282,7 +1282,7 @@ def run(args, *, sleep: Callable[[float], None] = time.sleep) -> int:
             print(f"[comments] {datetime.now():%H:%M:%S} {item_id}《{entry['title'][:30]}》{out.get('mode')}："
                   f"缺 {out.get('missing_before')} → {out.get('missing_after')}"
                   + ("，补齐了" if out.get("done") else "，连着补不上，进问题面板" if out.get("stuck") else
-                     "，网页版要验证才能看：记进问题面板，等她点「打开验证」" if out.get("restricted") else "，下次接着补"),
+                     "，网页版要验证才能看：记进问题面板，等你点「打开验证」" if out.get("restricted") else "，下次接着补"),
                   file=sys.stderr)
             if out.get("done"):
                 status.done_ids.add(item_id)
@@ -1373,7 +1373,7 @@ def _merge_fill(source: dict[str, Any], old: dict[str, Any], expanded: set[str],
     capture = {**old_cap, **source["capture"], "comment_load": cl}
     if old_cap.get("comments_complete") is True or (new_cl or {}).get("has_more") is False:
         capture["comments_complete"] = True if (new_cl or {}).get("has_more") is not True else capture.get("comments_complete")
-    # 1026（她：抓全部评论后「有一些它会不齐」）：上一版已经一页一页翻到底了，这次只是按楼数上限读前几楼 / 只展开几楼的续读——
+    # 1026（作者：抓全部评论后「有一些它会不齐」）：上一版已经一页一页翻到底了，这次只是按楼数上限读前几楼 / 只展开几楼的续读——
     # 这次的 has_more=true 只说明「楼数上限外还有」，不说明存档缺楼。以前直接拿这次的盖掉：翻到底的 306 楼被记回「没读全、还有下一页」，
     # 游标退回第 20 楼（真库 22 篇这样）。现在翻到底的结论和最深的游标留着，这次读的样子另记在 last_read。
     if (old_end or reached_end(old_cap)) and not reached_end(source["capture"]):

@@ -1,8 +1,8 @@
-// danmaku.js — 1031 她：B 站视频的弹幕。media-nav 给正文视频装工具行时调 attach()：
+// danmaku.js — 1031 作者：B 站视频的弹幕。media-nav 给正文视频装工具行时调 attach()：
 // 只认 B 站来源（item_id 是 bili-<BV>，或视频地址在 _archive/bilibili/<BV>/ 下），读 meta.json → 当前版本 manifest 里 role=danmaku 的 XML，
 // 叠在画面上播：滚动 / 顶部 / 底部三种 + 高级弹幕（mode 7）按坐标静态停几秒，跟 video.currentTime 走（暂停就停、拖进度条按新时间重排、倍速跟着变），
 // 全屏时照样在（层挂在 .lb-media 里）。
-// 1031 她（第二轮）：「弹幕直接复用批注」——她自己的弹幕 = 这篇 notes.json 里带视频时间（video_t 秒）的批注，带细框飘；不带时间的不播。
+// 1031 作者（第二轮）：「弹幕直接复用批注」——用户自己的弹幕 = 这篇 notes.json 里带视频时间（video_t 秒）的批注，带细框飘；不带时间的不播。
 // 写批注只走批注框（annotate-view.js，勾「记在当前时间」），本文件只读 notes.json + 听 link-brain:annotations 事件（批注框存完就发），不写盘。
 // 以前那套 danmaku-mine.json 去掉了（一次性迁移：python -m link_brain.migrate_danmaku_mine，见 FORMAT.md）。
 // 性能：弹幕按时间排好、只往前走一个指针；只给屏幕上的那几十条建节点（节点回收复用）；每帧只改这几条的 transform，宽度用 canvas 量字、不读布局。
@@ -71,7 +71,7 @@ function decodeEntities(s) {
 // B 站模式：1 / 2 / 3 滚动（2、3 是旧的变体）、6 逆向（当滚动画）、4 底部、5 顶部；7 高级（静态显示，见 parseAdv）；8 代码 / 9 BAS 不画
 const MODE = { 1: 'scroll', 2: 'scroll', 3: 'scroll', 6: 'scroll', 4: 'bottom', 5: 'top', 7: 'adv' };
 // 高级弹幕的正文是一个 JSON 数组：[x, y, "透明度起-止", 停留秒数, 文字, 旋转Z, 旋转Y, 终点x, 终点y, 移动毫秒, 延迟毫秒, 描边, 字体, 线性, 路径]。
-// 1031 她：「能简单支持就支持」——只取 位置 / 起始透明度 / 停留秒数 / 文字，在那个位置静态停几秒；旋转、移动、路径都不做。读不懂的丢掉。
+// 1031 作者：「能简单支持就支持」——只取 位置 / 起始透明度 / 停留秒数 / 文字，在那个位置静态停几秒；旋转、移动、路径都不做。读不懂的丢掉。
 function advPos(v, ref) {
   const s = String(v == null ? '' : v).trim(), n = Number(s);
   if (!s || !Number.isFinite(n)) return 0;
@@ -150,7 +150,7 @@ class Engine {
   }
   layout() {
     const s = this.settings;
-    // 字号跟着画面大小走（小窗里 25 号字不至于占半屏，全屏也不至于太小），再乘她调的倍数
+    // 字号跟着画面大小走（小窗里 25 号字不至于占半屏，全屏也不至于太小），再乘用户调的倍数
     this.k = clamp(Math.sqrt(Math.max(1, this.W * this.H)) / 800, 0.55, 1.25) * s.scale;
     this.laneH = Math.max(12, Math.ceil(25 * this.k * 1.3));
     this.nLanes = Math.max(1, Math.floor((this.H * s.area) / this.laneH));
@@ -158,7 +158,7 @@ class Engine {
     this.lanes = { scroll: new Array(this.nLanes).fill(null), top: new Array(this.nLanes).fill(null), bottom: new Array(this.nLanes).fill(null) };
   }
   fontPx(d) { return Math.max(10, Math.round(d.size * this.k)); }
-  // 放一条：找一行不会撞车的；没有就丢（force = 她刚发的那条，挤也要挤上去）。visibleNow = 一出来就整条在画面里（暂停时发也看得见）
+  // 放一条：找一行不会撞车的；没有就丢（force = 用户刚发的那条，挤也要挤上去）。visibleNow = 一出来就整条在画面里（暂停时发也看得见）
   emit(d, start, { force = false, visibleNow = false } = {}) {
     const s = this.settings;
     if (!force && (s.block[d.mode] || this.live.length >= MAX_LIVE)) return null;
@@ -270,7 +270,7 @@ class Engine {
     this.next = i;
     this.place(t);
   }
-  // 她刚发的一条：插进时间线（已经播过的位置，不会被指针再放一次），立刻挤上画面
+  // 用户刚发的一条：插进时间线（已经播过的位置，不会被指针再放一次），立刻挤上画面
   insertNow(d, t) {
     const idx = upperBound(this.items, d.time);
     this.items.splice(idx, 0, d);
@@ -303,7 +303,7 @@ function cleanText(s, max = MINE_TEXT_MAX) {
 }
 // 批注的 key：和 annotate-view.js 的 akey 同一认法（老批注没 id 按 时间 + 原文认），删除墓碑 deleted[] 按它算
 function annotKey(a) { return a.id || ('ts:' + (a.ts || '') + '|' + (a.text || '')); }
-// notes.json（或批注框发来的 {annotations, deleted}）→ 她的弹幕：没删的、非空的、带视频时间 video_t（≥0 的数）的批注，按时间排好。
+// notes.json（或批注框发来的 {annotations, deleted}）→ 用户的弹幕：没删的、非空的、带视频时间 video_t（≥0 的数）的批注，按时间排好。
 // 不带时间的不播；草稿不算。一律白色滚动、带细框（is-mine）。
 function annotationItems(doc) {
   if (!doc || typeof doc !== 'object' || !Array.isArray(doc.annotations)) return [];
@@ -438,7 +438,7 @@ async function attach({ plugin, media, video, note = null, bar = null, itemId = 
       } catch (e) { origState = 'failed'; origError = (e && e.message) || String(e); console.error('[lb] 原弹幕没读出来', e); }
     }
   }
-  // 她的弹幕 = 这篇 notes.json 里带 video_t 的批注（批注框写；这里只读）
+  // 用户的弹幕 = 这篇 notes.json 里带 video_t 的批注（批注框写；这里只读）
   const notesPath = `${base}/${NOTES_FILE}`;
   const itemKey = String(meta.item_id || ('bili-' + sid));
   const notesDoc = await readNotes(adapter, notesPath);

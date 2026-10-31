@@ -284,7 +284,7 @@ def test_download_backoff_across_nights(monkeypatch):
 
 
 def test_local_service_down_does_not_back_off(monkeypatch):
-    """1031 她「待补附件没自愈」：本机读取服务超时不是附件的问题——不进跨夜退避，同一晚下一步再试；旧的退避记录（原因写着读取服务）也不挡。"""
+    """1031 作者「待补附件没自愈」：本机读取服务超时不是附件的问题——不进跨夜退避，同一晚下一步再试；旧的退避记录（原因写着读取服务）也不挡。"""
     obj = _obj("mm02", mark={"ok": True, "related_file": RF})
     att.reconcile()
     tries = []
@@ -398,7 +398,7 @@ def test_normal_page_mentioning_captcha_word_is_not_stopped(monkeypatch):
 
 
 def test_all_retries_failed_ones_same_night(monkeypatch):
-    """1031 她「补附件应该当天结束，马上补，而不是推迟重试」：attachments --all 第一轮没下好的，同一晚末尾再试一次（retry_pass），
+    """1031 作者「补附件应该当天结束，马上补，而不是推迟重试」：attachments --all 第一轮没下好的，同一晚末尾再试一次（retry_pass），
     读取服务刚挂过先歇一会儿；第二轮补上了这次就算成功。"""
     import types
     from link_brain import index as index_mod

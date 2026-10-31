@@ -1,4 +1,4 @@
-// 1031 她（第二轮）：真 Edge 里把 media-nav + danmaku + 批注框（annotate-view.js）一起跑在一篇合成的 B 站视频笔记上：
+// 1031 作者（第二轮）：真 Edge 里把 media-nav + danmaku + 批注框（annotate-view.js）一起跑在一篇合成的 B 站视频笔记上：
 // ①批注框下面「记在当前时间」：写一条 → notes.json 带 video_t，列表里有「▶ 0:00」时间标，画面上立刻飘出带细框的那条；
 // ②全屏：工具行不显示，画面右下角「弹」字开关在原生控制条上方（不压住控制条那 48px），鼠标动出现、静止 2 秒淡出，点了关 / 开；
 // ③高级弹幕（mode 7）按坐标静态显示。截图进 LWA_QA_DIR（danmaku-*.png）。不连网、不碰真库（vault 是内存里的假 adapter）。

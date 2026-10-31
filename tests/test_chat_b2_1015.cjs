@@ -26,7 +26,7 @@ const TOC = [
     const first = C.saved().id;
     const seg = (CC, label) => CC.qa('.lbchat-followmode .lbchat-seg-opt').find(b => b.textContent === label);
     // 1020：输入框上方一个开关「追问 · 新对话」，默认新对话；不再有「改为……」和「接着这段」
-    assert.ok(seg(C, '新问题').classList.contains('is-on'), '默认新问题（重新搜）');   // 1028 她：开关「新对话」改叫「新问题」
+    assert.ok(seg(C, '新问题').classList.contains('is-on'), '默认新问题（重新搜）');   // 1028 作者：开关「新对话」改叫「新问题」
     assert.ok(!seg(C, '追问').classList.contains('is-on'));
     assert.equal(C.q('.lbchat-keepthread'), null);
     assert.equal(C.q('.lbchat-clearall').textContent, '清空上下文');
@@ -46,14 +46,14 @@ const TOC = [
     assert.equal(C.saved().id, s.id);
     assert.equal(C.saved().turns.length, 4);
     assert.equal(P.calls.asks[2].history.length, 2);
-    // 1026 她：追问 = 接着聊，不再带上一答的来源去重新检索
+    // 1026 作者：追问 = 接着聊，不再带上一答的来源去重新检索
     assert.equal(P.calls.asks[2].mode, 'chat'); assert.equal(P.calls.asks[2].sourceIds, undefined);
-    // 重开页面：她点过的追问开关还在；新对话回到默认
+    // 重开页面：用户点过的追问开关还在；新对话回到默认
     const C2 = await openChat({ plugin: P, prefs: null, V: C.V });
     assert.ok(seg(C2, '追问').classList.contains('is-on'));
     // 老会话（1015 前默认存的 follow:'sources'、没 followPicked）→ 按新默认重新搜
     const C3 = await openChat({ prefs: null, session: { id: 'old', turns: [{ id: 'u', role: 'user', content: 'x' }, { id: 'v', role: 'assistant', content: 'y', q: 'x', sources: [src('a', 1)] }], follow: 'sources' } });
-    assert.ok(seg(C3, '新问题').classList.contains('is-on'));   // 1028 她：「新对话」→「新问题」
+    assert.ok(seg(C3, '新问题').classList.contains('is-on'));   // 1028 作者：「新对话」→「新问题」
     // 失败后「重试」是同一问：不因每问新开清掉（新问题先开新对话，失败；重试留在同一段）
     const P5 = makePlugin();
     const C5 = await openChat({ plugin: P5, prefs: null });

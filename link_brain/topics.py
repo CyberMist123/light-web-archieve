@@ -1,4 +1,4 @@
-"""星标主题（Lot E，0924）：Owner 口头说一句「我关注 AI 记忆层」就建好，AI 配关键词，她顶多改个名。
+"""星标主题（Lot E，0924）：Owner 口头说一句「我关注 AI 记忆层」就建好，AI 配关键词，用户顶多改个名。
 
 - 存 `vault/_archive/topics.json`：`[{id, name, keywords, created}]`。读写 fail-open：缺/坏 = 没有主题。
 - `topic add "<名>"`：用问答同一条模型通路（插件设置 textAI / answer_model）扩 5-10 个关键词；
@@ -6,7 +6,7 @@
 - 隶属在 catalog 重建时算（见 memberships：语义为主、标题标签整词兜底；主题向量只读 topic-vectors.json 缓存，
   缓存由夜跑 `index catch-up` 补，build 不联网），名字写进 catalog-data 的
   `items[].topics`，顶层 `topics` 是顺序表。主题只是展示分组，**不进检索权重**（不进 retrieval.fields）。
-- 不做表单：没有编辑关键词的 UI；增删改名都走 CLI（给 Fable / CC 代她跑）。
+- 不做表单：没有编辑关键词的 UI；增删改名都走 CLI（给 Fable / CC 代用户跑）。
 """
 
 from __future__ import annotations

@@ -69,10 +69,10 @@ function makePlugin(saved) {
   {
     const p = makePlugin({ sync: { downloadImages: true }, nickname: '' });
     const s = p.settings, so = s.sync;
-    const d = p.disk(); d.sync.downloadImages = false; d.nickname = '她'; p.writeDisk(d);
+    const d = p.disk(); d.sync.downloadImages = false; d.nickname = '用户'; p.writeDisk(d);
     await p.onExternalSettingsChange();
     assert.ok(p.settings === s && p.settings.sync === so, '外部改了以后 settings / sync 换成了别的对象');
-    assert.equal(so.downloadImages, false); assert.equal(s.nickname, '她');
+    assert.equal(so.downloadImages, false); assert.equal(s.nickname, '用户');
     so.downloadImages = true; await p.saveSettings();
     assert.equal(p.disk().sync.downloadImages, true, '重读之后再改的没写进去');
   }

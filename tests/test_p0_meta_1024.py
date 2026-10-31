@@ -1,4 +1,4 @@
-"""1024 第 1 波 p0-meta：写 meta / 可见笔记时不丢她的数据。
+"""1024 第 1 波 p0-meta：写 meta / 可见笔记时不丢用户的数据。
 
 - 完整重抓 / 续读都走 ingest.merge_meta：抓取管不着的字段（project、visible_note_pinned、兜底标题…）一律保留；
 - meta.json 的读改写走 storage.update_json（单篇锁 obj-<item_id> → 重读 → 改 → 原子写）；
@@ -55,7 +55,7 @@ def test_full_refetch_keeps_fields_fetch_does_not_own(vault, monkeypatch):
     ingest.ingest_url("https://example.invalid/share", origin="cli", ingest_kind="favorite")
 
     meta = storage.read_json(_meta_path())
-    meta.update(project="写论文", visible_note_pinned=True, visible_note="她改过的名字.md", note="她的备注")
+    meta.update(project="写论文", visible_note_pinned=True, visible_note="用户改过的名字.md", note="用户的备注")
     storage.write_json(_meta_path(), meta)
 
     def fetch_changed(*a, **k):
@@ -74,8 +74,8 @@ def test_full_refetch_keeps_fields_fetch_does_not_own(vault, monkeypatch):
     assert after["current_version"] == 2 and after["versions"] == [1, 2]
     assert after["project"] == "写论文"
     assert after["visible_note_pinned"] is True
-    assert after["visible_note"] == "她改过的名字.md"
-    assert after["note"] == "她的备注"
+    assert after["visible_note"] == "用户改过的名字.md"
+    assert after["note"] == "用户的备注"
     assert after["ingest_kind"] == "favorite"  # 第一次怎么进来的，不被重抓覆盖（FORMAT.md）
     assert after["origin"] == "cli" and after["actor"] == "human"
     assert after["favorited_by"][0]["user_id"] == "u1"
@@ -89,7 +89,7 @@ def test_merge_meta_fetch_owned_fields_win_and_others_kept():
                "ingest_kind": "shared", "origin": "tg", "actor": "ai:x", "visible_note": None,
                "first_archived_at": "2026-10-24", "last_checked_at": "2026-10-24"}
     merged = ingest.merge_meta(old, fetched)
-    assert ingest.merge_meta({**old, "visible_note": "她的.md"}, fetched)["visible_note"] == "她的.md"
+    assert ingest.merge_meta({**old, "visible_note": "用户的.md"}, fetched)["visible_note"] == "用户的.md"
     assert merged["current_version"] == 2 and merged["images_complete"] is True
     assert merged["last_checked_at"] == "2026-10-24"
     assert merged["title"] == "兜底标题"  # 抓回来没标题：沿用 render 生成的兜底标题

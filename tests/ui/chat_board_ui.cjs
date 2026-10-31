@@ -97,11 +97,11 @@ const ask = async (page, S, text, wait = 150) => { await page.click('.lbchat-sea
     assert.ok(await modeOpt('报告').evaluate(e => e.classList.contains('is-on')));
     await ask(page, S, '多agent群聊 帮我整理成 wiki');
     assert.equal(await page.evaluate(() => window.lb.asks[0]), '/报告 多agent群聊 帮我整理成 wiki', '报告档：问题前加 /报告 发给后端');
-    assert.equal(await page.locator('.lbchat-user .lbchat-qmark', { hasText: '报告' }).count(), 1, '她那一问标「报告」');
+    assert.equal(await page.locator('.lbchat-user .lbchat-qmark', { hasText: '报告' }).count(), 1, '用户那一问标「报告」');
     assert.equal(await page.locator('.lbchat-user').first().evaluate(e => e.textContent.includes('/报告')), false, '气泡里不显示标记');
     assert.equal(await page.locator('.lbboard').count(), 1, '陈列版渲染出来');
     assert.equal(await page.locator('.lbboard-title').textContent(), '多 agent 群聊项目陈列');
-    // 1020 她：先看这几个里同一篇的合成一张卡（Raven 和 Raven 角色表都出自 p1）
+    // 1020 作者：先看这几个里同一篇的合成一张卡（Raven 和 Raven 角色表都出自 p1）
     assert.equal(await page.locator('.lbboard-topcard').count(), 3);
     assert.deepEqual(await page.locator('.lbboard-topcard.is-multi .lbboard-name').allTextContents(), ['Raven', 'Raven 角色表']);
     assert.equal(await page.locator('.lbboard-topcard.is-multi .lbboard-cover').count(), 1);
@@ -115,10 +115,10 @@ const ask = async (page, S, text, wait = 150) => { await page.click('.lbchat-sea
     assert.ok(!(await own.locator('.lbboard-cover').evaluate(e => e.classList.contains('is-ghost'))));
     assert.ok((await own.locator('.lbboard-cover img').getAttribute('src')).includes(encodeURIComponent('#e0a0c0').slice(0, 6)) || (await own.locator('.lbboard-cover img').getAttribute('src')).includes('e0a0c0'));
     assert.ok(!(await own.textContent()).includes('配图'));
-    // 1020 她：分类导航不在正文里，进左边目录（浮动板）：先看这几个 + 三类，类下面是条目
+    // 1020 作者：分类导航不在正文里，进左边目录（浮动板）：先看这几个 + 三类，类下面是条目
     assert.equal(await page.locator('.lbboard-navbtn').count(), 0);
     // 1026 目录改成 floating-toc 式：每个类别是「类」一行（不再逐个列条目名）
-    // 1028 她：「类 / H2 / 帖」小字不画了，层级只记在 data-tag 上
+    // 1028 作者：「类 / H2 / 帖」小字不画了，层级只记在 data-tag 上
     const cats = await page.locator('.lbchat-toc .lbchat-ftoc-item').evaluateAll(rows => rows.filter(r => r.dataset.tag === '类').map(r => r.querySelector('.lbchat-ftoc-text').textContent));
     assert.deepEqual(cats, ['多 agent 框架', '群聊界面', '记忆与会话', '评论区还提到']);
     // 网址：有的给链接，「看原帖」的写无链接
@@ -185,7 +185,7 @@ const ask = async (page, S, text, wait = 150) => { await page.click('.lbchat-sea
     assert.ok(written[1].includes('![[_archive/xiaohongshu/p6/raw/v0001/assets/comment-c3-001.webp|200]]'), '笔记里自带配图的条目嵌那张图');
     assert.match(written[1], /- 借鉴：角色表照抄一份/);
     assert.ok((await page.evaluate(() => window.opened)).some(a => /报告\//.test(String(a[0]))), '存完打开那篇笔记');
-    // 输入框上方一行：「追问 · 新问题」+ 清空上下文，不再有「改为……」（1028 她：「新对话」改叫「新问题」）
+    // 输入框上方一行：「追问 · 新问题」+ 清空上下文，不再有「改为……」（1028 作者：「新对话」改叫「新问题」）
     assert.deepEqual(await page.locator('.lbchat-followmode .lbchat-seg-opt').allTextContents(), ['追问', '新问题']);
     assert.equal(await page.locator('.lbchat-clearbox .lbchat-clearall').textContent(), '清空上下文');
     assert.equal(await page.locator('.lbchat-followbar', { hasText: '改为' }).count(), 0);

@@ -1,6 +1,6 @@
 # 批次 D · L3（单篇笔记页）验收记录（2026-10-08）
 
-测试架数字都是 **Obsidian 外壳（`tests/_obsidian_shell.cjs` 的 note-reading / page-reading / page-live 宿主）里的 Chromium（playwright 1.62 + 系统 Edge）**，不是 Obsidian 实测；Obsidian 里的事列在文末「待她：一步」。页面用的笔记 HTML 是生产 `render.render_content_block` 的输出（`tests/fixtures/note-page/*.html`，`tests/tools/note_fixture.py` 生成，`tests/test_note_fixture_golden.py` 守着），图片换成同尺寸的现画图。截图在 `LWA_QA_DIR`（本次 = worktree 下 `qa/`，不进仓）。
+测试架数字都是 **Obsidian 外壳（`tests/_obsidian_shell.cjs` 的 note-reading / page-reading / page-live 宿主）里的 Chromium（playwright 1.62 + 系统 Edge）**，不是 Obsidian 实测；Obsidian 里的事列在文末「待作者：一步」。页面用的笔记 HTML 是生产 `render.render_content_block` 的输出（`tests/fixtures/note-page/*.html`，`tests/tools/note_fixture.py` 生成，`tests/test_note_fixture_golden.py` 守着），图片换成同尺寸的现画图。截图在 `LWA_QA_DIR`（本次 = worktree 下 `qa/`，不进仓）。
 
 ## 主审裁决 3：单栏 / 实时预览里后台重跑把半截字定稿
 
@@ -11,7 +11,7 @@
 | 当前 | 假 DOM 阅读视图 / 实时预览 | `{blurs:0, focused:true, value:'正在打的', saved:['旧的']}`（`tests/test_annot_1008.cjs`）；摘下这一段（Obsidian 重画）→ 不定稿、存成草稿 |
 | 当前 | 外壳真 Chromium page-reading / page-live，重跑 3 次穿插打字 | `{saved:[原有 1 条], value:'正在打打打', focused:true, boxes:1}`（`tests/ui/note_page_ui.cjs`） |
 
-修法：批注框挂到 `LB.mountHost` 的 host（容器后面的兄弟节点），Dataview 清空容器碰不到它；另外 blur 之后的微任务里看框是否已摘离文档 / 换了父节点，是就只存草稿（焦点掉到 body 时还回去），她主动离开输入框照旧定稿（N3 不改）。左栏结构不变：`tests/test_annot_side.cjs`、`tests/test_page_state.cjs`、rig ⑥ 的左栏对照都过。
+修法：批注框挂到 `LB.mountHost` 的 host（容器后面的兄弟节点），Dataview 清空容器碰不到它；另外 blur 之后的微任务里看框是否已摘离文档 / 换了父节点，是就只存草稿（焦点掉到 body 时还回去），用户主动离开输入框照旧定稿（N3 不改）。左栏结构不变：`tests/test_annot_side.cjs`、`tests/test_page_state.cjs`、rig ⑥ 的左栏对照都过。
 
 ## N15 默认钉住：图片高度 / 批注输入框首行（`tests/ui/note_page_ui.cjs`，`qa/note-n15-measure.json`）
 
@@ -47,7 +47,7 @@
 - 钉住时图片 / 视频高度：24 格改前改后差 **0 像素**（断言 ≤0.5）。没有为了放批注缩图；两栏 grid、图片尺寸规则一条没动。
 - 图片类输入框第一行在可视区：改后 **18 / 18 格**；改前 13 / 18 格不在（4:3 横图本来就放得下）。
 - 视频（不缩，工具行钉住时浮在视频左上角）：三种窗口改后都在可视区。
-- 「不钉时图片高度」一列是旧默认给她对照：差得最多的是 1280×800 的 9:16 长图（以及侧栏关时的 3:4），不钉 624 / 钉住 595，约 5%；1440×900 是 702 / 695（1%）；4:3 和视频一样大；1920×1080 钉住反而更大（842 → 856 / 899）。
+- 「不钉时图片高度」一列是旧默认给用户对照：差得最多的是 1280×800 的 9:16 长图（以及侧栏关时的 3:4），不钉 624 / 钉住 595，约 5%；1440×900 是 702 / 695（1%）；4:3 和视频一样大；1920×1080 钉住反而更大（842 → 856 / 899）。
 - 截图：`note-{W}x{H}-{用例}-before.png` / `-after.png`（左侧栏开，24 张）。
 - N5：钉住 1280×800 连打 8 行，输入框长到 178px，左栏自己滚了 64px，最后一行底 757 / 左栏底 755（差 2px，在光标框容差内）；截图 `annot-autosize.png`。
 
@@ -73,7 +73,7 @@
 - 外壳 
 ote_page_ui：N6 评论图几何对照——改前 HTML（无 width/height）+ 932b9f7 样式 vs 改后 HTML（带属性）+ 当前样式，单张 / 两张 / 三张照片、单张 / 两张文档、表情包、竖图共 11 张，宽高差都 ≤1px（审查抓到：不加 `.lb-comment-image { height: auto }` 时 height 属性会变成真高度，横图被撑成方框）。
 
-## 待她：一步
+## 待作者：一步
 
 1. 打开一篇评论很长的图片笔记：默认就是钉住的，批注框在图片正下方，直接点进去能打字；鼠标放在批注列表上能滚左栏。再打开一篇视频笔记看一眼（悬停视频，左上角是倍速 / 循环 / 连播…）。
 2. 单栏（没图的笔记）或实时预览里写批注时别动：后台同步时字不会被提前存成一条、输入框也不清空。

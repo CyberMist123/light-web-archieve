@@ -123,7 +123,7 @@ def test_judge_rejected_sources_stay_out_of_related(monkeypatch):
 
 
 def test_judge_output_is_not_streamed_to_the_page(monkeypatch):
-    """1020 她：回答前冒出一堆「1|deep_read|…」——判定选篇的输出不许流到回答区，作答那次照常流。"""
+    """1020 作者：回答前冒出一堆「1|deep_read|…」——判定选篇的输出不许流到回答区，作答那次照常流。"""
     monkeypatch.setattr(ask, "load_items", lambda: [dict(x) for x in ITEMS])
     monkeypatch.setattr(ask.ai_config, "load", lambda: ask.ai_config._deep_merge(ask.ai_config.DEFAULTS, {}))
     streams = []

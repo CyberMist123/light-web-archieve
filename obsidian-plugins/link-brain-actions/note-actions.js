@@ -5,7 +5,7 @@
 //   1011 评论区顶上「这篇在小红书网页版要验证才能看」的「打开验证」→ plugin.openNoteVerify(itemId)（开读取服务的验证窗口到这篇）
 //   N9  正文标签（原帖话题）点了 → plugin.pendingCatalogQuery='#标签' → 同一窗格开目录（Ctrl 开新标签）→ 'link-brain:catalog-query'
 //   N10 阅读视图选中正文 / 评论文字右键「划重点 / 取消重点」（只走 <mark>，先乐观包上、没写上的退回）
-//   N11「问这篇」1026 她：笔记右键 / 命令面板都不要这个入口了，已拿掉
+//   N11「问这篇」1026 作者：笔记右键 / 命令面板都不要这个入口了，已拿掉
 //   N17 没开 Dataview（或它的 JS 查询）时打开归档笔记也挂提示条（复用目录页那条）
 // 图片右键（F2）归 image-actions.js，这里遇到图片上的右键直接让开。
 'use strict';
@@ -16,7 +16,7 @@ const NOTE_STYLE_ID = 'lb-note-style';
 const mmss = ms => { const s = Math.max(0, Math.floor((Number(ms) || 0) / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
 // 划重点只收这几处的文字（和内容层的转义片段一一对应；评论里的「回复 xx：」不算）
 const PHRASE_SCOPE = '.lb-body p, .lb-comment-text, .lb-note-title, .lb-comment-asr';
-// 1015 她：划重点默认黄色，可换几种颜色；点一下已划的 = 小条（换色 / 取消）
+// 1015 作者：划重点默认黄色，可换几种颜色；点一下已划的 = 小条（换色 / 取消）
 const HL_COLORS = [['yellow', '黄'], ['green', '绿'], ['blue', '蓝'], ['pink', '粉'], ['purple', '紫']];
 const markColor = el => { const m = /(?:^|\s)lb-hl-([a-z]+)/.exec((el && el.className) || ''); return m ? m[1] : 'yellow'; };
 

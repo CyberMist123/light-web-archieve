@@ -1,4 +1,4 @@
-// 1026 她（录屏 13:22）：「你看它不是全屏。」——真 Edge 里：笔记页视频点「全屏」，整块（画面 + 倍速 / 循环 / 连播）铺满屏幕，
+// 1026 作者（录屏 13:22）：「你看它不是全屏。」——真 Edge 里：笔记页视频点「全屏」，整块（画面 + 倍速 / 循环 / 连播）铺满屏幕，
 // 画面按比例占满、工具行看得见能点；退出后右栏正文的滚动位置还在。大图查看器 ⛶ 同样铺满。（真视频 tests/fixtures/tiny-1s.mp4）
 const {chromium}=require('playwright'),fs=require('fs'),assert=require('assert/strict');
 (async()=>{

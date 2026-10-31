@@ -339,7 +339,7 @@ def suspicious_reason(total: int, last: int, read: dict[str, Any]) -> str:
 
     - 读取服务明说 partial（只读到一截）→ 可疑，带上判停原因；
     - 0 条永远可疑（哪怕说读到底了）；
-    - 读取服务明说读到底了（stop_reason=has_more_false）→ 可信，哪怕比上次少很多（她真删了收藏）；
+    - 读取服务明说读到底了（stop_reason=has_more_false）→ 可信，哪怕比上次少很多（用户真删了收藏）；
     - 其余（旧读取服务没这些字段 / stable）→ 老规矩：比上次少一半以上算可疑。
     - 1011 增量读（incremental / stop_reason=known_streak）：本来就只读最新一段，条数少不算可疑（0 条照样可疑）。"""
     if read.get("incremental") or read.get("stop_reason") == "known_streak":
@@ -646,7 +646,7 @@ def sync_favorites(
     # 可疑 = 这次不算同步成功：sync_state.record 记 TRANSIENT.FAVORITES_SUSPICIOUS（一条，原因一句），
     # 基准不被这次顶掉（sync_state._update_baseline）；退出码 3 让夜跑今晚不再重读
 
-    # 1026 她定：没有「登错号」——登哪个号就同步哪个号的收藏，favorited_by 按真实登录的号记。
+    # 1026 作者定：没有「登错号」——登哪个号就同步哪个号的收藏，favorited_by 按真实登录的号记。
     # （0927 的「钉号、登错号整批不入库」撤掉。）sync_account 只记「上次同步的是哪个号」，换号不算出错。
     current = _CURRENT_ACCOUNT.get("nickname") or ""
     previous = accounts.config().get("sync_account") or ""

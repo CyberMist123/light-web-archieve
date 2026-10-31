@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>LWA 样式模版</title>
-<!-- 1027b 她：「全部的设计样式给我一个统一的模版」——目录页要花哨的字（雕刻字 + Cormorant 斜体数字），但风格统一、大小别差太多；
+<!-- 1027b 作者：「全部的设计样式给我一个统一的模版」——目录页要花哨的字（雕刻字 + Cormorant 斜体数字），但风格统一、大小别差太多；
      设置页不花哨，也要统一；要有深色模式。这是生成的文件（别手改）：改 docs/style-guide.src.html，再跑 python tools/build_style_guide.py
      生成 docs/style-guide.html（样式集 lb-tokens.css 和两个随包字体都内嵌进去，单文件、任何预览里都照样显示）。
      页面 / 插件里没按模版来的地方见 docs/STYLE-DEVIATIONS.md（python tools/style_audit.py --md 生成）。 -->
@@ -16,7 +16,7 @@
    拷进 lb-page-lib.js 的 LB_SHARED_CSS（页面，手机上也有）、插件 styles.css（设置页）、link-brain.css / note.css（笔记页）。
    tests/test_tokens_1027.py 锁住四份逐字相同。规则：新界面只用这里的名字（CONVENTIONS「样式集」），不再手写字体栈 / 字号 / 灰。
    黑白为主：颜色全映射到 Obsidian 主题变量，深浅色都跟着走；橙 / 红只给状态。
-   她能改的五个（目录「Aa 样式」，存插件设置 catalogLayout.theme）：标题字体 / 正文字体 / 数字字体 / 字号倍数 / 卡片间距，
+   用户能改的五个（目录「Aa 样式」，存插件设置 catalogLayout.theme）：标题字体 / 正文字体 / 数字字体 / 字号倍数 / 卡片间距，
    由 LB.applyTheme / plugin.applyTheme 写成页面根上的行内变量，只在 body 上给默认值。 */
 body{--lb-warn:var(--text-warning,var(--color-orange));--lb-warn-bg:var(--background-secondary);--lb-warn-border:var(--background-modifier-border);--lb-danger:var(--text-error);--lb-danger-bg:var(--background-secondary);--lb-ok:var(--text-success,var(--color-green));--lb-star:var(--color-yellow,#d9a21b);}
 @supports (color: color-mix(in srgb, red, blue)){body{--lb-warn-bg:color-mix(in srgb,var(--lb-warn) 14%,var(--background-primary));--lb-warn-border:color-mix(in srgb,var(--lb-warn) 35%,var(--background-modifier-border));--lb-danger-bg:color-mix(in srgb,var(--text-error) 12%,var(--background-primary));}}

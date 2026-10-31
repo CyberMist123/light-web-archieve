@@ -1,6 +1,6 @@
 // home-ui.js — 设置页「概览」和「AI」两栏的内容 +「一键装好 / 跑完」+ 零配置首次自动跑（docs/SETUP-CONTRACT.md）。
-//   1009 她的裁决：没有分步向导；装上就按轻量版自动跑；功能是开关、一个「一键装好 / 跑完」按钮。
-//   1010 她：设置页恢复分栏（概览 / 收藏与同步 / AI / 连接其他 AI / 高级），按「什么都不懂的新用户」重写——
+//   1009 作者的裁决：没有分步向导；装上就按轻量版自动跑；功能是开关、一个「一键装好 / 跑完」按钮。
+//   1010 作者：设置页恢复分栏（概览 / 收藏与同步 / AI / 连接其他 AI / 高级），按「什么都不懂的新用户」重写——
 //     概览 = 状态（账号 · 收藏同步 · 评论补齐 · 问题 · 这台电脑）+ 这一栏唯一的主按钮「一键装好 / 跑完」；
 //     AI  = 第一句「要不要 AI：不填也能用；填了多出 问收藏、自动概要、识图」→ 每个功能一个开关、旁边标价钱
 //           （本地的写「免费（本机跑）」，要钱的用 `setup estimate` 的「约 ¥x / 100 篇」「约 ¥x / 次」，估不出写「按用量」）
@@ -49,7 +49,7 @@ function withoutDependents(ids, id, comps) {
   return withDeps((ids || []).filter(x => !drop.has(x)), comps);
 }
 function toggleSelection(ids, id, on, comps) { return on ? withDeps([...(ids || []), id], comps) : withoutDependents(ids, id, comps); }
-// 1009 她：没选过 = 轻量版（装上就能用，不要任何 key）
+// 1009 作者：没选过 = 轻量版（装上就能用，不要任何 key）
 function initialSelection(saved, plan) {
   const comps = plan?.components || [];
   if (Array.isArray(saved)) return withDeps(saved, comps);
@@ -72,7 +72,7 @@ function fmtMB(v) {
   return n >= 1024 ? (Math.round(n / 102.4) / 10) + ' GB' : Math.round(n) + ' MB';
 }
 function yuan(v) { const n = num(v); return n == null ? '—' : '¥' + (n < 0.1 && n > 0 ? n.toFixed(3) : n.toFixed(2)); }
-// 1010 她：每个功能旁标清价钱。本地的「免费（本机跑）」；要钱的用 setup estimate：「约 ¥x / 100 篇」「约 ¥x / 次」；估不出「按用量」
+// 1010 作者：每个功能旁标清价钱。本地的「免费（本机跑）」；要钱的用 setup estimate：「约 ¥x / 100 篇」「约 ¥x / 次」；估不出「按用量」
 function priceText(id, est) {
   const f = FEATURE_TEXT[id];
   if (!f || !f.price) return '';
@@ -147,7 +147,7 @@ module.exports = function homeUI(obsidian, plugin) {
     return withDeps([...ids], comps());
   };
   const errText = e => (e && e.message) || String(e || '');
-  // 1018 她：识图「还没配」——关掉「识图转文字」会顺带关掉依赖它的识图，再打开认字却不补回来，识图就悄悄停了。
+  // 1018 作者：识图「还没配」——关掉「识图转文字」会顺带关掉依赖它的识图，再打开认字却不补回来，识图就悄悄停了。
   // 现在：关掉一项时记下顺带关掉的（setup.dropped[这一项]），再打开这一项就把它们一起开回来。
   function nextSelection(cur, id, v, cs) {
     const s = setup();
@@ -389,7 +389,7 @@ module.exports = function homeUI(obsidian, plugin) {
           text: why || '装好打开的功能，再把同步收藏、认图片里的字、概要、整理目录一口气跑完（没开 AI 就只跑免费的部分）。' });
       }
       if (!run) return;
-      // 1027b 她：跑完了只留一句结果——每一步的 ✓ / ✗（比如没开的 CapsLock）不影响用，不再摆出来；跑的时候照旧一步步显示
+      // 1027b 作者：跑完了只留一句结果——每一步的 ✓ / ✗（比如没开的 CapsLock）不影响用，不再摆出来；跑的时候照旧一步步显示
       if (busy) {
       const steps = runBox.createDiv({ cls: 'lb-run-steps' });
       const order = Object.values(run.stages).sort((a, b) => (a.index || 0) - (b.index || 0));
@@ -456,7 +456,7 @@ module.exports = function homeUI(obsidian, plugin) {
       if (!cs.some(x => x.id === id)) throw new Error('功能清单里没有「' + id + '」');
       const snap = snapRuntime();
       setup().selected = nextSelection(effective(), id, v, cs);
-      setup().aiSynced = true;   // 1027：她在设置页点过 = 选择已经对齐（插件下次启动不再按「配好了 key」替她勾回去）
+      setup().aiSynced = true;   // 1027：用户在设置页点过 = 选择已经对齐（插件下次启动不再按「配好了 key」替用户勾回去）
       try { await applyRuntime(new Set(setup().selected)); await plugin.saveSettings(); }
       catch (e) { for (const k of RUNTIME_KEYS) plugin.settings[k] = snap[k]; throw e; }
       finally { repaint(); if (after) after(); }

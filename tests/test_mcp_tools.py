@@ -241,7 +241,7 @@ def test_selections_save_list_get(vault):
     named = mt.selections(c, {"action": "save", "ids": ["ccc33333"], "name": "老帖子"})["saved"]
     assert named["no"] == 4
     merged = mt.selections(c, {"action": "save", "ids": ["ccc33333", "abc12345"], "name": "老帖子"})["saved"]
-    assert merged["count"] == 2, "1019 她：同名合并，不报 EXISTS"
+    assert merged["count"] == 2, "1019 作者：同名合并，不报 EXISTS"
     mt.selections(c, {"action": "save", "ids": ["abc12345"], "name": "老帖子", "overwrite": True})
     with pytest.raises(Denied):
         mt.selections(c, {"action": "save", "ids": ["nope0000"]})

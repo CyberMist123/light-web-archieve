@@ -1,7 +1,7 @@
 """1001 审计 ingest/render-8、ui/ui-5：可见笔记的「身份」按 frontmatter 的 item_id 认，不按文件名认。
 
-- 她在 Obsidian 里改名 / 挪进自己的文件夹：重渲染沿用她那份，不冒一份新的；删除时同对象的所有 md 一起进回收站。
-- 她手写的属性把 YAML 写坏了：不当「别人的文件」改名、不丢手写键；解析不了就原样保留 frontmatter。
+- 用户在 Obsidian 里改名 / 挪进自己的文件夹：重渲染沿用用户那份，不冒一份新的；删除时同对象的所有 md 一起进回收站。
+- 用户手写的属性把 YAML 写坏了：不当「别人的文件」改名、不丢手写键；解析不了就原样保留 frontmatter。
 """
 
 from __future__ import annotations
@@ -46,7 +46,7 @@ def test_renamed_and_moved_note_is_reused_not_duplicated(note):
     text = moved.read_text(encoding="utf-8")
     assert "finder: 我自己" in text and "我的标签" in text and render_mod.CONTENT_START in text
 
-    # 再渲染一次（标题没变 / 变了都一样）：尊重她的名字，不挪回去
+    # 再渲染一次（标题没变 / 变了都一样）：尊重用户的名字，不挪回去
     render_mod.render_object(note["source"], note["source_id"])
     assert _visible_mds() == ["读书/我改的名字.md"]
 
@@ -93,7 +93,7 @@ def test_unparseable_frontmatter_is_kept_verbatim_in_place(note, capsys):
     render_mod.render_object(note["source"], note["source_id"])
     assert _visible_mds() == [note["path"].name]
     after = note["path"].read_text(encoding="utf-8")
-    assert after.startswith(head.rstrip("\n")), "她的 frontmatter 一字不改"
+    assert after.startswith(head.rstrip("\n")), "用户的 frontmatter 一字不改"
     assert render_mod.CONTENT_START in after
     assert "写坏了" in capsys.readouterr().err
 

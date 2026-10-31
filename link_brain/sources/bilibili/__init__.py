@@ -211,7 +211,7 @@ def normalize(fetched: Fetched, parsed: Parsed, *, captured_at: str) -> dict[str
         danmaku = {"status": ("ok" if dv["count"] else "empty_source") if dv["ok"] else "failed", "count": dv["count"],
                    "error": dv["error"], "path": files["danmaku"]}
     elif res.get("danmaku_wanted") is False:
-        # 1031 她：同步选项「不存弹幕」——没让下载器去拿，不算没拿到
+        # 1031 作者：同步选项「不存弹幕」——没让下载器去拿，不算没拿到
         danmaku = {"status": "skipped", "count": 0, "error": "这次没存弹幕（同步选项关了）", "path": None}
     else:
         danmaku = {"status": "failed", "count": 0, "error": "下载器没有写出弹幕 XML", "path": None}

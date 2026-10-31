@@ -217,7 +217,7 @@ function makePlugin(base, { saved = {}, files = new Set(), manifestDir = '.obsid
   env = makePlugin(plainVault, { saved: { backend: { command: `"${fakeExe}"` } } });
   await env.p.locateCollection();
   assert.equal(await env.p.onboardingUI().needsOnboarding(), true);
-  // 1009 她：零配置——新库第一次启动不弹分步向导，按轻量版自动跑一次（home-ui firstRun），记下「走过」免得每次启动都跑
+  // 1009 作者：零配置——新库第一次启动不弹分步向导，按轻量版自动跑一次（home-ui firstRun），记下「走过」免得每次启动都跑
   env.p.runPy = async (args) => { throw new Error('意外的调用 ' + args.join(' ')); };
   env.p.settingTab = { display() { this.shown = (this.shown || 0) + 1; } };
   const firstRuns = [];

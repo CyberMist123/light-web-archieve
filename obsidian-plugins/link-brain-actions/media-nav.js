@@ -58,7 +58,7 @@ function isBlockedTarget(target) {
   return target instanceof Element && !!target.closest(BLOCKED_SELECTOR);
 }
 
-// 1026 她（录屏 13:22）：「你看它不是全屏。」——点图 / 视频要能真正铺满屏幕。用 Element.requestFullscreen（Obsidian / Electron 支持）；
+// 1026 作者（录屏 13:22）：「你看它不是全屏。」——点图 / 视频要能真正铺满屏幕。用 Element.requestFullscreen（Obsidian / Electron 支持）；
 // 不支持或被拒时退回「铺满整个窗口」（.lb-fs-fallback）。全屏的是整块（视频 + 倍速 / 循环 / 连播那一行；连播页是画面 + 上一条 / 下一条），
 // 不是光秃秃的 <video>（原生全屏会把我们的控件全丢掉，所以视频的原生全屏键用 controlslist=nofullscreen 换成我们的）。
 // 进全屏前记下各级滚动容器（外加 keep 里给的，比如笔记右栏 .lb-scroll）的位置，退出时放回去：不丢阅读进度。
@@ -161,7 +161,7 @@ class MediaNav {
     if (this.oldPluginEnabled()) { this.skipped = true; console.info('[lb] 旧插件 ' + OLD_PLUGIN_ID + ' 还开着：图片导航先由它负责'); return false; }
     this.attached = true;
     this.onload();
-    // 1026 她：作者行的「← 目录」不要了（顶栏那行已有「← 目录」）——不再调 catalogBack()；方法留着，以后要再加回来只改这里
+    // 1026 作者：作者行的「← 目录」不要了（顶栏那行已有「← 目录」）——不再调 catalogBack()；方法留着，以后要再加回来只改这里
     return true;
   }
   notice(msg) {
@@ -546,7 +546,7 @@ class MediaNav {
       fit();
       if(locked&&preview){
         this.ensureLockedInView(note,preview);
-        // 1010 她报「连播 / 看完笔记回到目录，往下滚不动、反复被拉回顶部」：这个 scroll 监听挂在预览容器上，而同一标签页换文件时
+        // 1010 用户报「连播 / 看完笔记回到目录，往下滚不动、反复被拉回顶部」：这个 scroll 监听挂在预览容器上，而同一标签页换文件时
         // Obsidian 复用这个容器——笔记被摘下后它还在，每次滚动都把目录页往回拉。现在笔记一不在容器里就摘掉自己。
         if(!onPaneScroll){let q=false;const fn=onPaneScroll=()=>{
           if(note.isConnected===false||!preview.contains(note)){preview.removeEventListener('scroll',fn);this.paneScrolls.delete(fn);if(onPaneScroll===fn)onPaneScroll=null;return;}
@@ -562,7 +562,7 @@ class MediaNav {
     pin=media.createEl('button',{cls:'lb-media-pin'});
     pin.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3h8l-1 6 4 4v2H5v-2l4-4zM12 15v7"/></svg><span class="lb-visually-hidden">取消固定媒体</span>';
     pin.onclick=()=>{touched=true;const locked=!note.classList.contains('lb-media-locked');setLocked(locked);this.saveNoteState(key,{locked});};
-    // 1008 她定：默认钉住（批注框紧贴图片下面、能直接写）；同一篇后台重写后照原样（钉没钉、第几张、正文滚到哪）
+    // 1008 作者定：默认钉住（批注框紧贴图片下面、能直接写）；同一篇后台重写后照原样（钉没钉、第几张、正文滚到哪）
     const auto=this.shouldDefaultLock(note,preview);
     setLocked(st&&typeof st.locked==='boolean'?st.locked:auto);
     if(!st&&auto)raf(()=>raf(()=>{if(!touched&&note.isConnected!==false&&!this.shouldDefaultLock(note,preview))setLocked(false);}));   // 来源窗格的类是 openFile 之后才加的
@@ -576,7 +576,7 @@ class MediaNav {
       let q=false,restoring=false;
       sc.addEventListener('scroll',()=>{if(restoring||q)return;q=true;raf(()=>{q=false;if(sc.isConnected===false)return;this.saveNoteState(key,{scroll:sc.scrollTop||0});});});
       if(st&&st.scroll>0&&note.classList.contains('lb-media-locked')){
-        // 评论图懒加载会长高：最多试 1 秒；她一动滚轮 / 键盘就停
+        // 评论图懒加载会长高：最多试 1 秒；用户一动滚轮 / 键盘就停
         restoring=true;const until=Date.now()+1000,target=st.scroll;
         const stop=()=>{restoring=false;note.removeEventListener('wheel',stop);note.removeEventListener('keydown',stop);};
         note.addEventListener('wheel',stop);note.addEventListener('keydown',stop);
@@ -589,7 +589,7 @@ class MediaNav {
     if(video){
       this.hoverControls(media,video);
       this.clickToggle(video);
-      // 1031 她：播放中这一行（倍速 / 循环 / 全屏 / 连播）不挡画面——鼠标在画面上动才露 2 秒；点了里面的按钮立刻收起；暂停时照旧悬停就出
+      // 1031 作者：播放中这一行（倍速 / 循环 / 全屏 / 连播）不挡画面——鼠标在画面上动才露 2 秒；点了里面的按钮立刻收起；暂停时照旧悬停就出
       let awakeTimer=null;
       const sleep=()=>{clearTimeout(awakeTimer);awakeTimer=null;media.classList.remove('lb-tools-awake');};
       media.addEventListener('pointermove',e=>{if(e.pointerType==='touch'||video.paused)return;media.classList.add('lb-tools-awake');clearTimeout(awakeTimer);awakeTimer=setTimeout(sleep,2000);});
@@ -620,7 +620,7 @@ class MediaNav {
       const loop=bar.createEl('button',{cls:'lb-video-loop',text:'循环'});
       loop.setAttribute('aria-pressed',String(loopOn));loop.setAttribute('title','单曲循环（再点关掉）');
       loop.onclick=async e=>{
-        if(e&&e.detail&&loop.blur)loop.blur();   // 鼠标点完不留焦点：不然 :focus-within 让工具行一直挂着（她要悬停才出现）
+        if(e&&e.detail&&loop.blur)loop.blur();   // 鼠标点完不留焦点：不然 :focus-within 让工具行一直挂着（用户要悬停才出现）
         const on=!video.loop;
         const s=this.plugin.settings||(this.plugin.settings={});
         s.media={...(s.media||{}),loop:on};
@@ -640,7 +640,7 @@ class MediaNav {
         if(ui&&typeof ui.openTagPicker==='function'){try{const r=ui.openTagPicker({itemId:this.itemIdOf(note)});if(r&&typeof r.catch==='function')r.catch(e=>console.error('[lb] 连播没打开',e));}catch(e){console.error('[lb] 连播没打开',e);}}
         else this.notice('连播还没装好：更新 Link Brain Actions 插件后再试');
       };
-      // 1031 她：B 站视频的弹幕（danmaku.js）：画面上叠弹幕、工具行「弹幕」「弹幕设置」、画面右下角「弹」字开关；她自己的弹幕 = 带视频时间的批注（批注框写）；不是 B 站来源什么都不加
+      // 1031 作者：B 站视频的弹幕（danmaku.js）：画面上叠弹幕、工具行「弹幕」「弹幕设置」、画面右下角「弹」字开关；用户自己的弹幕 = 带视频时间的批注（批注框写）；不是 B 站来源什么都不加
       this.attachDanmaku({media,video,note,bar});
       return;
     }

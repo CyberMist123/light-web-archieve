@@ -1,8 +1,8 @@
 """恢复这篇（批次 D · F1）：快照 → 按存档重写同一路径 → 可撤销；以及「改坏了没有」的检测 / 扫描。
 
 - restore：不识图、不调模型、不联网（render_object llm=False，不走 render_item）。
-- 她写的属性、留言、<mark> 重点都保留（seed_text）；批注在 notes.json，不碰。
-- 钉死原路径：她删了 item_id 也不会另写 `__id8` 副本、不删原文件。
+- 用户写的属性、留言、<mark> 重点都保留（seed_text）；批注在 notes.json，不碰。
+- 钉死原路径：用户删了 item_id 也不会另写 `__id8` 副本、不删原文件。
 - CLI：stdout 只有最后一行 JSON，进度进 stderr，stderr 最后一行是人话。退出码 0 成功 / 1 失败（没动或已回滚）/ 2 认不出 / 没有可撤销的快照。
 """
 
@@ -277,8 +277,8 @@ def resolve(target: str | None = None, path: str | None = None) -> tuple[dict[st
 # --------------------------------------------------------------------------
 
 def _kept_message(title: str, kept: dict[str, Any], archive: str = "") -> str:
-    """1026 她（录屏 21:12）看到「保留了 0 个属性、0 条留言、0 处重点」不知道发生了什么：说清按哪一版存档重写，
-    她没写过的就不念零。"""
+    """1026 作者（录屏 21:12）看到「保留了 0 个属性、0 条留言、0 处重点」不知道发生了什么：说清按哪一版存档重写，
+    用户没写过的就不念零。"""
     n_keys, n_cmt, n_hl = len(kept.get("frontmatter_keys") or []), kept.get("comments", 0), kept.get("highlights", 0)
     head = f"已按存档恢复「{title}」" + (f"（按 {archive} 重新排版）" if archive else "")
     if n_keys or n_cmt or n_hl:
@@ -374,9 +374,9 @@ SNAP_REASON_CN = {"restore": "恢复前", "undo": "撤销前", "render": "重渲
 
 
 def describe_snapshot(text: str) -> dict[str, Any]:
-    """1026 她（录屏 20:51）：「从快照中找回就成为这个样子」——快照多半是「恢复前」存的那份坏页面，以前原样写回去就是坏的。
-    找回之前先说清这份是什么：页面结构好不好（坏在哪）、排的是哪一版存档、里面有她写的几个属性 / 几条留言 / 几处重点，
-    以及找回会怎么做（坏的：只取她写的东西、按存档重新排版；好的：原样写回）。"""
+    """1026 作者（录屏 20:51）：「从快照中找回就成为这个样子」——快照多半是「恢复前」存的那份坏页面，以前原样写回去就是坏的。
+    找回之前先说清这份是什么：页面结构好不好（坏在哪）、排的是哪一版存档、里面有用户写的几个属性 / 几条留言 / 几处重点，
+    以及找回会怎么做（坏的：只取用户写的东西、按存档重新排版；好的：原样写回）。"""
     issues = diagnose(text)
     _, kept = seed_text(text)
     versions = sorted({int(m) for m in _ASSET_VERSION.findall(text or "")})
@@ -411,7 +411,7 @@ def list_snaps(target: str | None = None, path: str | None = None) -> dict[str, 
 
 def recover(target: str | None = None, path: str | None = None, *, snapshot: str) -> dict[str, Any]:
     """从快照找回（1026）：当前这版先存一份「恢复前」快照（撤销就回到它）；快照页面完整 → 原样写回；
-    页面坏了 → 只取她写的（属性 / 留言 / 重点 / 正文外手写）、按存档重新排版（和「恢复这篇」同一套），写完再查一遍，还坏就放回原样。"""
+    页面坏了 → 只取用户写的（属性 / 留言 / 重点 / 正文外手写）、按存档重新排版（和「恢复这篇」同一套），写完再查一遍，还坏就放回原样。"""
     obj, vis = resolve(target, path)
     od = storage.object_dir(obj["source"], obj["source_id"])
     try:
@@ -535,7 +535,7 @@ def add_parser(sub) -> None:
     p.add_argument("--undo", action="store_true", help="撤销：写回最近一次恢复前的快照")
     p.add_argument("--snapshot", help="配 --undo：写回指定的快照（原样）")
     p.add_argument("--from-snapshot", dest="from_snapshot",
-                   help="从快照找回：坏的快照只取她写的、按存档重新排版；好的原样写回（当前这版先存快照，可撤销）")
+                   help="从快照找回：坏的快照只取你写的、按存档重新排版；好的原样写回（当前这版先存快照，可撤销）")
     p.add_argument("--list", action="store_true", help="列出这篇的快照")
     p.add_argument("--scan", action="store_true", help="只读扫描全部归档笔记")
     p.add_argument("--report", action="store_true", help="配 --scan：把坏的登记进问题面板")

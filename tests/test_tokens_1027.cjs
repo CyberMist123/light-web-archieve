@@ -20,7 +20,7 @@ const CASES = [
 
 function pureMapping() {
   const v = plug.lbThemeVars({ titleFont: 'LXGW WenKai', bodyFont: 'Inter, sans-serif', scale: 1.15, gap: 30 });
-  assert.equal(v['--lb-font-title'], '"LXGW WenKai",var(--lb-font-title-base)', '她的字体在前，默认栈兜底');
+  assert.equal(v['--lb-font-title'], '"LXGW WenKai",var(--lb-font-title-base)', '用户的字体在前，默认栈兜底');
   assert.equal(v['--lb-font-body'], '"Inter",sans-serif,var(--lb-font-body-base)', '通用族名不加引号');
   assert.equal(v['--lb-font-num'], null, '没给 = 用默认');
   assert.equal(v['--lb-scale'], '1.15');

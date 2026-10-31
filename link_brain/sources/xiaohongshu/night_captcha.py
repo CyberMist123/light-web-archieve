@@ -1,7 +1,7 @@
 """夜里撞验证：先不叫人，冷却后自查一次，没事就接着跑（1011，作者定「夜里正常跑就行」）。
 
 事实（作者本机 10-06 / 10-08 / 10-10 / 10-11 夜跑）：读收藏一开页就弹滑块，但这个验证一阵子就消——10-10 04:02 撞上，
-04:11 打开验证窗口已经什么都没有了。以前一撞就全晚停车、凌晨 4 点推给她、只有她能解，等于纯噪音。
+04:11 打开验证窗口已经什么都没有了。以前一撞就全晚停车、凌晨 4 点推给用户、只有用户能解，等于纯噪音。
 
 现在，**只在没人看着的时候**（夜跑脚本 / 包内 nightly / 后台补评论设了 `LINK_BRAIN_UNATTENDED`）：
 1. 撞到验证码（`CAPTCHA_REQUIRED`，或熔断起因是验证码的 `RISK_HOLD`）不当场推送：问题记录登记成
@@ -17,7 +17,7 @@
 4. 一晚只自查一次（这边按「夜跑日」记，读取服务按熔断记）：同一晚第二次撞验证，安静停到明晚。
 
 掉登录、安全跳转（ACCOUNT_RISK）、登错号这些一律照旧：当场停、当场推、要人处理。
-（1019 起白天撞的验证也走这套：先冷却自查，连着两晚自查都还在才叫她。）人工的 `risk/clear`（`login --clear-hold --by-owner`）语义不变；
+（1019 起白天撞的验证也走这套：先冷却自查，连着两晚自查都还在才叫用户。）人工的 `risk/clear`（`login --clear-hold --by-owner`）语义不变；
 这里自动解除走的是另一条有审计的路（读取服务 /risk/probe 自己判、自己解，原因写进熔断日志和问题记录）。
 
 状态：`~/.link-brain/night-captcha.json`（`LINK_BRAIN_HOME` 可改）= {"nights": {"YYYY-MM-DD": {...}}}，只留最近 14 晚。
@@ -150,7 +150,7 @@ def night(key: str | None = None) -> dict[str, Any]:
     return dict(load_state()["nights"].get(key or night_key()) or {})
 
 
-# ---------------------------------------------------------------- 撞上时：要不要先不叫她
+# ---------------------------------------------------------------- 撞上时：要不要先不叫用户
 
 def _hold_code() -> str:
     try:
@@ -161,8 +161,8 @@ def _hold_code() -> str:
 
 
 def defer(code: str | None) -> bool:
-    """这次撞的事要不要先不叫她：验证码（或熔断起因是验证码的 RISK_HOLD）。
-    1019 她：非她本人不可的才叫她——白天撞的验证也一样先冷却自查（以前只在没人看着时；10-19 21:15 白天推了，22:00 自查无验证）。"""
+    """这次撞的事要不要先不叫用户：验证码（或熔断起因是验证码的 RISK_HOLD）。
+    1019 作者：非用户本人不可的才叫用户——白天撞的验证也一样先冷却自查（以前只在没人看着时；10-19 21:15 白天推了，22:00 自查无验证）。"""
     sub = str(code or "").rsplit(".", 1)[-1]
     if sub == CAPTCHA:
         return True
@@ -170,7 +170,7 @@ def defer(code: str | None) -> bool:
 
 
 def report_deferred(reason: str) -> dict[str, Any] | None:
-    """撞上验证、先不叫她：登记一条 TRANSIENT（只在问题列表里），这一晚记一次出事。永不抛。"""
+    """撞上验证、先不叫用户：登记一条 TRANSIENT（只在问题列表里），这一晚记一次出事。永不抛。"""
     from ... import problems
     key = night_key()
     now = _now().isoformat(timespec="seconds")
@@ -203,14 +203,14 @@ def _out(result: str, exit_code: int, message: str, **extra: Any) -> dict[str, A
 
 
 def _mark_unrecovered(key: str, why: str, *, now: datetime) -> dict[str, Any]:
-    """今晚没恢复：记下；昨晚也没恢复 → 推一次 NEEDS_HUMAN（她要知道了）。返回 {escalated}。"""
+    """今晚没恢复：记下；昨晚也没恢复 → 推一次 NEEDS_HUMAN（用户要知道了）。返回 {escalated}。"""
     from ... import problems
     _update_night(key, result="unrecovered", why=why[:160])
     prev_key = (datetime.fromisoformat(key) - timedelta(days=1)).date().isoformat()
     prev = load_state()["nights"].get(prev_key) or {}
     tonight = load_state()["nights"].get(key) or {}
     if tonight.get("escalated"):
-        return {"escalated": False}  # 今晚已经叫过她了：不再登记
+        return {"escalated": False}  # 今晚已经叫过用户了：不再登记
     if prev.get("result") != "unrecovered":
         problems.report(STEP, "TRANSIENT.NIGHT_CAPTCHA",
                         f"{SAY}：{why}。今晚先停（不叫你）；明晚冷却后再看一眼，连着两晚都这样才叫你")

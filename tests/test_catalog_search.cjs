@@ -119,7 +119,7 @@ async function openCatalog() {
     const possible = (cut < 0 ? [] : seq.slice(cut + 1)).map(id => ({it: {id}}));
     check(q, exact, possible);
   }
-  // 「悉尼 咖啡」第一张卡：只有标题，不出命中摘录（1002 她定：有标题就够了）
+  // 「悉尼 咖啡」第一张卡：只有标题，不出命中摘录（1002 作者定：有标题就够了）
   page.search('悉尼 咖啡');
   const first = page.root.querySelector('article.lbc-card');
   assert.equal(first.querySelector('.lbc-ctitle').textContent, walk.title);

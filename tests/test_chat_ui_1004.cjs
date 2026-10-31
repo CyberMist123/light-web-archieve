@@ -1,4 +1,4 @@
-// 10-04 问收藏页界面批（她点名）：
+// 10-04 问收藏页界面批（用户点名）：
 // ① 标题旁「+」换成「清空」（输入框左边的 + 照旧开导入菜单）
 // ② 追问默认绑定上一轮「留下的来源」（sourceIds 通路，不重新检索）；「改为重新搜」开关存进 chat-session.json；新会话 / 清空后 / 从目录页带词跳来的第一问照常检索
 // ③ 对话区内滚动条隐藏（仍可滚）  ④ dataviewjs 外框隐形  ⑥ 来源入口看得见（收起时小字提示，展开后保留 / × 小按钮）
@@ -62,10 +62,10 @@ const CODE = asset('lb-page-lib.js') + '\n' + asset('catalog-search.js') + '\n' 
   const bar = one('.lbchat-followbar');
   const seg = label => all('.lbchat-followmode .lbchat-seg-opt').find(b => b.textContent === label);
   assert.equal(bar.hidden, false);
-  assert.ok(seg('追问').classList.contains('is-on') && !seg('新问题').classList.contains('is-on'));   // 1028 她：「新对话」→「新问题」
+  assert.ok(seg('追问').classList.contains('is-on') && !seg('新问题').classList.contains('is-on'));   // 1028 作者：「新对话」→「新问题」
   assert.ok(!bar.textContent.includes('改为'), '不再写「改为……」');
   assert.equal(one('.lbchat-clearbox .lbchat-clearall').textContent, '清空上下文');
-  assert.equal(one('.lbchat-search').placeholder, '接着问，只用上面这些来源…');   // 1028 她：追问档提示
+  assert.equal(one('.lbchat-search').placeholder, '接着问，只用上面这些来源…');   // 1028 作者：追问档提示
 
   // ⑥ 来源入口：收起时 summary 后面有提示小字；每行 标题 + 保留 + × 在同一行里
   const box = () => all('.lbchat-src')[all('.lbchat-src').length - 2];
@@ -83,7 +83,7 @@ const CODE = asset('lb-page-lib.js') + '\n' + asset('catalog-search.js') + '\n' 
   // 追问：只在上一轮留下的来源里答（保留的 b 排前，删掉的 a 不要）；排除照样带上；10-04 ②：保留的 b 也作为 pinIds 带上
   reply = () => ({ status: 'ok', markdown: '只看留下的 [来源1]', sources: [src('b', 1)], related: [rel('c', 2)] });
   await ask('哪家最便宜');
-  // 1026 她：追问 = 接着聊（mode=chat），不带来源 id 去重新检索；排除 / 保留照样带上
+  // 1026 作者：追问 = 接着聊（mode=chat），不带来源 id 去重新检索；排除 / 保留照样带上
   assert.equal(asks[1].mode, 'chat'); assert.equal(asks[1].sourceIds, undefined);
   assert.deepEqual(Array.from(asks[1].excludeIds), ['a']);
   assert.deepEqual(Array.from(asks[1].pinIds), ['b']);
@@ -95,10 +95,10 @@ const CODE = asset('lb-page-lib.js') + '\n' + asset('catalog-search.js') + '\n' 
 
   // 点「新对话」：下一问重新检索（不带 sourceIds），开一段新对话（这段进历史），状态存进会话文件
   const before1020 = saved().id;
-  await seg('新问题').onclick(); await tick(5);   // 1028 她：「新对话」→「新问题」
+  await seg('新问题').onclick(); await tick(5);   // 1028 作者：「新对话」→「新问题」
   assert.equal(saved().follow, 'search');
   assert.ok(seg('新问题').classList.contains('is-on'));
-  assert.equal(one('.lbchat-search').placeholder, '问个新问题，重新从全部收藏里找…');   // 1028 她：新问题档提示
+  assert.equal(one('.lbchat-search').placeholder, '问个新问题，重新从全部收藏里找…');   // 1028 作者：新问题档提示
   await ask('换个城市呢');
   assert.equal(asks[2].sourceIds, undefined);
   assert.notEqual(saved().id, before1020, '新对话 = 开新一段');
@@ -107,7 +107,7 @@ const CODE = asset('lb-page-lib.js') + '\n' + asset('catalog-search.js') + '\n' 
 
   // 刷新页面：新开的这段按偏好默认（追问）；点回「追问」照样存
   await open();
-  await seg('新问题').onclick(); await tick(5);   // 1028 她：「新对话」→「新问题」
+  await seg('新问题').onclick(); await tick(5);   // 1028 作者：「新对话」→「新问题」
   assert.ok(seg('新问题').classList.contains('is-on'));
   await seg('追问').onclick(); await tick(5);
   assert.equal(saved().follow, 'sources');

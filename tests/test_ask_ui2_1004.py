@@ -55,7 +55,7 @@ def test_default_prompt_stored_in_settings_is_not_appended_twice(monkeypatch, tm
 
 def test_pinned_source_used_first_in_reask_with_explicit_citation_rule(monkeypatch, tmp_path):
     seen = _setup(monkeypatch, tmp_path, answer="只说交通[来源2]")
-    # 页面「按剩下的重新回答」：sourceIds = 留下的；pinIds = 她手动加入（保留 / 提上来）的
+    # 页面「按剩下的重新回答」：sourceIds = 留下的；pinIds = 用户手动加入（保留 / 提上来）的
     r = ask.answer("交通路线", source_ids=["t0", "t1"], pin_ids=["food"])
     primary = [s["id"] for s in r["sources"]]
     assert primary[0] == "food" and set(primary) == {"food", "t0", "t1"}

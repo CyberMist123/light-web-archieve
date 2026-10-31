@@ -1,4 +1,4 @@
-"""只读工具：search / read / list / read_asset，10-04 加 selections / read_selection（她在目录页存的选集）。
+"""只读工具：search / read / list / read_asset，10-04 加 selections / read_selection（用户在目录页存的选集）。
 全部经 policy 过白名单；没有任何写入、执行、调模型回答的工具。
 
 - search：开放了小红书收藏库（@xhs）时，用问答同一个宽召回核心（`recall_core.candidates`：词法 BM25 + 语义 + 扩词，
@@ -493,13 +493,13 @@ def search(policy: Policy, args: dict[str, Any]) -> dict[str, Any]:
 # ---------------------------------------------------------------- 选集（10-04）
 
 def selections_list(policy: Policy, args: dict[str, Any]) -> dict[str, Any]:
-    """她存的选集：名字、创建时间、每篇标题。只在开放了小红书收藏库时有（选集只装收藏）。"""
+    """用户存的选集：名字、创建时间、每篇标题。只在开放了小红书收藏库时有（选集只装收藏）。"""
     from .. import selections
     if not policy.xhs:
         raise Denied("NOT_OPEN", "小红书收藏库没有开放给你，选集也读不到")
     out = selections.list_selections()
     out.pop("hint", None)
-    out["hint"] = "她说「看一下选集 xxx」时用 read_selection 按名字取"
+    out["hint"] = "用户说「看一下选集 xxx」时用 read_selection 按名字取"
     return out
 
 
@@ -541,8 +541,8 @@ def read_selection(policy: Policy, args: dict[str, Any]) -> dict[str, Any]:
 TOOLS += [
     {
         "name": "selections",
-        "description": ("列出她存的选集（她在收藏目录里多选几篇存成的、有名字的一组）：名字、创建时间、篇数、每篇标题。"
-                        "她说「我选中了 / 看一下选集 xxx」时先用它对上名字；也可以主动提醒她存过哪些选集。"),
+        "description": ("列出用户存的选集（用户在收藏目录里多选几篇存成的、有名字的一组）：名字、创建时间、篇数、每篇标题。"
+                        "用户说「我选中了 / 看一下选集 xxx」时先用它对上名字；也可以主动提醒用户存过哪些选集。"),
         "inputSchema": {"type": "object", "properties": {}},
         "annotations": {"readOnlyHint": True, "openWorldHint": False},
     },
@@ -551,7 +551,7 @@ TOOLS += [
         "description": ("按名字取一个选集里的几篇：标题、原文链接、path（给人看的笔记）、agent_md（机读版）、attachments，"
                         "附机读版正文开头（每篇最多 8000 字；truncated=true 的用 read 读 agent_md 全文）。名字大小写 / 空格不敏感。"),
         "inputSchema": {"type": "object", "properties": {
-            "name": {"type": "string", "description": "选集名字（她说的「选集 xxx」里的 xxx）"}},
+            "name": {"type": "string", "description": "选集名字（用户说的「选集 xxx」里的 xxx）"}},
             "required": ["name"]},
         "annotations": {"readOnlyHint": True, "openWorldHint": False},
     },

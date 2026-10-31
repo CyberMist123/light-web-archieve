@@ -1,4 +1,4 @@
-// 1009 她的裁决：功能开关 +「一键装好 / 跑完」+ 零配置首次自动跑；1010：设置页分栏后这一块在「概览」（renderRun）和「AI」（renderAI）。
+// 1009 作者的裁决：功能开关 +「一键装好 / 跑完」+ 零配置首次自动跑；1010：设置页分栏后这一块在「概览」（renderRun）和「AI」（renderAI）。
 // 断言：
 //   1. 纯函数：没选过 = 轻量版；依赖联动；进度事件 → 各步状态；评论补齐那一行；每个功能旁的价钱（本地免费 / 约 ¥x / 100 篇 / 约 ¥x / 次 / 按用量）；
 //   2. 「一键装好 / 跑完」：经 spawnPy（exclusive）跑 `setup run`，stdout 一行一个事件画成各步 ✓ / ⟳ / ✗ + 当前在装的进度条，
@@ -72,7 +72,7 @@ const PLAN = { ok: true, components: [
   assert.equal(H.fillLine({ state: 'running', message: '正在补评论 · 已补齐 3/197 篇', updated_at: new Date(now - 60000).toISOString() }, null, now), '正在补评论 · 已补齐 3/197 篇');
   assert.equal(H.fillLine({ state: 'done', message: '评论都补齐了' }, { ok: true, pending: 0, stuck: 2 }, now), '评论都补齐了（2 篇连着补不上，见问题列表）');
   assert.equal(H.fillLine(null, { ok: true, pending: 5, missing: 70, stuck: 0 }, now), '5 篇的评论还没补齐（共缺 70 条回复）');
-  // 1010 她：每个功能旁标清价钱
+  // 1010 作者：每个功能旁标清价钱
   const EST = { data: { items: [{ id: 'summary', yuan: 0.8, per: '100 篇' }, { id: 'ask', yuan: 0.004, per: '次' }, { id: 'vision', yuan: null, per: '100 篇' }] } };
   assert.equal(H.priceText('ocr', EST), '免费（本机跑）');
   assert.equal(H.priceText('capslock', null), '免费（本机跑）');
@@ -124,7 +124,7 @@ const PLAN = { ok: true, components: [
   const runArgs = runs.find(a => a.includes('run'));
   assert.deepEqual(Array.from(runArgs), ['-m', 'link_brain', 'setup', 'run']);
   assert.deepEqual(Array.from(p.settings.setup.selected), ['core', 'reader', 'dataview', 'ocr'], '跑之前把「没选过」落成轻量版');
-  // 1027b 她：「不影响实际体验的就别显示了」——跑完只留一句结果（里面说清要你做什么），不再摆每一步的 ✓ / ✗
+  // 1027b 作者：「不影响实际体验的就别显示了」——跑完只留一句结果（里面说清要你做什么），不再摆每一步的 ✓ / ✗
   assert.equal(pane.querySelectorAll('.lb-run-step').length, 0, '跑完不列每一步');
   assert.match(pane.querySelector('.lb-run-result').textContent, /先处理小红书/);
   const last = notices.at(-1);

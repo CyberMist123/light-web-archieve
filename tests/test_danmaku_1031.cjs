@@ -1,8 +1,8 @@
-// 1031 她：B 站视频弹幕（obsidian-plugins/link-brain-actions/danmaku.js，media-nav 给正文视频装工具行时挂上）。
+// 1031 作者：B 站视频弹幕（obsidian-plugins/link-brain-actions/danmaku.js，media-nav 给正文视频装工具行时挂上）。
 // ①解析 B 站 XML（模式 / 颜色 / 字号 / 实体、7 高级弹幕不画、按时间排好）；②引擎：一千多条只建屏幕上的节点（回收复用）、同一行不撞车、
 // 拖进度条按新时间重排、屏蔽 / 显示区域 / 速度；③控制器：只认 B 站来源（小红书视频不出控件）、工具行「弹幕」「弹幕设置」、D 键开关
 // （焦点在视频上；全屏里焦点在哪都算；输入框里不算）、设置存 settings.media.danmaku（markSettingDirty('media') + saveSettings，没存上拨回 + 说原因）、
-// 所有视频共用；④她自己的弹幕 = notes.json 里带 video_t 的批注（1031 第二轮：弹幕复用批注，不再有 danmaku-mine.json / 发弹幕框）：
+// 所有视频共用；④用户自己的弹幕 = notes.json 里带 video_t 的批注（1031 第二轮：弹幕复用批注，不再有 danmaku-mine.json / 发弹幕框）：
 // 打开时读、批注框发 link-brain:annotations 就换（新写的立刻挤上画面、带 is-mine；删掉的撤下；不带时间的不播）；
 // 画面右下角「弹」字开关（动鼠标出现、静止 2 秒淡出、点了开关）；高级弹幕（mode 7）按坐标静态停几秒；⑤插件卸载拆干净。
 'use strict';
@@ -182,7 +182,7 @@ const key = (E, target, k, extra = {}) => { const e = E.dom.event('keydown', { k
     for (const r of eng.live) assert.ok(r.mode === 'bottom' ? r.y >= eng.H - eng.nLanes * eng.laneH - 0.5 : r.y < eng.nLanes * eng.laneH, '都在显示区域里');
     eng.setSettings({ area: 1, block: {}, speed: 1.7 });
     assert.ok(Math.abs(eng.dur - DM.SCROLL_SEC / 1.7) < 1e-9, '速度快 = 一条走完用时短');
-    // 她发的：挤也要挤上去，一出来整条就在画面里（暂停时也看得见）
+    // 用户发的：挤也要挤上去，一出来整条就在画面里（暂停时也看得见）
     const mine = { time: 30.5, mode: 'scroll', size: 25, color: 0xffffff, text: '我的', mine: true };
     const rec = eng.insertNow(mine, 30.5);
     assert.ok(rec && rec.el.classList.contains('is-mine'));
@@ -390,5 +390,5 @@ const key = (E, target, k, extra = {}) => { const e = E.dom.event('keydown', { k
     nav.attach(); await settle();
     assert.ok(A.media.querySelector('.lb-video-full') && !A.media.querySelector('.lb-dm-toggle'));
   }
-  console.log('PASS danmaku 1031: XML 解析、引擎只建屏幕上的节点且同行不撞车、拖进度条重排、倍速 / 暂停、屏蔽 / 区域 / 速度；只认 B 站视频；弹幕 / 弹幕设置 / D 键；设置共用且存不上拨回；她的弹幕 = 带 video_t 的批注（打开读、事件换、删掉撤下、重开一起播）；「弹」字开关；卸载拆干净');
+  console.log('PASS danmaku 1031: XML 解析、引擎只建屏幕上的节点且同行不撞车、拖进度条重排、倍速 / 暂停、屏蔽 / 区域 / 速度；只认 B 站视频；弹幕 / 弹幕设置 / D 键；设置共用且存不上拨回；用户的弹幕 = 带 video_t 的批注（打开读、事件换、删掉撤下、重开一起播）；「弹」字开关；卸载拆干净');
 })().catch(e => { console.error(e); process.exit(1); });

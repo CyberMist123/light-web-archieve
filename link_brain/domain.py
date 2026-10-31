@@ -53,7 +53,7 @@ def short_id(item_id_or_id: Any) -> str:
 class Presence(str, Enum):
     NEW = "new"                # 没收过（或只剩暂存残渣）→ 要联网抓
     IN_LIBRARY = "in_library"  # 在库 → 不联网（除非 refresh）
-    DELETED = "deleted"        # 她删过、在墓碑里 → 不抓、不拉回
+    DELETED = "deleted"        # 用户删过、在墓碑里 → 不抓、不拉回
     ORPHAN = "orphan"          # 有完整 RAW 版本、没 meta（上次崩在发布和提交之间）→ 不联网，收编
 
 
@@ -73,7 +73,7 @@ class Lookup:
 
 
 def lookup(p: Probe) -> Lookup:
-    """优先级：墓碑 > meta > 完整版本 > 新帖。她删了就是删了，对象目录还在也一样。"""
+    """优先级：墓碑 > meta > 完整版本 > 新帖。用户删了就是删了，对象目录还在也一样。"""
     if p.tombstoned:
         return Lookup(Presence.DELETED)
     if p.has_meta:
@@ -99,7 +99,7 @@ def write_decision(prior_fp: str | None, new_fp: str, *, committed: bool) -> str
 
 
 # ---------------------------------------------------------------------------
-# 收藏口径（1023 她定：多个号的收藏、网页导入 = 我的收藏；TG 发来的 = Fable）
+# 收藏口径（1023 作者定：多个号的收藏、网页导入 = 我的收藏；TG 发来的 = Fable）
 # ---------------------------------------------------------------------------
 
 FABLE = "fable"
@@ -120,7 +120,7 @@ def is_favorite(meta: Mapping[str, Any]) -> bool:
 def collected_by(meta: Mapping[str, Any]) -> str:
     """谁收的（目录「来源」分组键）：
     - ""      = 我的收藏：是收藏；或 actor=human 且不是 TG 发来的（插件导入网址 / CLI / 电脑上自己导入 = 网页导入）
-    - "fable" = TG 发来的（origin=tg，1023 她定；原来叫「聊天分享」）和 Fable 自己收的（actor=ai:fable）
+    - "fable" = TG 发来的（origin=tg，1023 作者定；原来叫「聊天分享」）和 Fable 自己收的（actor=ai:fable）
     - 项目名  = CC / GPT 带 --project 收的；没项目名 → actor 冒号后的名字
     """
     if is_favorite(meta):
@@ -135,7 +135,7 @@ def collected_by(meta: Mapping[str, Any]) -> str:
 
 
 def via(meta: Mapping[str, Any]) -> str:
-    """并进 fable 组之后还分得清：她在 TG 发给 Fable 的 → "tg"；其余 → ""。"""
+    """并进 fable 组之后还分得清：用户在 TG 发给 Fable 的 → "tg"；其余 → ""。"""
     return "tg" if collected_by(meta) == FABLE and str(meta.get("actor") or HUMAN) == HUMAN else ""
 
 
@@ -156,7 +156,7 @@ class Owner(str, Enum):
     RENDER = "render"    # 渲染 / 可见笔记写
     SYNC = "sync"        # 收藏同步写
     ATTACH = "attach"    # 附件模块写
-    OWNER = "owner"      # 她本人改（relabel / 钉文件名 / 改来源）
+    OWNER = "owner"      # 用户本人改（relabel / 钉文件名 / 改来源）
 
 
 FIELD_OWNER: dict[str, Owner] = {

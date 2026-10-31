@@ -11,7 +11,7 @@ goal / depth / core / entities / relations / constraints(must / prefer) / negati
 模型输出不可信：枚举外的值丢；core 必须和原问题字面重合过半（防漂移）；作者过滤必须是库里真有的昵称；
 技能只认给定列表里的 id。缺字段 = 没给（调用方退回 S0 / 旧启发式，fail-open）。
 
-规则 > 模型：同一维度 S0 认出了就用 S0 的（她明说的作者 / 年份比模型猜的可靠）。
+规则 > 模型：同一维度 S0 认出了就用 S0 的（用户明说的作者 / 年份比模型猜的可靠）。
 """
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ from typing import Any
 # S0：口语壳
 # --------------------------------------------------------------------------
 
-# 借 TREC Tip-of-the-Tongue 的「自我叙述 / 不确定性」类：这些词只说明她在找，不是要找的东西本身
+# 借 TREC Tip-of-the-Tongue 的「自我叙述 / 不确定性」类：这些词只说明用户在找，不是要找的东西本身
 _SHELL = re.compile(
     r"我(?:好像|记得|记着)?有(?:个|一个|篇|一篇)|我记得|好像|似乎|应该是|"
     r"(?:我)?之前(?:存|收藏|保存|看|刷)(?:过|到)?的?|我(?:存|收藏|保存)(?:过|了)?的?|"
@@ -167,7 +167,7 @@ def rule_filters(question: str, items=None, *, skills=None, today: date | None =
 
 
 def explicit_skill(question: str, skills=None) -> str | None:
-    """「/菜谱」「/recipe」「用 wiki 技能」= 她点名的技能；只认给定列表里有的（id 或中文名 / 别名）。"""
+    """「/菜谱」「/recipe」「用 wiki 技能」= 用户点名的技能；只认给定列表里有的（id 或中文名 / 别名）。"""
     if not skills:
         return None
     q = str(question or "")
@@ -202,7 +202,7 @@ def strip_meta(question: str, filters: dict[str, Any], *, keep_empty: bool = Fal
 
 
 def apply_filters(items, filters: dict[str, Any] | None):
-    """按作者 / 收藏时间 / 类型筛；任何一维筛完是空 = 那一维不算（fail-open：她记错年份也照样有结果），返回 (items, 用上的维度)。"""
+    """按作者 / 收藏时间 / 类型筛；任何一维筛完是空 = 那一维不算（fail-open：用户记错年份也照样有结果），返回 (items, 用上的维度)。"""
     filters = filters or {}
     out, used = list(items or []), []
     if filters.get("author"):
@@ -284,7 +284,7 @@ def item_kinds(item) -> list[str]:
 
 GOALS = {"find", "ask", "survey"}
 DEPTHS = {"precise", "detailed"}
-# 1018 v2.1 理解层最小字段：task（作答模板按它挑）、note（研究笔记）、clues（找回题她亲口说的辨识细节）
+# 1018 v2.1 理解层最小字段：task（作答模板按它挑）、note（研究笔记）、clues（找回题用户亲口说的辨识细节）
 TASKS = {"find", "howto", "synthesize", "survey", "inspire", "adapt", "evaluate", "browse", "absence", "portrait"}
 NOTE_MAX = 300
 CLUE_MAX = 4

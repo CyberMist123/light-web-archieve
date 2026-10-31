@@ -297,7 +297,7 @@ STRICT_JSON_SUFFIX = "\n\n（上一次的输出没法按 JSON 解析：这次只
 
 
 def summary_fallbacks(primary: dict[str, Any], settings: dict[str, Any]) -> list[dict[str, Any]]:
-    """1016：概要的备用（按顺序）：summaryAI.fallback（如百炼，她定：Gemini key 报错先换百炼）→ 文本 AI（DeepSeek）。
+    """1016：概要的备用（按顺序）：summaryAI.fallback（如百炼，作者定：Gemini key 报错先换百炼）→ 文本 AI（DeepSeek）。
     拿不到 key 的、和主模型同一家同一把 key 的不算。"""
     from . import providers
     out: list[dict[str, Any]] = []
@@ -387,7 +387,7 @@ def _extract(source_key: str, source_id: str, *, force: bool = False, verbose: b
                         f"归档概要没生成：{reason}（设置 → AI 配好后会自动补）", action="skipped")
         return doc
 
-    # 摘要提示词：Owner 在插件设置里填了就用她的，留空用内置 INSTRUCTION（fail-open）。
+    # 摘要提示词：Owner 在插件设置里填了就用用户的，留空用内置 INSTRUCTION（fail-open）。
     # 自定义提示词必须仍要求返回本文件顶部那套 JSON schema，否则 validate 会失败重试后落 failed。
     instruction = (settings.get("prompts") or {}).get("summary", "").strip() or INSTRUCTION
 

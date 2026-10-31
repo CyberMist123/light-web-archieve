@@ -112,7 +112,7 @@ const click = (D, target, extra = {}) => { const e = { type: 'click', target, pr
     click(S.D, S.tag); await tick(0);
     assert.equal(S.plugin.pendingCatalogQuery, '', '没有 lb-actions-on 不处理');
   }
-  // ── N11 ── 1026 她：「问这篇」入口拿掉（笔记右键 / 命令面板都没有）
+  // ── N11 ── 1026 作者：「问这篇」入口拿掉（笔记右键 / 命令面板都没有）
   {
     const S = setup(); S.inst.attach();
     assert.equal(S.commands['note-ask'], undefined, '没有「问这篇」命令');

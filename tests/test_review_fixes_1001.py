@@ -85,7 +85,7 @@ def test_two_truncated_nights_in_a_row_both_flagged_but_pushed_once(env, capsys)
         # 每晚都标可疑（问题列表看得到、这次不算同步成功）；收藏数可疑是临时故障，不推（连着 3 个日历日才升级）
         assert status["last_favorites"] == 10 and env.alerts == [], night
     # 10-04 F1：以前「连着 3 晚同一个数就认作新基准」会把每晚只读到的一截（50 条）认成基准——去掉了。
-    # 只有读取服务明说读到底了（stop_reason=has_more_false）才认：她真删了一批
+    # 只有读取服务明说读到底了（stop_reason=has_more_false）才认：用户真删了一批
     env.read = {"partial": False, "stop_reason": "has_more_false", "has_more": False, "expect": 10}
     env.alerts.clear()
     code, out = _run(capsys)

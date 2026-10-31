@@ -2,8 +2,8 @@
 //   F1-b 恢复这篇：⋯ 菜单 / 文件列表右键 / 命令「恢复这篇」「撤销上次恢复」「从快照找回…」（后端 restore，先存快照、可撤销）；
 //        1026：「从快照找回…」每份写清是什么、找回怎么做（restore --list 的 summary / how），选了走 --from-snapshot（坏的不原样写回）；
 //   F1-d 打开改坏的笔记就地提示一次（noteDamage 与 link_brain/restore.py 的 diagnose 同口径，共用样本 tests/fixtures/note_damage_cases.json）；
-//   F3-a 导出：右上角 ⋮ 菜单「导出 ▸」子菜单（PDF / 压缩包）+ 命令。1010 她：顶栏右端那个带框的「导出 ▾」删掉。
-//   1010 她：笔记顶上插件那一行变成一行很轻的字「← 目录　原文↗　机读版」——「← 目录」由 markdown post-processor 注入（不烤进 md），
+//   F3-a 导出：右上角 ⋮ 菜单「导出 ▸」子菜单（PDF / 压缩包）+ 命令。1010 作者：顶栏右端那个带框的「导出 ▾」删掉。
+//   1010 作者：笔记顶上插件那一行变成一行很轻的字「← 目录　原文↗　机读版」——「← 目录」由 markdown post-processor 注入（不烤进 md），
 //   点了在这一格打开目录页（目录页自己记着刚才的滚动位置和筛选）；md 里 原文 / 机读版 之间的「·」在显示时去掉，间距交给样式。
 // 插件 onload 里 require(...)(obsidian, plugin).attach()，实例在 plugin.noteTools。
 'use strict';
@@ -174,8 +174,8 @@ module.exports = (obsidian, plugin, deps = {}) => {
     const t = String(s.ts || '');
     return `${t.slice(5, 10)} ${t.slice(11, 16)} · ${SNAP_REASON[s.reason] || s.reason || '快照'} · ${fmtSize(Number(s.bytes) || 0)}`;
   }
-  // 1026 她（录屏 20:51）：「从快照中找回就成为这个样子」——以前选一份就原样写回，「恢复前」那份多半是坏页面。
-  // 现在每份快照下面写清它是什么（页面好不好、哪一版存档、里面有她写的几样）、找回会怎么做；坏的只取她写的、按存档重新排版。
+  // 1026 作者（录屏 20:51）：「从快照中找回就成为这个样子」——以前选一份就原样写回，「恢复前」那份多半是坏页面。
+  // 现在每份快照下面写清它是什么（页面好不好、哪一版存档、里面有用户写的几样）、找回会怎么做；坏的只取用户写的、按存档重新排版。
   async function recover(file, snapshot) {
     const info = itemOf(file);
     if (!info || !snapshot) return null;

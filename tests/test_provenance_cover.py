@@ -71,7 +71,7 @@ def test_relabel_updates_meta_and_relation_row(tmp_path, monkeypatch):
     conn.close()
     assert tuple(row) == ("tg", "cc")        # actor 没给：索引行原样（UPDATE 按旧值匹配写回同样的值）
     assert calls["dirty"] == ["改来源"] and calls["fresh"] == 1   # 改成了就标脏并重建
-    # 她自己后来收藏了同一篇 → 回主收藏（collected_by 的回卷规则，src 立刻反映）
+    # 用户自己后来收藏了同一篇 → 回主收藏（collected_by 的回卷规则，src 立刻反映）
     meta["favorited_by"] = ["u1"]
     (vault / "_archive" / "xiaohongshu" / "abc1" / "meta.json").write_text(json.dumps(meta, ensure_ascii=False),
                                                                           encoding="utf-8")

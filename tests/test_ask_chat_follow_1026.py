@@ -1,4 +1,4 @@
-"""1026 她：追问 = 接着这段聊，不重新检索（mode=chat）——带最近几轮对话直接问模型，可用模型自己的知识。"""
+"""1026 作者：追问 = 接着这段聊，不重新检索（mode=chat）——带最近几轮对话直接问模型，可用模型自己的知识。"""
 from link_brain import ask
 
 
@@ -12,7 +12,7 @@ def test_chat_follow_skips_retrieval_and_sends_history(monkeypatch):
     assert r["status"] == "ok" and r["mode"] == "chat" and r["markdown"] == "接着说。[来源1]" and r["sources"] == []
     prompt, text = calls[0]
     assert "自己的知识" in prompt and "来源导读" in prompt
-    assert "先看 Topic Pool" in text and text.endswith("她这一问：那怎么做？")
+    assert "先看 Topic Pool" in text and text.endswith("用户这一问：那怎么做？")
 
 
 def test_chat_follow_reports_missing_model(monkeypatch):

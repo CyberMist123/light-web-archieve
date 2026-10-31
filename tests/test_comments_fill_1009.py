@@ -1,4 +1,4 @@
-"""1009 Owner：评论楼层选 N = 前 N 楼、每楼全部楼中楼都要抓全；读不完的后台自动续读到补齐，不靠她手点。
+"""1009 Owner：评论楼层选 N = 前 N 楼、每楼全部楼中楼都要抓全；读不完的后台自动续读到补齐，不靠用户手点。
 
 根因（10-09 真库只读实查）：601 篇里 521 篇是 10-08 以前入库、没有 comment_load 的，其中 195 篇前 10 楼缺回复（共 5863 条）；
 旧的 `--fill-pending` 只认 comment_load 里登记的缺口 → 这批永远排不上；另外每晚只续 2 篇、总共最多 3 次。
@@ -156,7 +156,7 @@ def test_no_progress_three_times_goes_to_problem_panel_then_resolves(tmp_path, m
     assert "还缺 7 条" in rows[0]["reason"] and "连着 3 次" in rows[0]["reason"]
     sv = comment_fill.survey(now=_later(monkeypatch, 600))
     assert sv["pending"] == 0 and [e["item_id"] for e in sv["stuck"]] == [ITEM]
-    # 自动不再续；她点「再试一次」（manual）照跑，补齐了就消掉
+    # 自动不再续；用户点「再试一次」（manual）照跑，补齐了就消掉
     assert comment_fill.fill_one(ITEM)["reason"].startswith("连着几次补不上")
     monkeypatch.setattr(xhs, "fetch_detail", lambda *a, **k: _raw([_floor("c1", 9, 9)], cl={
         "floor_limit": 10, "stop_reason": "end", "replies_partial": []}))
@@ -238,7 +238,7 @@ def test_worker_waits_out_captcha_without_opening_pages_then_resumes(tmp_path, m
     setup_env(tmp_path, monkeypatch)
     _ingest(monkeypatch, capsys, _raw([_floor("c1", 4, 1)]))
     _later(monkeypatch)
-    # 1011：验证码改走冷却自查（test_night_captcha_1011）；要人处理的其它码（这里：风控跳页）照旧只看内存状态等她
+    # 1011：验证码改走冷却自查（test_night_captcha_1011）；要人处理的其它码（这里：风控跳页）照旧只看内存状态等用户
     answers = iter([("ACCOUNT_RISK", "小红书把读取号跳到了安全页"), ("ACCOUNT_RISK", "小红书把读取号跳到了安全页")])
     monkeypatch.setattr(comment_fill, "account_wait_reason", lambda: next(answers, ("", "")))
     monkeypatch.setattr(comment_fill, "nightly_busy", lambda *a, **k: "")

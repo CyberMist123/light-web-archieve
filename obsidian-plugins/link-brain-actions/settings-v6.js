@@ -1,4 +1,4 @@
-// settings-v6.js — 设置页（1027 第三版，设计稿 design-1027/prototype.html「设置」+ design.md §3；她批：六组一页滚完）。
+// settings-v6.js — 设置页（1027 第三版，设计稿 design-1027/prototype.html「设置」+ design.md §3；作者批：六组一页滚完）。
 //   左边是锚点（窄了变成顶上一条横排），右边一组一组往下：
 //   ① 账号登录（每个平台一张账号卡：小红书 = 状态 + 扫码 / 去验证 / 重试，⋯ 里 状态检查 / 切换账号 / 退出账号；B 站 = 网页 + 电视端登录、同步选项、预估 / 立即同步 / 上次摘要（1031））
 //   ② 收藏与同步（同步：收藏同步一行 + 同步开关 + 同步时间（唯一的编辑器，改了自动存）+ 每天新收；存哪些：图片 · 视频 · 评论楼数）
@@ -49,7 +49,7 @@ module.exports = function (obsidian, plugin) {
   }
 
   // —— 小积木 ——
-  // 一行：名字（可带图标）+ ⓘ 悬停说明 + 右边控件；说明不占行（她：每行「名称 + 控件」，规则在 ⓘ 里）
+  // 一行：名字（可带图标）+ ⓘ 悬停说明 + 右边控件；说明不占行（作者：每行「名称 + 控件」，规则在 ⓘ 里）
   function row(parent, tab, name, help = '', { icon = '', cls = '', section = '' } = {}) {
     const r = new Setting(parent).setName(name);
     if (icon) { const ic = iconEl(r.nameEl, icon); if (ic && r.nameEl.firstChild !== ic) r.nameEl.insertBefore(ic, r.nameEl.firstChild); r.settingEl.addClass('lb-feat'); }
@@ -88,7 +88,7 @@ module.exports = function (obsidian, plugin) {
     return d;
   }
 
-  // 1026 她（录屏 23:23「很奇怪的跳转」、23:34「点了没有反应」）：跳过去要落在**能改的那个控件**上，不是组顶；
+  // 1026 作者（录屏 23:23「很奇怪的跳转」、23:34「点了没有反应」）：跳过去要落在**能改的那个控件**上，不是组顶；
   // 落点在收着的「更多」里：先打开、画出来，再滚；落地后那一块闪一下、焦点放进第一个输入框，找不到就说一句。返回落到的元素（测试用）。
   function focusSection(tab, section, { quiet = false } = {}) {
     const root = tab && tab.containerEl;
@@ -274,11 +274,11 @@ module.exports = function (obsidian, plugin) {
     safe(tab, bili, 'B 站', () => biliCard(bili, tab));
   }
 
-  // ———————————————————— ① B 站（1031 她：只做手动同步，不做定时）————————————————————
+  // ———————————————————— ① B 站（1031 作者：只做手动同步，不做定时）————————————————————
   // 一张卡：登录（网页 + 电视端两行状态、扫码弹窗）· 同步选项（存 settings.bilibili）· 「预估」「立即同步」· 上次同步摘要。
   // 后端：`bilibili status|login|logout|sync|last`（CONVENTIONS §1：最后一行 JSON，提示只用 json.message）。
   // 悬停气泡在 LWA 里全局去掉了：说明一律写成卡里看得见的字。
-  // 1031 她：同时下几路放到 1–8、默认 8（撞 412/429 后端自动退回一路）；skipFolders = 挑选页里关掉的收藏夹 id（'toview' = 稍后再看）
+  // 1031 作者：同时下几路放到 1–8、默认 8（撞 412/429 后端自动退回一路）；skipFolders = 挑选页里关掉的收藏夹 id（'toview' = 稍后再看）
   const BILI_DEFAULTS = { quality: 'max', maxDuration: 3600, danmaku: true, workers: 8, skipFolders: [] };
   const BILI_QUALITY = [['max', '最高'], ['1080', '1080p'], ['720', '720p']];
   const BILI_DURATION = [['1800', '30 分钟'], ['3600', '1 小时'], ['7200', '2 小时'], ['0', '不限']];
@@ -331,14 +331,14 @@ module.exports = function (obsidian, plugin) {
     if (l.multi_p) bits.push(`多 P 待选 ${l.multi_p} 条`);
     const d = l.details || {};
     const quiet = [d.long ? `超时长 ${d.long}` : '', d.invalid ? `已失效 ${d.invalid}` : ''].filter(Boolean);
-    // 1031 她：超时长 / 失效的不用管——不算待处理，只在括号里给个数（明细在待选清单最下面）
+    // 1031 作者：超时长 / 失效的不用管——不算待处理，只在括号里给个数（明细在待选清单最下面）
     return { main: l.message || '', sub: bits.join(' · ') + (quiet.length ? `（另有 ${quiet.join('、')} 条只记在明细里，不用管）` : '') };
   }
   function openVaultNote(rel) {
     if (!rel) { plugin.notify('还没有待选清单：同步一次就有'); return; }
     const f = plugin.app.vault.getAbstractFileByPath?.(plugin.lbPath(rel));
     if (!f) { plugin.notify('还没有待选清单：同步一次就有'); return; }
-    // 1031 她「待选清单打不开」：其实开了，但 Obsidian 1.14 的设置是独立窗口、挡在主窗口前面——先关设置，开好后把主窗口提到前面
+    // 1031 作者「待选清单打不开」：其实开了，但 Obsidian 1.14 的设置是独立窗口、挡在主窗口前面——先关设置，开好后把主窗口提到前面
     try { plugin.app.setting?.close?.(); } catch {}
     const leaf = plugin.app.workspace.getLeaf('tab');
     Promise.resolve(leaf.openFile(f)).then(() => {
@@ -385,7 +385,7 @@ module.exports = function (obsidian, plugin) {
     });
   }
 
-  // 1031 她：「你看小红书多简洁？和这个对齐」——一行「昵称 · ✓ 已登录」+ ⋯ 菜单；只给一个「扫码登录」：
+  // 1031 作者：「你看小红书多简洁？和这个对齐」——一行「昵称 · ✓ 已登录」+ ⋯ 菜单；只给一个「扫码登录」：
   // 扫的是电视端码（后端同一次扫码把网页端 cookie 也存上，tvapi.save_web_cookies）；万一网页端没带上，再点一次扫网页端。
   function biliCard(card, tab) {
     const head = card.createDiv({ cls: 'lb-twin-head' });
@@ -401,7 +401,7 @@ module.exports = function (obsidian, plugin) {
     const guide = info.createDiv({ cls: 'setting-item-description' }).createDiv({ cls: 'lb-acct-guide' });
     const ctl = rowEl.createDiv({ cls: 'setting-item-control' });
     const primaryEl = ctl.createEl('button', { cls: 'lb-bili-scan', text: '扫码登录' });
-    // 1031 她截图：登着还露「扫码登录」——Obsidian 给 button 写了 display，盖过 hidden 属性；显隐一律走 style.display
+    // 1031 用户截图：登着还露「扫码登录」——Obsidian 给 button 写了 display，盖过 hidden 属性；显隐一律走 style.display
     const showPrimary = on => { primaryEl.hidden = !on; primaryEl.style.display = on ? '' : 'none'; };
     primaryEl.type = 'button'; showPrimary(false); primaryEl.onclick = () => login(primaryEl);
     const moreEl = ctl.createDiv({ cls: 'clickable-icon extra-setting-button lb-bili-more', attr: { 'aria-label': '更多', role: 'button', tabindex: '0' } });
@@ -455,11 +455,11 @@ module.exports = function (obsidian, plugin) {
     loadStatus();
   }
 
-  // —— 挑选页（1031 她「没有让我选哪些下载」）：一个大弹窗，内容可滚动 ——
+  // —— 挑选页（1031 作者「没有让我选哪些下载」）：一个大弹窗，内容可滚动 ——
   //   收藏夹：全部收藏夹 + 稍后再看，每个一个开关「同步这个收藏夹」，默认全开；关掉的存 settings.bilibili.skipFolders（按 id），
   //     同步时传 `--skip-folder <id>`，后端整个跳过（不扫、不下）。
   //   长视频：顶上选门槛（就是「超过多长先不下」那个设置），下面列超过门槛、还没入库的视频逐条勾；勾上 = `choose --allow`，取消 = `--undo`。
-  //   数据只读本地（`bilibili pick`：上次列到的收藏夹 + 本地快照），不连 B 站；没扫过就叫她先预估 / 同步一次。
+  //   数据只读本地（`bilibili pick`：上次列到的收藏夹 + 本地快照），不连 B 站；没扫过就叫用户先预估 / 同步一次。
   //   底部「保存」「保存并开始同步」；关掉弹窗 = 不存。
   function biliPicker({ onSaved, onSyncNow } = {}) {
     const Modal = obsidian.Modal;
@@ -473,7 +473,7 @@ module.exports = function (obsidian, plugin) {
     const foot = c.createDiv({ cls: 'lb-bili-pick-foot' });
     const skip = new Set(biliSkip(biliOpts()));
     const skip0 = [...skip].sort().join('\n');
-    const picks = new Map();   // bvid → { was（后端记的放行）, now（她现在勾的）}；换门槛重读时保留
+    const picks = new Map();   // bvid → { was（后端记的放行）, now（用户现在勾的）}；换门槛重读时保留
     let data = null;
     const longRows = [];       // [{ it, cb, lab }]：当前画出来的长视频行
     const multiRows = [];      // 同上：超过 5 P 的多 P 行（勾 = 放行，和长视频走同一个 choose --allow）
@@ -520,7 +520,7 @@ module.exports = function (obsidian, plugin) {
           });
         }
       }
-      // 多 P（1031 她：不超过 5 P 的同步时自动拆开一个 P 一条下；更多的在这里勾）
+      // 多 P（1031 作者：不超过 5 P 的同步时自动拆开一个 P 一条下；更多的在这里勾）
       const mitems = (j.multi && j.multi.items) || [];
       if (mitems.length) {
         const msec = body.createDiv({ cls: 'lb-bili-pick-sec', attr: { 'data-section': 'bili-pick-multi' } });
@@ -642,7 +642,7 @@ module.exports = function (obsidian, plugin) {
     return { modal, ready, save, skip, picks };
   }
 
-  // ② 收藏与同步 · B 站同步（1031 她：和小红书统一——①只放账号登录，同步选项 / 立即同步 / 上次 / 超长清单在②）
+  // ② 收藏与同步 · B 站同步（1031 作者：和小红书统一——①只放账号登录，同步选项 / 立即同步 / 上次 / 超长清单在②）
   function biliSync(card, tab) {
     // —— 同步选项 ——
     const opts = card.createDiv({ cls: 'lb-bili-opts', attr: { 'data-section': 'bili-options' } });
@@ -663,7 +663,7 @@ module.exports = function (obsidian, plugin) {
     });
     tg('保存弹幕', 'danmaku');
 
-    // —— 1031 她「没有让我选哪些下载」：显眼的「挑选要同步的…」→ 弹窗里开关收藏夹（含稍后再看）、逐条勾超长视频（取代原来折叠的超长清单）——
+    // —— 1031 作者「没有让我选哪些下载」：显眼的「挑选要同步的…」→ 弹窗里开关收藏夹（含稍后再看）、逐条勾超长视频（取代原来折叠的超长清单）——
     const pickBox = card.createDiv({ cls: 'lb-bili-pick-entry', attr: { 'data-section': 'bili-pick' } });
     const pickBtn = pickBox.createEl('button', { cls: 'lb-btn is-primary lb-bili-pick-btn', text: '挑选要同步的…' });
     const pickNote = pickBox.createDiv({ cls: 'setting-item-description lb-bili-note' });
@@ -692,7 +692,7 @@ module.exports = function (obsidian, plugin) {
       if (t.sub) last.createDiv({ cls: 'lb-bili-last-sub', text: t.sub });
       if (l && l.exists) { const a = last.createEl('button', { cls: 'lb-link', text: '打开 B站待选清单' }); a.onclick = () => openVaultNote(l.pending_note); }
     };
-    // 1031 她：跑的时候还挂着上一趟的报错，看着像没在跑——开跑就换成进度，跑完再读回「上次」
+    // 1031 作者：跑的时候还挂着上一趟的报错，看着像没在跑——开跑就换成进度，跑完再读回「上次」
     const paintLive = text => { last.empty(); last.createDiv({ cls: 'lb-bili-last-main', text }); };
     const loadLast = async () => {
       try { const r = await plugin.runPy(['-m', 'link_brain', 'bilibili', 'last', '--json'], { label: 'B 站上次同步', timeoutMs: 60000 }); paintLast(r.json); }
@@ -795,7 +795,7 @@ module.exports = function (obsidian, plugin) {
     tab.fieldCommentFloors(body);
     return ed;
   }
-  // 1031 她：「小红书和 B 站会混淆」——顶上一个切换（小红书 · 实时同步 / B 站 · 暂不支持实时同步），选哪个只出哪个的设置。
+  // 1031 作者：「小红书和 B 站会混淆」——顶上一个切换（小红书 · 实时同步 / B 站 · 暂不支持实时同步），选哪个只出哪个的设置。
   // 每次打开设置页默认小红书（别处「改定时」跳过来的锚点都在小红书那页）。
   function groupSync(g, tab) {
     const s = S(), so = s.sync;
@@ -854,7 +854,7 @@ module.exports = function (obsidian, plugin) {
   }
 
   // ———————————————————— ④ 高级功能 ————————————————————
-  // 一项功能一个控件（她：别先开一层再进另一页改模式）；底下的双重门禁（setup.selected 和各能力的 mode）在这里一起对上：
+  // 一项功能一个控件（作者：别先开一层再进另一页改模式）；底下的双重门禁（setup.selected 和各能力的 mode）在这里一起对上：
   //   语音转文字：关闭 / 本机（setup 'asr' + asrAI.mode=capswriter）/ 在线接口（asrAI.mode=http）；
   //   识图：关闭（'ocr' 关，识图跟着关）/ 本机认字（'ocr' 开、'ai_vision' 关）/ 本机认字 + AI 识图（'ai_vision' 开）；
   //   问答模型：问收藏页下拉里的同一个值（activeModel）；「关闭」= 'ai_text' 关（问答、概要、按意思搜是同一个开关，三行都如实显示关）；
@@ -1102,7 +1102,7 @@ module.exports = function (obsidian, plugin) {
   }
   function groupAdvanced(g, tab) {
     const s = S();
-    // 1027b 她：「作为初次使用者，填 api key 是否不太方便？」——是：要点开「＋ 更多」才看得到。一把都没有时直接摆在最上面
+    // 1027b 作者：「作为初次使用者，填 api key 是否不太方便？」——是：要点开「＋ 更多」才看得到。一把都没有时直接摆在最上面
     if (!hasAnyKey()) {
       const first = g.createDiv({ cls: 'lb-key-first', attr: { 'data-section': 'ai-key-first' } });
       first.createEl('p', { cls: 'lb-key-first-lead', text: '本机的功能（转 Markdown、本机认字、本机语音）不用 key 就能用。要用 AI 识图、问收藏、概要，先粘一把 API key：' });
@@ -1304,7 +1304,7 @@ module.exports = function (obsidian, plugin) {
     wh.createEl('strong', { text: '网页端' });
     web.createEl('p', { cls: 'setting-item-description', text: 'ChatGPT、claude.ai 网页版和手机 App，要你自己的网址。只读。' });
     safe(tab, web, '网页端', () => tab.stops.push(plugin.remoteUI?.renderConnect(web, () => tab.display(), tab, { part: 'web', toggleHost: wh })));
-    // 1028 她：「MCP 显示实际 tg 功能（现在没有介绍）」——TG 机器人那边接的是同一套只读 MCP，再加两条只在 TG 有的路：
+    // 1028 作者：「MCP 显示实际 tg 功能（现在没有介绍）」——TG 机器人那边接的是同一套只读 MCP，再加两条只在 TG 有的路：
     //   发链接入库（机器人调 catch --origin tg，目录里记在「Fable」组）、批注 @ 它（note notify 交给通知命令，回复写回批注框）
     sub(g, '在 Telegram 里能做什么', 'mcp-tg');
     const tg = g.createDiv({ cls: 'lb-tg', attr: { 'data-section': 'mcp-tg' } });
@@ -1333,7 +1333,7 @@ module.exports = function (obsidian, plugin) {
   // ———————————————————— ⑥ 修复 ————————————————————
   function groupRepair(g, tab) {
     const s = S();
-    // 1027b 她：「重新走首次设置」放前面——第一次用、或者哪里坏了，先找的就是它（「一键装好」1028 挪到页顶「懒人安装」）
+    // 1027b 作者：「重新走首次设置」放前面——第一次用、或者哪里坏了，先找的就是它（「一键装好」1028 挪到页顶「懒人安装」）
     tab.link(row(g, tab, '重新走一遍首次设置', '再走一遍「登录 · 同步 · 识别与问答 · 接入其他 AI」；改的还是这一页上的同一份设置。', { section: 'first-run' }), '开始', async () => {
       s.onboarding = { ...(s.onboarding || {}), force: true, guideDone: false, step: 0 };
       await tab.save(); tab.display(); try { tab.containerEl.scrollTop = 0; } catch {}
@@ -1348,7 +1348,7 @@ module.exports = function (obsidian, plugin) {
       try { ({ sum } = await plugin.readSyncFiles()); } catch {}
       if (!alive) return;
       const n = sum ? (+sum.needs_human || 0) : 0, auto = sum ? (+sum.auto || 0) + (+sum.gave_up || 0) : 0;
-      // 1027b 她：「不影响实际体验的，就别显示了」——只说要你动手的；自动处理 / 已放弃的在「问题记录」里
+      // 1027b 作者：「不影响实际体验的，就别显示了」——只说要你动手的；自动处理 / 已放弃的在「问题记录」里
       void auto;
       st.setDesc(!sum ? '还没有问题记录' : n ? `⚠ ${n} 件要你处理` : '没有要你处理的');
       st.settingEl.toggleClass?.('is-warn', n > 0);
@@ -1411,7 +1411,7 @@ module.exports = function (obsidian, plugin) {
     head.createDiv({ cls: 'lb-eyebrow lb-kicker', text: 'PREFERENCES / 按你的习惯' });
     const lead = head.createEl('p', { cls: 'lb-v7-lead', text: '常用的留在眼前，其余都在「更多」。改动自动保存。' });
     const saved = lead.createSpan({ cls: 'lb-saved', attr: { role: 'status' } });
-    // 1028 她：页顶加「懒人安装」——第一次用不想一项项看，点一下装好打开的功能、把同步 / 认字 / 概要 / 整理目录跑完（原来在 ⑥ 修复最前面，挪到这里，只留一处）
+    // 1028 作者：页顶加「懒人安装」——第一次用不想一项项看，点一下装好打开的功能、把同步 / 认字 / 概要 / 整理目录跑完（原来在 ⑥ 修复最前面，挪到这里，只留一处）
     const h0 = home();
     if (h0) {
       const lazy = head.createDiv({ cls: 'lb-lazy', attr: { 'data-section': 'lazy-install' } });
@@ -1450,7 +1450,7 @@ module.exports = function (obsidian, plugin) {
     };
     scroller?.addEventListener?.('scroll', onScroll, { passive: true });
     tab.stops.push(() => scroller?.removeEventListener?.('scroll', onScroll));
-    // 1028 她：窄屏吸顶的锚点条要「整一块固定」，不是一条细条、上面还漏出底下的字。
+    // 1028 作者：窄屏吸顶的锚点条要「整一块固定」，不是一条细条、上面还漏出底下的字。
     //   条吸住的位置离滚动区可见的顶边还差一段（Obsidian 内容区的内边距 / 外层再套的滚动区，各版本不一样），这段里就露字。
     //   不猜是哪一种：吸住时量条离可见顶边差多少，交给 CSS（--lb-stick-pad）——条往上伸这么高、吸到最顶上，伸出去的部分是底色
     let stickPad = 0;
@@ -1515,7 +1515,7 @@ module.exports = function (obsidian, plugin) {
       // 装好打开的功能 + 同步 + 补处理一口气跑完（进度在设置页⑥和底部状态栏）
       if (run && h) h.runAll({ quiet: false }).catch(e => console.error('[lb] 首次跑没跑完', e));
     };
-    // 「同步」一步里的时间编辑器和设置页是同一个（syncTimeEditor）：在这一步动过时间、还没生效就离开 → 替她按这个时间打开，存不上就留在这一步说原因
+    // 「同步」一步里的时间编辑器和设置页是同一个（syncTimeEditor）：在这一步动过时间、还没生效就离开 → 替用户按这个时间打开，存不上就留在这一步说原因
     let syncEd = null, edits0 = null;
     const leaveSync = async () => {
       const ed = syncEd;
@@ -1553,7 +1553,7 @@ module.exports = function (obsidian, plugin) {
         next.onclick = async () => { if (last) { if (await leaveSync()) await finish(); } else await go(step + 1); };
         if (step > 1) n.createEl('button', { text: '上一步' }).onclick = () => go(step - 1);
         const out = n.createEl('button', { cls: 'lb-link lb-push', text: '以后再说' });
-        out.onclick = async () => { if (await leaveSync()) await finish(false); };   // 以后再说：只记走完，不替她开跑
+        out.onclick = async () => { if (await leaveSync()) await finish(false); };   // 以后再说：只记走完，不替用户开跑
       };
       const id = step ? STEPS[step - 1][0] : 'welcome';
       if (id === 'welcome') {

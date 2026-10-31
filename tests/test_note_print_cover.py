@@ -11,7 +11,7 @@ from link_brain import render as render_mod
 
 
 def test_esc_is_html_escape():
-    assert npx._esc('<a href="x">她</a>') == "&lt;a href=&quot;x&quot;&gt;她&lt;/a&gt;"
+    assert npx._esc('<a href="x">用户</a>') == "&lt;a href=&quot;x&quot;&gt;用户&lt;/a&gt;"
     assert npx._esc(None) == "" and npx._esc(123) == "123"
     assert npx._esc("它's") == "它&#x27;s"          # quote=True 连单引号也转
 
@@ -54,7 +54,7 @@ def test_postprocess_video_without_poster_or_duration():
 def test_annots_html_filters_tombstones_and_sorts():
     notes = {"annotations": [
         {"id": "a2", "ts": "2026-10-26T09:05:30+11:00", "text": "第二条"},
-        {"id": "a1", "author": "她", "ts": "2026-10-25T08:00:00+11:00", "text": "第一条 <b>重点</b>"},
+        {"id": "a1", "author": "用户", "ts": "2026-10-25T08:00:00+11:00", "text": "第一条 <b>重点</b>"},
         {"id": "a3", "ts": "2026-10-26T10:00:00+11:00", "text": "   "},   # 空白文本不算
         "不是字典",                                                        # 非字典条目跳过
         {"id": "a4", "by": "机器人", "text": "没有时间戳"},
@@ -62,7 +62,7 @@ def test_annots_html_filters_tombstones_and_sorts():
     out = npx._annots_html(notes)
     assert out.startswith('<div class="lb-print-annots"><h4>批注</h4>')
     row_no_ts = '<div class="lb-print-annot"><span class="lb-print-annot-meta">机器人</span>没有时间戳</div>'
-    row_a1 = ('<div class="lb-print-annot"><span class="lb-print-annot-meta">她 · 2026-10-25 08:00</span>'
+    row_a1 = ('<div class="lb-print-annot"><span class="lb-print-annot-meta">用户 · 2026-10-25 08:00</span>'
               '第一条 &lt;b&gt;重点&lt;/b&gt;</div>')
     assert row_no_ts in out and row_a1 in out
     assert out.index(row_no_ts) < out.index(row_a1)                  # 没时间戳的排最前（空串最小）
@@ -72,12 +72,12 @@ def test_annots_html_filters_tombstones_and_sorts():
 
 def test_left_comments_html_parses_managed_block():
     s, e = render_mod.COMMENTS_START, render_mod.COMMENTS_END
-    text = (f"{s}\n> 「20260101 人」这条她写的\n"
+    text = (f"{s}\n> 「20260101 人」这条用户写的\n"
             '<!-- link-brain:id=c1 actor=fable target=none status=ok -->\n'
             f"> 「20260102 人」另一条 1 < 2\n{e}")
     out = npx._left_comments_html(text)
     assert out == ('<section class="lb-print-extra"><h4>留言</h4>'
-                   '<p><span class="lb-print-annot-meta">20260101 Fable</span>这条她写的</p>'
+                   '<p><span class="lb-print-annot-meta">20260101 Fable</span>这条用户写的</p>'
                    '<p><span class="lb-print-annot-meta">20260102 人</span>另一条 1 &lt; 2</p></section>')
     assert npx._left_comments_html("没有受管块的正文") == ""        # 找不到块 → 空
     assert npx._left_comments_html(f"{s}\n不是留言行\n{e}") == ""  # 块里没有留言行 → 空

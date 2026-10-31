@@ -1,4 +1,4 @@
-// 硬规矩（她定，10-03 第二次被改坏后加的守卫）：阅读视图里批注框永远在左栏图片 / 视频下面（.xhs-note .lb-side）。
+// 硬规矩（作者定，10-03 第二次被改坏后加的守卫）：阅读视图里批注框永远在左栏图片 / 视频下面（.xhs-note .lb-side）。
 // 坏过两次：1002 左栏晚渲染只等 3 秒；10-03 Obsidian 重画左栏后 reuseDom 把批注框挂回全文最底下就 return，没再挪回左栏。
 'use strict';
 const assert = require('node:assert/strict');

@@ -10,7 +10,7 @@ from pathlib import Path
 ALIASES = json.loads((Path(__file__).parent / "assets/search-aliases.json").read_text(encoding="utf-8"))
 # cats 是展示分组（大类），不是内容语义：只留低权兜底，让「搜大类名」能召回
 # 无词帖（如搜"笑话"命中只分了类的帖子）。语义召回由 embedding 接住后应降到 0。
-# notes = 她自己写的批注（notes.json，第 10 批进检索）：她亲手写的，和标签同权
+# notes = 用户自己写的批注（notes.json，第 10 批进检索）：用户亲手写的，和标签同权
 WEIGHTS = {"title": 12, "tags": 10, "notes": 10, "highlights": 10, "cats": 3, "body": 7, "attachments": 6, "transcript": 6, "screen": 6,
            "ocr": 5, "comments": 3, "comment_ocr": 3, "summary": 2, "author": 1}
 
@@ -346,7 +346,7 @@ _RANK_MEMO: dict = {}
 def rank(items, terms, *, subword=True):
     """BM25 字段加权；同分保持稳定 ID 顺序，不按日期偏向新收藏。
     同一份 items、同一组词一问里会被几处要（宽召回核心、追问、多主题），结果按 (items, 词) 记最近几份，返回副本。
-    subword：允不允许 CJK 子词回退（见 _rank）。只给她原话里的词；扩词 / 二轮反馈词这类单开一路的词一律 False——
+    subword：允不允许 CJK 子词回退（见 _rank）。只给用户原话里的词；扩词 / 二轮反馈词这类单开一路的词一律 False——
     它们本来就是稀有的专名（「布里斯班」整词只中 2 篇），拆成「布」「里」「斯」「班」会把几百篇不相干的拉进融合（10-04 实测）。"""
     if not terms:
         return []
@@ -408,7 +408,7 @@ def _rank(items, terms, subword=True):
         floor = min((value for value in totals if value > 0), default=0)
         for term in terms:
             counts, df, literal = whole.get(term, ([], 0, False))
-            # 拼音整音节已经找回读音相同的篇（同音错字）：那才是她要的，不再拆字
+            # 拼音整音节已经找回读音相同的篇（同音错字）：那才是用户要的，不再拆字
             parts = subword_parts(term, terms) if df <= SUBWORD_MAX_HITS and (literal or not df) else []
             for part in parts:
                 pc = _bm25(documents, averages, part, aliases=False)
@@ -752,7 +752,7 @@ def keyword_hits(query, items):
         def literal_df(t):
             return sum(1 for doc in documents if any(has(text, v) for v in variants(t) for k, text in doc.items() if k != "cats"))
 
-        def homophone(t):  # 原词一篇没有、拼音整音节找回了读音相同的篇（同音错字）：那才是她要的，不再拆字
+        def homophone(t):  # 原词一篇没有、拼音整音节找回了读音相同的篇（同音错字）：那才是用户要的，不再拆字
             units = pinyin_units(t)
             return bool(units) and any(pinyin_match(item_syllables(it), units) for it in items)
 

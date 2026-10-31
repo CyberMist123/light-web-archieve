@@ -1,6 +1,6 @@
 """网页版限制的笔记（1011）。
 
-现象：她收藏里有这篇、浏览器里打开要「验证一下」才给看；网页版的收藏列表里也没有它（fav-tokens.json 里查不到）。
+现象：用户收藏里有这篇、浏览器里打开要「验证一下」才给看；网页版的收藏列表里也没有它（fav-tokens.json 里查不到）。
 读取服务打开详情页，页面上没有这篇——以前评论补齐 / 附件补下各自重试 3 次、「已放弃」、报一句看不懂的错，每晚再来一遍。
 
 现在（读取组件 1011 认出 `NOTE_RESTRICTED` 之后）：
@@ -12,7 +12,7 @@
 3. 还是打不开：记在对象级 `derived/restricted.json`（可变状态），问题面板一条（`note.restricted` · `PERMANENT.NOTE_RESTRICTED`，
    一篇一条、不推送、不重复刷次数），卡片角标、笔记页评论区顶上一行「这篇在小红书网页版要验证才能看」+「打开验证」。
    评论补齐 / 附件补下看到它就跳过这篇（不再每晚 3 次）。
-4. 她点「打开验证」（`note-verify <item_id> --wait`）：读取服务开有界面的窗口到这篇，她过完验证、看到笔记就关窗。
+4. 用户点「打开验证」（`note-verify <item_id> --wait`）：读取服务开有界面的窗口到这篇，用户过完验证、看到笔记就关窗。
    窗口里看到过这篇 → 清掉标记、记下窗口里的新口令、把评论续读的「没进展」清零（限制期间的失败不算这篇读不全）、
    附件的下载退避清掉，拉起后台补评论（同一篇照旧隔 45 分钟再开）；附件由今晚 4 点的 `attachments --all` 补。
 """
@@ -79,9 +79,9 @@ def save(source_id: str, state: dict[str, Any]) -> None:
     storage.write_json(path, state)
 
 
-# 1017（她：号好着却挂着 10 篇「要验证」，和「号只看一个状态」冲突）：「页面停在 /explore」在号被软限频时也是这样，
+# 1017（作者：号好着却挂着 10 篇「要验证」，和「号只看一个状态」冲突）：「页面停在 /explore」在号被软限频时也是这样，
 # 一次分不出是这篇被限制还是号当时不行。所以撞见一次只算「疑似」：不进问题面板、不出笔记页那行，过 RECHECK_HOURS
-# 让后台续读再开一次；在 CONFIRM_DAYS 个不同日子都打不开才算确认（这才要她点「打开验证」）。打开了就 clear，什么都不留。
+# 让后台续读再开一次；在 CONFIRM_DAYS 个不同日子都打不开才算确认（这才要用户点「打开验证」）。打开了就 clear，什么都不留。
 CONFIRM_DAYS = 2
 RECHECK_HOURS = 20
 
@@ -94,15 +94,15 @@ def _days(st: dict[str, Any]) -> list[str]:
 
 
 def confirmed(st: dict[str, Any]) -> bool:
-    """标着、且在不同的日子撞见过 CONFIRM_DAYS 次（或她已经点过「打开验证」没过）。"""
+    """标着、且在不同的日子撞见过 CONFIRM_DAYS 次（或用户已经点过「打开验证」没过）。"""
     if not st.get("restricted"):
         return False
     v = st.get("verify") or {}
     return len(_days(st)) >= CONFIRM_DAYS or bool(v.get("result") and v.get("result") != "note_ok")
 
 
-# 1017（她：我自己的号点原文链接看得到，验证窗口里看不到）：验证窗口和原文链接用的是同一个打开口令，差别在号——
-# 读取号看不到、她的号看得到，点验证也救不回来。正文早就存好了的话，缺的只是几条回复：不该叫她。
+# 1017（作者：我自己的号点原文链接看得到，验证窗口里看不到）：验证窗口和原文链接用的是同一个打开口令，差别在号——
+# 读取号看不到、用户的号看得到，点验证也救不回来。正文早就存好了的话，缺的只是几条回复：不该叫用户。
 # 存档已经齐（正文在、设置楼数内楼中楼缺 ≤ COMPLETE_GAP 条、楼数没缺、附件没缺）→ 确认了也不登记，已有的那条收掉。
 COMPLETE_GAP = 2
 
@@ -201,7 +201,7 @@ def mark(source_id: str, *, item_id: str | None = None, title: str | None = None
         save(sid, st)
     except OSError as exc:
         print(f"[restricted] 状态没写上：{exc}", file=sys.stderr)
-    # 1017 她：「这些帖子是真的不见了」——读取号隔天还打不开的，原帖多半已删 / 仅作者可见，她也做不了什么：
+    # 1017 作者：「这些帖子是真的不见了」——读取号隔天还打不开的，原帖多半已删 / 仅作者可见，用户也做不了什么：
     # 不进问题面板（卡片上一个安静的「原帖打不开了，存档还在」、笔记页一行说明），确认后后台也不再开它
     return st
 
@@ -329,7 +329,7 @@ LEGACY_HINT = "not found in noteDetailMap"   # 1011 以前读取组件对这类�
 
 
 def quiet_unconfirmed() -> list[str]:
-    """1017 迁移（幂等、零开页）：问题面板里还开着的「网页版要验证」一律收掉（她：原帖是真的不见了，网页版打不开不进面板）。"""
+    """1017 迁移（幂等、零开页）：问题面板里还开着的「网页版要验证」一律收掉（作者：原帖是真的不见了，网页版打不开不进面板）。"""
     from ... import problems
     out = []
     for r in problems.load():
@@ -414,7 +414,7 @@ def reclassify_fill_failures() -> list[str]:
 
 
 # --------------------------------------------------------------------------
-# 她点「打开验证」之后
+# 用户点「打开验证」之后
 # --------------------------------------------------------------------------
 
 
@@ -470,7 +470,7 @@ def after_verify(source_id: str, outcome: dict[str, Any], *, spawn: Callable[[],
     st["verified_at"] = _iso()
     st["recapture"] = {"queued_at": _iso(), "comments": "后台补评论（同一篇隔 45 分钟再开）", "attachments": "今晚 4 点补附件"}
     save(sid, st)
-    clear(sid, item_id=item_id, why="她在验证窗口里过了验证", token=outcome.get("token") or None)
+    clear(sid, item_id=item_id, why="你在验证窗口里过了验证", token=outcome.get("token") or None)
     errors = []
     for fn in (_requeue_comments, _requeue_attachments):
         try:

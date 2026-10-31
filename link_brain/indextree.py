@@ -1,9 +1,9 @@
-"""索引树（10-10 她定稿）：库根一个 `索引.md`——最简单的多级列表——看清收藏的分布（不搜也知道收了 3 个红烧肉做法）。
+"""索引树（10-10 作者定稿）：库根一个 `索引.md`——最简单的多级列表——看清收藏的分布（不搜也知道收了 3 个红烧肉做法）。
 
-**唯一真相是 `索引.md`**（路径可在设置 `indexFile` 里改，库根相对），她在 Obsidian 里直接改；解析和归类**只在这里**实现，
+**唯一真相是 `索引.md`**（路径可在设置 `indexFile` 里改，库根相对），用户在 Obsidian 里直接改；解析和归类**只在这里**实现，
 结果写 `_archive/index-data.json`，插件（目录页第一级分类 / 二级小标签 / 索引图）和 MCP（index 工具）都只读它。
 
-写法（文件顶部 `%% … %%` 注释里那几行就是给她看的版本）：
+写法（文件顶部 `%% … %%` 注释里那几行就是给用户看的版本）：
 - 一行一个节点；缩进（Tab 或 2 / 4 个空格，可混用，按相对缩进判层级）= 下一级；行首 `- ` / `* ` 可有可无。
 - `名字：标签1, 标签2`（全角半角冒号都认）= 这个节点绑几个标签；
 - 没有冒号的 `A, B, C`（逗号 `,` `，` `、` 都认）= 一行写几个同级节点，各按自己的名字当标签；
@@ -16,8 +16,8 @@
 - 一篇可挂多个节点；父节点 = 自己命中 ∪ 所有子孙命中；哪个节点都没命中 = 「未归类」。
 
 第一次没有 `索引.md`：按现有分类（设置里的「分类」/ 内置 BIG_CATS）迁移出一版，第一级就是今天目录页顶部那排分类、
-每篇归到哪类也和今天一样；然后（有文本 AI 时）后台起草一版写到 `索引.草稿.md`，她点「用这版」才换（覆盖前备份）。
-「未归类建议」只列建议，她点「加入」才写回 `索引.md`（原子写、写前备份、只改那一行 / 插一行，缩进和注释原样）。
+每篇归到哪类也和今天一样；然后（有文本 AI 时）后台起草一版写到 `索引.草稿.md`，用户点「用这版」才换（覆盖前备份）。
+「未归类建议」只列建议，用户点「加入」才写回 `索引.md`（原子写、写前备份、只改那一行 / 插一行，缩进和注释原样）。
 """
 
 from __future__ import annotations
@@ -159,7 +159,7 @@ def _load_json(path: Path) -> Any:
 class Node:
     name: str
     tags: list[str] = field(default_factory=list)
-    explicit: bool = False          # 她写了标签（冒号后面有东西）；否则按名字找
+    explicit: bool = False          # 用户写了标签（冒号后面有东西）；否则按名字找
     wiki: bool = False
     line: int = 0                   # 第一次出现的行号（1 起）
     lines: list[int] = field(default_factory=list)
@@ -168,7 +168,7 @@ class Node:
     parent: "Node | None" = field(default=None, repr=False)
     children: list["Node"] = field(default_factory=list, repr=False)
     # 10-11：括号里的话 = 给归类看的说明（「ai前沿消息（不属于ai记忆的放这里）」）；第 4 级往下的名字并进第 3 级当关键词（hints）；
-    # 下面写了 `...` / `（其他主题）` = 允许 AI 在这里新建子类（open）；virtual = AI 按内容建的子类（不在 索引.md 里，她点「保留」才写进去）
+    # 下面写了 `...` / `（其他主题）` = 允许 AI 在这里新建子类（open）；virtual = AI 按内容建的子类（不在 索引.md 里，用户点「保留」才写进去）
     desc: str = ""
     hints: list[str] = field(default_factory=list)
     open: bool = False
@@ -259,7 +259,7 @@ def clean_tags(raw: str) -> list[str]:
 
 
 def _warn(warnings: list[dict[str, Any]], line: int, text: str, level: str = "") -> None:
-    """level="info"：照规则处理了、不算写错（1015 她：第 4 级并进第 3 级是她要的写法，别再弹「有 N 处写法要看一眼」）。"""
+    """level="info"：照规则处理了、不算写错（1015 作者：第 4 级并进第 3 级是用户要的写法，别再弹「有 N 处写法要看一眼」）。"""
     row: dict[str, Any] = {"line": line, "text": text}
     if level:
         row["level"] = level
@@ -267,7 +267,7 @@ def _warn(warnings: list[dict[str, Any]], line: int, text: str, level: str = "")
 
 
 def real_warnings(warnings: Any) -> list[dict[str, Any]]:
-    """真正要她看一眼的写法问题（去掉 level=info 的说明）。"""
+    """真正要用户看一眼的写法问题（去掉 level=info 的说明）。"""
     return [w for w in (warnings or []) if isinstance(w, dict) and w.get("level") != "info"]
 
 
@@ -304,7 +304,7 @@ class Parsed:
         return None
 
 
-MAX_DEPTH = 3     # 她定（10-11「需求：最多3级分类」）：更深的名字并进第 3 级当关键词，不另成节点
+MAX_DEPTH = 3     # 作者定（10-11「需求：最多3级分类」）：更深的名字并进第 3 级当关键词，不另成节点
 
 # 括号里的话 = 说明（给 AI 归类看、页面上悬停看），不参与「、」「，」拆节点；【wiki】另算（先认 [wiki] 再剥括号）
 _PAREN = re.compile(r"（[^（）]*）|\([^()]*\)|【[^【】]*】|［[^［］]*］")
@@ -374,7 +374,7 @@ class _Raw:
 def parse(text: str) -> Parsed:
     """索引.md 原文 → 节点树 + warnings（不抛异常）。
 
-    10-11 加的容错（照她的真实写法）：
+    10-11 加的容错（照用户的真实写法）：
     - 括号里的话是说明，不拆节点；整行只有括号（「（其他主题）」）或 `...` = 占位：允许 AI 在这一级下面按内容新建子类；
     - 写给自己看的话不是节点：「需求：…」「说明：…」这类名字，或冒号后面 / 整行像一句话（有句号、「可以 / 最多 / 指向 / 放这里」这种词）；
     - 树写完以后、比第一级还靠左的零散几行（「同步的tag：…」）当说明；
@@ -663,9 +663,9 @@ def name_pattern(name: str) -> re.Pattern | None:
 def classify(parsed: Parsed | list[Node], items: list[dict[str, Any]], matcher: Matcher | None = None, *,
              ai: dict[str, list[str]] | None = None, overrides: dict[str, dict[str, Any]] | None = None) -> Result:
     """每个节点收哪些篇。三层，后面的压过前面的：
-    1. 规则：她写了标签的节点按标签收（永远算）；只写名字的节点按名字找标签 / 标题——只对**还没有 AI 结果**的篇（新收的还没判）；
+    1. 规则：用户写了标签的节点按标签收（永远算）；只写名字的节点按名字找标签 / 标题——只对**还没有 AI 结果**的篇（新收的还没判）；
     2. AI 按内容（ai：{篇: [节点路径]}，有结果的篇不再按名字字面找，免得「AI/ai功能/游戏」把所有游戏攻略都收走）；
-    3. 她手动改的（overrides：{篇: {only | add | remove}}）。"""
+    3. 用户手动改的（overrides：{篇: {only | add | remove}}）。"""
     roots = parsed.roots if isinstance(parsed, Parsed) else parsed
     matcher = matcher or Matcher()
     ai = ai or {}
@@ -716,7 +716,7 @@ def classify(parsed: Parsed | list[Node], items: list[dict[str, Any]], matcher: 
         if isinstance(ov.get("only"), list):
             keep = [by_path[p] for p in ov["only"] if p in by_path]
             if not keep:
-                continue                      # 她指定的节点都改名 / 删掉了：照自动的来
+                continue                      # 用户指定的节点都改名 / 删掉了：照自动的来
             for n in all_nodes:
                 own[id(n)].discard(iid)
             for n in keep:
@@ -836,7 +836,7 @@ def migrate_text(items: list[dict[str, Any]], big_cats: list[tuple[str, tuple[st
 
 def backup(data: str | bytes, reason: str, vault: Path | None = None) -> str:
     """写 / 覆盖之前把原文存一份：`_archive/index-history/索引-YYYYMMDD-HHMMSS[-n]-<reason>.txt`（.txt：不进 Obsidian 搜索），留最近 30 份。
-    给 bytes 就原样存字节（她的文件哪怕不是 UTF-8，备份也一个字节不变）。"""
+    给 bytes 就原样存字节（用户的文件哪怕不是 UTF-8，备份也一个字节不变）。"""
     folder = history_dir(vault)
     folder.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -920,7 +920,7 @@ def node_rows(parsed: Parsed, result: Result, *, virtual_ids: dict[int, str] | N
             "items": _sorted(result.total.get(id(n), ()), result.order),
             "children": [c.path for c in n.children],
         }
-        # 10-11：说明 / 并进来的第 4 级名字 / 允许 AI 建子类 / AI 建的子类（virtual + 建议号，「保留」用）/ 空着她说留着
+        # 10-11：说明 / 并进来的第 4 级名字 / 允许 AI 建子类 / AI 建的子类（virtual + 建议号，「保留」用）/ 空着用户说留着
         if n.desc:
             row["desc"] = n.desc
         if n.hints:
@@ -1048,7 +1048,7 @@ def _ai_view(vault: Path, parsed: Parsed, items: list[dict[str, Any]], result: R
             continue
         parent = g["parent"] if g["parent"] in real else ""
         if g["kind"] == "split":
-            # 细分出来的：成员现在还直接挂在那个节点上才算（她手动挪走的不算）；够 3 篇才建议
+            # 细分出来的：成员现在还直接挂在那个节点上才算（用户手动挪走的不算）；够 3 篇才建议
             members = [i for i in g["items"] if parent and parent in assign.get(i, [])]
         else:
             members = [i for i in g["items"] if i in unc]          # 放不进的：现在还没归类的
@@ -1056,7 +1056,7 @@ def _ai_view(vault: Path, parsed: Parsed, items: list[dict[str, Any]], result: R
             continue
         siblings = real[parent].children if parent else parsed.roots
         if any(key(c.name) == key(g["name"]) for c in siblings):
-            continue                              # 那一级已经有同名的了（她自己加过）
+            continue                              # 那一级已经有同名的了（用户自己加过）
         slot = merged.setdefault(f"{parent}\u0001{key(g['name'])}", {"id": indexai.group_id(parent, g["name"]),
                                                                    "name": g["name"], "parent": parent, "items": [],
                                                                    "kind": g["kind"]})
@@ -1200,7 +1200,7 @@ def _build(vault: Path, items: list[dict[str, Any]] | None, catalog_built_at: st
             old["unchanged"] = True
             return old
     parsed = parse(text)
-    # 10-11：AI 按内容归的结果（缓存）+ 她手动改的 → 归类；AI 在允许的节点下建的子类挂进树（virtual）
+    # 10-11：AI 按内容归的结果（缓存）+ 用户手动改的 → 归类；AI 在允许的节点下建的子类挂进树（virtual）
     from . import indexai
     cache = indexai.load_cache(vault)
     ov = indexai.load_overrides(vault)
@@ -1619,7 +1619,7 @@ def edit_new_node(text: str, parent_path: str, name: str, tags: list[str] | None
         bullet = next((parsed.lines[r.line].bullet for r in parsed.roots if r.line in parsed.lines), "- ") or ""
         lead = next((parsed.lines[r.line].lead for r in parsed.roots if r.line in parsed.lines), "")
         if parsed.roots:
-            # 10-11：插在最后一个大类整棵子树后面（文件末尾可能还有她写给自己的说明，别插到说明下面去）
+            # 10-11：插在最后一个大类整棵子树后面（文件末尾可能还有用户写给自己的说明，别插到说明下面去）
             at = _subtree_last_line(parsed.roots[-1])
             if at - 1 < len(lines) and not lines[at - 1].endswith(("\n", "\r")):
                 lines[at - 1] += nl
@@ -1684,7 +1684,7 @@ def edit_remove_node(text: str, path: str) -> str:
 
 
 def accept_proposal(gid: str, vault: Path | None = None) -> dict[str, Any]:
-    """她点「加进索引」（建议新增）/「保留」（AI 建的子类）：写进 索引.md（原子写、写前备份、缩进照抄），
+    """用户点「加进索引」（建议新增）/「保留」（AI 建的子类）：写进 索引.md（原子写、写前备份、缩进照抄），
     这几篇直接归进新节点（不再为它花钱跑一遍）。"""
     from . import indexai
     vault = vault or storage.vault_root()
@@ -1728,12 +1728,12 @@ def accept_proposal(gid: str, vault: Path | None = None) -> dict[str, Any]:
                        f"{data['unclassified']['count']} 篇", "unclassified": data["unclassified"]["count"]}
 
 
-AUTO_ADOPT_MIN = 10   # 1031 她：「≥10 篇才建」
+AUTO_ADOPT_MIN = 10   # 1031 作者：「≥10 篇才建」
 
 
 def auto_adopt(vault: Path | None = None, min_count: int | None = None) -> dict[str, Any]:
-    """1031 她：「打标全自动，之后再手动调整；有新增就默认放入」——「建议新增」里够 min_count 篇的，照「加进索引」写进 索引.md。
-    每条建议只自动加一次（记在 index-overrides.json 的 auto_adopted）：她删掉 / 合并掉的不会被加回来。
+    """1031 作者：「打标全自动，之后再手动调整；有新增就默认放入」——「建议新增」里够 min_count 篇的，照「加进索引」写进 索引.md。
+    每条建议只自动加一次（记在 index-overrides.json 的 auto_adopted）：用户删掉 / 合并掉的不会被加回来。
     写不进去的（超过 3 级、名字撞了、索引.md 不是 UTF-8）跳过，留在「建议新增」里。"""
     from . import indexai
     vault = vault or storage.vault_root()
@@ -1981,11 +1981,11 @@ def fallback_tree(items: list[dict[str, Any]], table: dict[str, dict[str, Any]],
     return roots
 
 
-_DRAFT_INSTRUCTION = """你在帮一个人把自己的收藏库（小红书收藏）整理成一棵「索引树」：最简单的多级列表，让她一眼看清自己收藏了哪些方面、各有几篇。
+_DRAFT_INSTRUCTION = """你在帮一个人把自己的收藏库（小红书收藏）整理成一棵「索引树」：最简单的多级列表，让用户一眼看清自己收藏了哪些方面、各有几篇。
 下面是按标签共现和内容相似度切好的一些小组（编号、篇数、代表标签、几篇标题）。请把这些小组组织成一棵两级的树：
 1. 第一级 5–8 个大类（7 个左右最好），每个大类下 2–6 个二级；每个二级由 1 个或几个内容相近的小组合成。
 2. 每个小组只能用一次；实在不知道放哪的小组可以不用（会进「未归类」）。
-3. 名字用她的口头说法，短（2–8 个字），不用学术词；名字里不要有冒号、逗号、顿号、斜杠。
+3. 名字用用户的口头说法，短（2–8 个字），不用学术词；名字里不要有冒号、逗号、顿号、斜杠。
 4. 清单型的二级（地点、店、菜谱、游戏、播客、书影音、装修、工具清单这类，以后会想汇总成一份清单的）wiki 设成 true。
 只输出一个 JSON 对象，写成一行，不要解释、不要代码块：
 {"nodes":[{"name":"美食","children":[{"name":"菜谱","groups":["3a","5b"],"wiki":true},{"name":"探店","groups":["7c"],"wiki":true}]}]}
@@ -2269,7 +2269,7 @@ def _draft(vault: Path, items: list[dict[str, Any]], *, use_ai: bool) -> dict[st
         old = None
     with storage.file_lock(LOCK, wait_s=30, owner="index.draft"):
         if old is not None and old != text.encode("utf-8"):
-            backup(old, "draft-old", vault)          # 她可能改过旧草稿：原样字节留一份
+            backup(old, "draft-old", vault)          # 用户可能改过旧草稿：原样字节留一份
         path.parent.mkdir(parents=True, exist_ok=True)
         storage.atomic_write_text(path, text)
     _save_state(vault, draft={"generated_at": _now(), "mode": mode, "wiki_suggest": _wiki_paths(spec),
@@ -2319,10 +2319,10 @@ def use_draft(vault: Path | None = None) -> dict[str, Any]:
 # 未归类建议
 # ═══════════════════════════════════════════════════════════════════════════
 
-_SUGGEST_INSTRUCTION = """她的收藏库有一棵索引树（下面列出每个节点的路径和标签），还有一些笔记哪个节点都没收进去（列出标题和标签）。
+_SUGGEST_INSTRUCTION = """用户的收藏库有一棵索引树（下面列出每个节点的路径和标签），还有一些笔记哪个节点都没收进去（列出标题和标签）。
 请给出建议，让这些笔记能归进去：
 - add_tags：给已有节点补标签。node 写节点路径（照抄）；tags 只能从这些未归类笔记的标签里挑。
-- new_node：新建一个节点。parent 写放在哪个节点下面（照抄路径；放第一级就写空字符串）；name 用她的口头说法、短（2–8 个字，不要冒号逗号斜杠）；
+- new_node：新建一个节点。parent 写放在哪个节点下面（照抄路径；放第一级就写空字符串）；name 用用户的口头说法、短（2–8 个字，不要冒号逗号斜杠）；
   tags 只能从这些笔记的标签里挑，也可以不给（那就按名字匹配标签和标题）。
 每条附一句 why（为什么这么归）。最多 15 条，能收进更多笔记的放前面。
 只输出一个 JSON 对象，不要解释：{"suggestions":[{"action":"add_tags","node":"美食/菜谱","tags":["红烧肉"],"why":"…"},{"action":"new_node","parent":"","name":"健身","tags":["健身"],"why":"…"}]}
@@ -2507,7 +2507,7 @@ def suggest(vault: Path | None = None, *, use_ai: bool = True, limit: int = 20) 
 
 
 def apply_suggestions(ids: list[str], vault: Path | None = None) -> dict[str, Any]:
-    """她点「加入」：按建议改 索引.md（原子写、写前备份），重算。"""
+    """用户点「加入」：按建议改 索引.md（原子写、写前备份），重算。"""
     vault = vault or storage.vault_root()
     stored = _load_json(suggestions_path(vault)) or {}
     rows = {s.get("id"): s for s in stored.get("suggestions") or [] if isinstance(s, dict)}
@@ -2584,7 +2584,7 @@ def add_parser(sub) -> None:
     pa.add_argument("--id", dest="ids", action="append", default=[], help="建议 id（suggest 给的）")
     # 10-11 按内容归类 / 手动改归属 / 建议新增 / 空节点
     pc = isub.add_parser("classify", help="按内容归类（AI 读标题 + 标签 + 概要，归进 索引.md 的节点；只做新笔记 / 新节点）")
-    pc.add_argument("--auto", action="store_true", help="后台用：等她停手再跑，超过花费上限不跑")
+    pc.add_argument("--auto", action="store_true", help="后台用：等你停手再跑，超过花费上限不跑")
     pc.add_argument("--estimate", action="store_true", help="只估价，不调模型")
     pc.add_argument("--progress", action="store_true", help="stdout 一行一个进度事件（最后一行照旧是结果）")
     pc.add_argument("--max-yuan", dest="max_yuan", type=float, default=None, help="这次最多花多少（元）")

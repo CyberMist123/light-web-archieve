@@ -2,7 +2,7 @@
    拷进 lb-page-lib.js 的 LB_SHARED_CSS（页面，手机上也有）、插件 styles.css（设置页）、link-brain.css / note.css（笔记页）。
    tests/test_tokens_1027.py 锁住四份逐字相同。规则：新界面只用这里的名字（CONVENTIONS「样式集」），不再手写字体栈 / 字号 / 灰。
    黑白为主：颜色全映射到 Obsidian 主题变量，深浅色都跟着走；橙 / 红只给状态。
-   她能改的五个（目录「Aa 样式」，存插件设置 catalogLayout.theme）：标题字体 / 正文字体 / 数字字体 / 字号倍数 / 卡片间距，
+   用户能改的五个（目录「Aa 样式」，存插件设置 catalogLayout.theme）：标题字体 / 正文字体 / 数字字体 / 字号倍数 / 卡片间距，
    由 LB.applyTheme / plugin.applyTheme 写成页面根上的行内变量，只在 body 上给默认值。 */
 body{--lb-warn:var(--text-warning,var(--color-orange));--lb-warn-bg:var(--background-secondary);--lb-warn-border:var(--background-modifier-border);--lb-danger:var(--text-error);--lb-danger-bg:var(--background-secondary);--lb-ok:var(--text-success,var(--color-green));--lb-star:var(--color-yellow,#d9a21b);}
 @supports (color: color-mix(in srgb, red, blue)){body{--lb-warn-bg:color-mix(in srgb,var(--lb-warn) 14%,var(--background-primary));--lb-warn-border:color-mix(in srgb,var(--lb-warn) 35%,var(--background-modifier-border));--lb-danger-bg:color-mix(in srgb,var(--text-error) 12%,var(--background-primary));}}

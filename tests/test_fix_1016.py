@@ -180,7 +180,7 @@ def test_reclassify_old_fill_rows_to_note_restricted(monkeypatch):
     problems.report(comment_fill.STEP, comment_fill.CODE_INCOMPLETE, "评论续读连着 3 次没成：" + ERR, item_id=item)
     assert restricted.reclassify_fill_failures() == [item]
     assert not problems.is_open(comment_fill.STEP, item, comment_fill.CODE_INCOMPLETE)
-    assert restricted.is_restricted(item) and not problems.is_open(restricted.STEP, item, restricted.CODE)  # 1017 她：原帖是真的不见了——网页版打不开不进问题面板
+    assert restricted.is_restricted(item) and not problems.is_open(restricted.STEP, item, restricted.CODE)  # 1017 作者：原帖是真的不见了——网页版打不开不进问题面板
     st = comment_fill.load_state("xiaohongshu", sid)
     assert not st.get("stuck") and st["no_progress"] == 0
     assert restricted.reclassify_fill_failures() == []  # 幂等
@@ -202,5 +202,5 @@ def test_note_failure_with_marker_marks_restricted(monkeypatch):
     for _ in range(3):
         comment_fill.note_failure(f"xhs-{sid}", ERR)
     assert not problems.is_open(comment_fill.STEP, f"xhs-{sid}", comment_fill.CODE_INCOMPLETE)
-    assert restricted.is_restricted(sid) and not problems.is_open(restricted.STEP, f"xhs-{sid}", restricted.CODE)  # 1017 她：原帖是真的不见了——网页版打不开不进问题面板
+    assert restricted.is_restricted(sid) and not problems.is_open(restricted.STEP, f"xhs-{sid}", restricted.CODE)  # 1017 作者：原帖是真的不见了——网页版打不开不进问题面板
     assert int(comment_fill.load_state("xiaohongshu", sid).get("no_progress") or 0) == 0

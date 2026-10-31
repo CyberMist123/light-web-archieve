@@ -1,4 +1,4 @@
-"""1009 她：「连接 AI」一个模块——本机客户端一键写配置（写前备份、写完报结果、可撤销）。
+"""1009 作者：「连接 AI」一个模块——本机客户端一键写配置（写前备份、写完报结果、可撤销）。
 
 测试一律用临时配置路径（CLAUDE_CONFIG_DIR / LWA_CLAUDE_DESKTOP_CONFIG 指到 tmp），绝不碰真的 Claude Code / Claude Desktop 配置。
 真跑 claude 命令的那条默认跳过（LWA_TEST_REAL_CLAUDE=1 才跑，也只写临时目录）。

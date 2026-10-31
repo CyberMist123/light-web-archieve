@@ -1,11 +1,11 @@
-"""本机「选文件夹」对话框（1009 她：「选本机文件夹」要真的弹得出来）。
+"""本机「选文件夹」对话框（1009 作者：「选本机文件夹」要真的弹得出来）。
 
 插件里 Electron 的 dialog 在新版 Obsidian 拿不到（electron.remote 没了），由这里弹：
 先 tkinter（Tk 8.6 在 Windows 上是系统新式的选文件夹对话框），没有 tkinter / 出错就退回 PowerShell 的
 FolderBrowserDialog。两种都挂一个置顶的无形窗口当主人——以前隐藏窗口的子进程弹框常常躲在 Obsidian 后面，看着像「没反应」。
 
 `python -m link_brain pick-folder [--title T] [--initial DIR]` → 最后一行 JSON：
-`{ok, code, message, path, canceled, via}`；她点了取消 = ok:true + canceled:true（不是失败）。
+`{ok, code, message, path, canceled, via}`；用户点了取消 = ok:true + canceled:true（不是失败）。
 """
 
 from __future__ import annotations
@@ -67,7 +67,7 @@ def _powershell(title: str, initial: str | None, timeout: float) -> dict[str, An
 
 
 def pick(title: str = DEFAULT_TITLE, initial: str | None = None, *, timeout: float = 600) -> dict[str, Any]:
-    """弹系统选文件夹对话框，等她选完。返回 {ok, code, message, path, canceled, via}。"""
+    """弹系统选文件夹对话框，等用户选完。返回 {ok, code, message, path, canceled, via}。"""
     from .read import outcome
     errors = []
     for how in (_tk, None):

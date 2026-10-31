@@ -918,7 +918,7 @@ def _same_floor(c: dict[str, Any], prev: dict[str, Any] | None) -> dict[str, Any
 
 
 def dedupe_floors(floors: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """1026（她：抓全部评论有的不齐 / 怕重复）：同一楼在一份列表里出现两次（续翻的游标页和上一页重叠、读取组件重试）只留第一处，
+    """1026（作者：抓全部评论有的不齐 / 怕重复）：同一楼在一份列表里出现两次（续翻的游标页和上一页重叠、读取组件重试）只留第一处，
     后出现的那份并进去（楼中楼并集）。顺序按第一次出现。"""
     out: list[dict[str, Any]] = []
     pos: dict[str, int] = {}

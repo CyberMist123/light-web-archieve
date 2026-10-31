@@ -69,7 +69,7 @@ async function catalogEntryTests() {
   const entry = q('.lbc-problems');
   assert.equal(entry.hidden, false);
   assert.equal(entry.querySelector('.lbc-prob-need').textContent, '2', '要你处理 = 橙色数字');
-  assert.equal(entry.querySelector('.lbc-prob-other'), null, '1027b 她：不影响实际体验的不显示——已放弃 / 自动处理中都不计数，只数要你处理的');
+  assert.equal(entry.querySelector('.lbc-prob-other'), null, '1027b 作者：不影响实际体验的不显示——已放弃 / 自动处理中都不计数，只数要你处理的');
   assert.ok(entry.title.startsWith('需要登录：读取号掉登录'), '悬停第一行 = 登记表标签 + 原因：' + entry.title);
   assert.ok(entry.title.includes('要你处理 2') && !/自动处理|已放弃/.test(entry.title), entry.title);
   assert.equal(q('.lbc-syncing').hidden, true);

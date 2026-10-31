@@ -1,12 +1,12 @@
-r"""一次性迁移（1031 她「弹幕直接复用批注」）：`_archive/bilibili/<BV>/danmaku-mine.json` → 这篇 `notes.json` 里的批注。
+r"""一次性迁移（1031 作者「弹幕直接复用批注」）：`_archive/bilibili/<BV>/danmaku-mine.json` → 这篇 `notes.json` 里的批注。
 
-以前笔记页视频下面那条「发弹幕」存在 danmaku-mine.json；现在她自己的弹幕 = 带视频时间 `video_t` 的批注（FORMAT.md「B 站弹幕」），
+以前笔记页视频下面那条「发弹幕」存在 danmaku-mine.json；现在用户自己的弹幕 = 带视频时间 `video_t` 的批注（FORMAT.md「B 站弹幕」），
 那套存储去掉了。这里把已有的条目一条不丢地转成批注：
 
 - 每条 → `{id: "adm-<原 id>", ts: <原 created_at>, text, to_fable: false, video_t: <原 time，3 位小数>, migrated_from: "danmaku-mine"}`；
   颜色 / 字号 / 模式不带（以前只发过白色 25 号滚动，批注弹幕一律这样画）。
 - 写 notes.json 走批注现有的写法（`note.load_notes` / `note.save_notes`：读坏了报错不碰、原子写），只往 `annotations` 末尾追加，
-  别的键（⭐、草稿、墓碑）原样。同一个 id 已经在（迁过一次）或在删除墓碑里（她删了）就不再加——可以重跑。
+  别的键（⭐、草稿、墓碑）原样。同一个 id 已经在（迁过一次）或在删除墓碑里（用户删了）就不再加——可以重跑。
 - 写成功后原文件改名 `danmaku-mine.json.migrated`（已有同名就加时间戳），不删。主文件不在、只剩上次换名换到一半的 `.bak` 时迁 `.bak`。
 - 原文件读不懂、notes.json 读坏了：这一篇跳过并报出来，什么都不改。
 

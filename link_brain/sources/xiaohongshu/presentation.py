@@ -39,7 +39,7 @@ def comment_status_text(capture: dict[str, Any] | None, comments: list[dict[str,
     if view is not None:
         full = view.get("full")
         if isinstance(full, dict) and full.get("text"):
-            # 1026：她手动抓过全部评论：照实写抓到哪了（已抓楼数 / 翻没翻到最后一页 / 还缺什么、为什么 / 上次没成的原因）
+            # 1026：用户手动抓过全部评论：照实写抓到哪了（已抓楼数 / 翻没翻到最后一页 / 还缺什么、为什么 / 上次没成的原因）
             return "全部评论 · " + str(full["text"])
         missing = int(view.get("missing") or 0)
         if missing <= 0:

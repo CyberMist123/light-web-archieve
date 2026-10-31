@@ -1,4 +1,4 @@
-"""B 站收藏夹同步（阶段二批次 B 的最短路径，1029 她：「今晚按收藏夹名当专辑都下载同步了吧；超过 1 小时的只放链接告诉我是啥，之后让我选」）。
+"""B 站收藏夹同步（阶段二批次 B 的最短路径，1029 作者：「今晚按收藏夹名当专辑都下载同步了吧；超过 1 小时的只放链接告诉我是啥，之后让我选」）。
 
 流程：登录态 → 列自己全部收藏夹（含私密）→ 逐个收藏夹扫描（favorites.sync_folder：快照 + 关系表）→ 跨收藏夹按 BV 去重 →
 分流：失效 / 非视频 / 超过 5 P 的多 P / 超过时长上限 → **只记清单不下载**（1031 起 ≤5 P 的多 P 拆成每 P 一条下）；其余逐条走阶段一的单视频入库（ingest.ingest_url，ingest_kind=favorite）
@@ -37,9 +37,9 @@ PAGE_GAP_S = 2.0
 PENDING_NOTE = "B站待选清单.md"
 LAST_SYNC = "last-sync.json"
 FOLDER_LIST = "folder-list.json"   # 1031：上次列到的全部收藏夹（含被关掉的），挑选页不连网就靠它列收藏夹
-MULTI_P_AUTO = 5         # 1031 她：多 P 不超过这么多 P 的自动拆开、一个 P 一条下；更多的进挑选页，她勾了才下
-WORKERS_MAX = 8          # 1031 她：同时下几路放到 8（撞 412/429 照旧自动退回一路）
-# 1031：停下来时给她的下一步（设置页直接显示 message；码是 CONVENTIONS §2 的细分码，裸写，和原来的 NOT_LOGGED_IN 一样）
+MULTI_P_AUTO = 5         # 1031 作者：多 P 不超过这么多 P 的自动拆开、一个 P 一条下；更多的进挑选页，用户勾了才下
+WORKERS_MAX = 8          # 1031 作者：同时下几路放到 8（撞 412/429 照旧自动退回一路）
+# 1031：停下来时给用户的下一步（设置页直接显示 message；码是 CONVENTIONS §2 的细分码，裸写，和原来的 NOT_LOGGED_IN 一样）
 HINTS = {
     "NOT_LOGGED_IN": "在设置页「账号登录 → B 站」点「扫码登录」重新扫一次，再点「立即同步」（已经下好的不会重下）",
     "MISSING_DEPENDENCY": ("yt-dlp 要装进 LWA 用的那个 Python：在程序目录运行 pip install -e .（.venv 是 uv 建的就用 uv pip install -e .）；"
@@ -99,7 +99,7 @@ def plan(snaps: list[dict[str, Any]], *, max_duration_s: int = MAX_DURATION_S, a
 
     - download：正常单 P、时长 ≤ 上限（或在 allow 里）、还没入库；
     - hit：已在库（只补关系，不下载）；
-    - long：超过上限（她选了再下：`--allow BV`）；multi_p：超过 MULTI_P_AUTO 个 P、她还没勾的（勾了 = allow）；
+    - long：超过上限（用户选了再下：`--allow BV`）；multi_p：超过 MULTI_P_AUTO 个 P、用户还没勾的（勾了 = allow）；
       多 P 的其余情况拆成每 P 一条（page / source_id / url 带 ?p=N，P1 的 source_id 就是 BV 号），按 P 判在不在库；
     - invalid：原站已失效；non_video：音频 / 合集 / 其它类型。"""
     allow = allow or set()
@@ -154,7 +154,7 @@ def plan(snaps: list[dict[str, Any]], *, max_duration_s: int = MAX_DURATION_S, a
             buckets["long"].append(row)
         else:
             buckets["download"].append(row)
-    # 收藏时间新的先下（她最近收的最想看）；同一个多 P 按 P 号排
+    # 收藏时间新的先下（用户最近收的最想看）；同一个多 P 按 P 号排
     for k in ("download", "long", "multi_p"):
         buckets[k].sort(key=lambda r: (-(r.get("fav_time") or 0), r.get("page") or 1))
     return {"buckets": buckets, "bv_total": len(by_bv),
@@ -197,7 +197,7 @@ def _line(r: dict[str, Any]) -> str:
 
 
 def render_pending_note(result: dict[str, Any]) -> str:
-    # 1031 她：失效的、超过 1 小时的都不用管——不算「待选」、不在上面提醒，只放到「明细」里查得到；待选只剩多 P
+    # 1031 作者：失效的、超过 1 小时的都不用管——不算「待选」、不在上面提醒，只放到「明细」里查得到；待选只剩多 P
     b = result["buckets"]
     lines = ["---", "cssclasses: [link-brain]", "tags: [bilibili, 待选]", "---", "",
              f"> [!info] B 站收藏同步 · {result.get('finished_at') or _now()}",
@@ -234,7 +234,7 @@ def pending_note_path() -> Path:
     return storage.visible_dir(SOURCE) / PENDING_NOTE
 
 
-# ---- 她的选择（持久）：allow = 放行（不看时长上限）；deny = 删 = 任何情况下都不保存（同小红书回收站：写删除屏蔽，本地留一条记录）--------
+# ---- 用户的选择（持久）：allow = 放行（不看时长上限）；deny = 删 = 任何情况下都不保存（同小红书回收站：写删除屏蔽，本地留一条记录）--------
 
 CHOICES = "choices.json"
 
@@ -279,7 +279,7 @@ def _known(bvid: str) -> dict[str, Any]:
 
 
 def choose(*, allow: list[str] | None = None, deny: list[str] | None = None, undo: list[str] | None = None) -> dict[str, Any]:
-    """记下她的选择。deny 的同时写删除屏蔽（index.write_tombstone，source=bilibili）：以后 ingest / catch / sync 一律不再保存；
+    """记下用户的选择。deny 的同时写删除屏蔽（index.write_tombstone，source=bilibili）：以后 ingest / catch / sync 一律不再保存；
     已经在库的不动（删库走现有 delete 命令）。undo 从两张表里拿掉（屏蔽本身用 trash --forget 解除，这里不代劳）。"""
     from ... import domain, index as index_mod
     now = _now()
@@ -317,7 +317,7 @@ def choose(*, allow: list[str] | None = None, deny: list[str] | None = None, und
     return out
 
 
-# ---- 预估（1031 她：点「立即同步」前先看要下多少、多大、多久）--------------------------------------------------------
+# ---- 预估（1031 作者：点「立即同步」前先看要下多少、多大、多久）--------------------------------------------------------
 # 全是估计：体积 = 总时长 × 每分钟体积（按画质档取已入库的实测）；耗时 = 体积 ÷ 下载速度（已入库的 yt-dlp 实测耗时，没有就按 STATE.md
 # 记的单连接 130–430 KB/s）× 并行路数，再加上每条之间歇的秒数和入库的几秒。只读 RAW 里的 manifest / source.json，不联网。
 
@@ -450,7 +450,7 @@ def run_sync(*, dry_run: bool = False, limit: int | None = None, max_duration_s:
              log: Callable[[str], None] | None = None, sleep: Callable[[float], None] = time.sleep) -> dict[str, Any]:
     """返回 {ok, code, message, counts, buckets, folders, estimate, options, ...}；stdout 不碰（调用方打 JSON），人话走 log。
     1031：quality = max | 1080 | 720（不传 = ytdlp.DEFAULT_QUALITY）；danmaku=False 不存弹幕。这一趟 ytdlp.OPTIONS 改成这两样，结束复原。
-    1031 她（挑选页）：skip_folders = 关掉的收藏夹 id（"toview" = 稍后再看），整个跳过——不扫、不下；toview=True 时稍后再看
+    1031 作者（挑选页）：skip_folders = 关掉的收藏夹 id（"toview" = 稍后再看），整个跳过——不扫、不下；toview=True 时稍后再看
     当成一个「稍后再看」收藏夹一起走 plan / 下载。"""
     from . import ytdlp
     say = log or (lambda m: print(m, file=sys.stderr, flush=True))
@@ -483,7 +483,7 @@ def run_sync(*, dry_run: bool = False, limit: int | None = None, max_duration_s:
             say(f"清掉上次中断留下的 {cleared} 个半截下载目录（那几条这次重下）")
     try:
         if st.get("state") == "unknown":
-            # 1031：查不到 ≠ 没登录（断网 / 接口抽风），别叫她去重新扫码
+            # 1031：查不到 ≠ 没登录（断网 / 接口抽风），别叫用户去重新扫码
             out.update(ok=False, code="NETWORK", message=f"查不到 B 站登录状态（{st.get('detail') or st.get('reason') or '网络不通'}）：{HINTS['NETWORK']}")
             return out
         if st.get("state") != "logged_in":
@@ -530,7 +530,7 @@ def run_sync(*, dry_run: bool = False, limit: int | None = None, max_duration_s:
             say(f"{reused} 个收藏夹复用了 {rescan_hours:g} 小时内的完整快照，没重扫")
         out["counts"]["folders"] = len(rows)
         out["counts"]["skipped_folders"] = len(skipped)
-        # 1031 她：稍后再看一起同步，当成「稍后再看」专辑（关掉了 / 只同步指定收藏夹且没点名它 → 不读）
+        # 1031 作者：稍后再看一起同步，当成「稍后再看」专辑（关掉了 / 只同步指定收藏夹且没点名它 → 不读）
         from . import toview as toview_mod
         if toview and toview_mod.TOVIEW_ID not in skip and (not want or want & {toview_mod.TOVIEW_ID, toview_mod.TITLE}):
             if rows and folder_gap_s:
@@ -593,7 +593,7 @@ def run_sync(*, dry_run: bool = False, limit: int | None = None, max_duration_s:
         # 设置页看到 running 但进程已经没了，就说「上次中途停了」
         out["buckets"] = b
         out["state"] = "running"
-        # 1029 她：workers>1 时后面几条的 yt-dlp 先在后台下（瓶颈是单连接拉 CDN）；入库照旧一条一条。撞限流就退回一条一条下
+        # 1029 作者：workers>1 时后面几条的 yt-dlp 先在后台下（瓶颈是单连接拉 CDN）；入库照旧一条一条。撞限流就退回一条一条下
         parallel = workers > 1
         ytdlp.prefetch_start(workers if parallel else 1)
         if parallel:
@@ -623,7 +623,7 @@ def run_sync(*, dry_run: bool = False, limit: int | None = None, max_duration_s:
                 summary = ingest_mod.ingest_url(r["url"], origin="cli", actor="human", ingest_kind=INGEST_KIND,
                                                 note=None, verbose=False)
                 if summary.get("status") == "trashed":
-                    r["reason"] = "在回收站里（她删过），不拉回"
+                    r["reason"] = "在回收站里（你删过），不拉回"
                     b["failed"].append(r)
                     continue
                 fresh = not (summary.get("hit") or summary.get("refreshed_unchanged"))
@@ -672,7 +672,7 @@ def run_sync(*, dry_run: bool = False, limit: int | None = None, max_duration_s:
             out.pop("progress", None)
         ok = out["stopped"] is None and not b["failed"]
         code = "" if ok else (stop_code or "SYNC_FAILED")
-        # 1031 她：超时长 / 失效的不用管，结束提示里不再提；多 P 照旧只记清单
+        # 1031 作者：超时长 / 失效的不用管，结束提示里不再提；多 P 照旧只记清单
         msg = (f"同步完：新下 {len(b['downloaded'])} 条、已在库 {len(b['hit'])} 条、失败 {len(b['failed'])} 条"
                + (f"；多于 {MULTI_P_AUTO} P 的多 P {len(b['multi_p'])} 条等你在「挑选要同步的…」里勾，也列在「{PENDING_NOTE}」" if b["multi_p"] else ""))
         if out["stopped"]:
@@ -737,7 +737,7 @@ INTERRUPTED_REASON = "进程被结束了（关机 / 注销 / 点了「停止」/
 
 def last_summary() -> dict[str, Any]:
     """上次同步的摘要（设置页 B 站卡用）。running 但进程已经没了 = 被打断：说停在第几条、为什么，提示再点会接着下。
-    超时长 / 失效的只给数字放在明细里（她不用管）；待处理只算多 P 和失败。"""
+    超时长 / 失效的只给数字放在明细里（用户不用管）；待处理只算多 P 和失败。"""
     try:
         last = storage.read_json(favorites.sync_root() / LAST_SYNC)
     except (OSError, ValueError):
@@ -778,7 +778,7 @@ def last_summary() -> dict[str, Any]:
 
 
 def long_list(*, max_duration_s: int = MAX_DURATION_S) -> dict[str, Any]:
-    """1031 她：超过时长上限、还没入库的收藏列成清单，她在设置页自己勾哪些要下。只读本地收藏夹快照，不连 B 站。
+    """1031 作者：超过时长上限、还没入库的收藏列成清单，用户在设置页自己勾哪些要下。只读本地收藏夹快照，不连 B 站。
     每条 {bvid, title, upper, duration, folders, url, chosen}；chosen = 已经放行（下次同步就下）。失效不列；多 P 见 multi_list。"""
     snaps = _local_snapshots()
     ch = load_choices()
@@ -797,7 +797,7 @@ def long_list(*, max_duration_s: int = MAX_DURATION_S) -> dict[str, Any]:
 
 
 def multi_list() -> dict[str, Any]:
-    """1031 她：超过 MULTI_P_AUTO 个 P 的多 P 收藏列成清单，她在挑选页勾哪些要下（勾 = allow，下次同步拆成每 P 一条下）。
+    """1031 作者：超过 MULTI_P_AUTO 个 P 的多 P 收藏列成清单，用户在挑选页勾哪些要下（勾 = allow，下次同步拆成每 P 一条下）。
     只读本地快照，不连 B 站。每条 {bvid, title, upper, page_count, duration, folders, url, chosen, done（已入库几 P）}。"""
     snaps = _local_snapshots()
     ch = load_choices()
@@ -818,7 +818,7 @@ def multi_list() -> dict[str, Any]:
     return {"items": rows, "total": len(rows), "chosen": sum(1 for r in rows if r["chosen"]), "auto_max": MULTI_P_AUTO}
 
 
-# ---- 挑选页（1031 她：「没有让我选哪些下载」）：收藏夹开关 + 超长视频逐条勾选。只读本地，不连 B 站 --------------------------
+# ---- 挑选页（1031 作者：「没有让我选哪些下载」）：收藏夹开关 + 超长视频逐条勾选。只读本地，不连 B 站 --------------------------
 
 def folder_list_path() -> Path:
     return favorites.sync_root() / FOLDER_LIST
@@ -850,7 +850,7 @@ def _local_snapshots() -> list[dict[str, Any]]:
 
 def picker(*, max_duration_s: int = MAX_DURATION_S) -> dict[str, Any]:
     """挑选页的数据：{folders: [{id, title, media_count, private, kind, scanned}], long: long_list(...), message}。
-    收藏夹 = 上次列到的全部（folder-list.json）+ 本地快照里有的；稍后再看排第一。一个都没有 → 叫她先预估 / 同步一次。"""
+    收藏夹 = 上次列到的全部（folder-list.json）+ 本地快照里有的；稍后再看排第一。一个都没有 → 叫用户先预估 / 同步一次。"""
     from . import toview as toview_mod
     try:
         listed = storage.read_json(folder_list_path())
@@ -865,7 +865,7 @@ def picker(*, max_duration_s: int = MAX_DURATION_S) -> dict[str, Any]:
                                    "private": bool(f.get("private")), "kind": "folder", "scanned": False}
     for snap in _local_snapshots():
         if owner and snap.get("owner_mid") and str(snap.get("owner_mid")) != str(owner):
-            continue   # 别人的公开收藏夹（单独扫过的）不算她的
+            continue   # 别人的公开收藏夹（单独扫过的）不算用户的
         fid = str(snap.get("media_id") or "")
         if not fid:
             continue

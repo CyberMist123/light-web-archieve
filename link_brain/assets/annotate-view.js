@@ -6,9 +6,9 @@
 // Dataview 每 2.5 秒（库里任何一篇 md 变了）重跑这块：notes.json 没变 → 上一次的批注框原样留着（正在打的字、光标都在）；
 // 变了（另一个窗格 / 手机同步 / ⭐）→ 只重读、重画列表，不重建框。前导不在（单测直接跑本文件）就照旧每次重建。
 const LB = typeof lbPageLib === 'function' ? lbPageLib(dv, app, 'annotate') : null;
-// 10-03 她：批注又跑到最底下了。根因：Obsidian 重画左栏 / 重开这篇时，批注框跟着旧左栏被摘下，
+// 10-03 作者：批注又跑到最底下了。根因：Obsidian 重画左栏 / 重开这篇时，批注框跟着旧左栏被摘下，
 // reuseDom 把它挂回本容器（全文最底下）就 return 了，没再挪回左栏。现在复用这条路也照样挪。
-// 硬规矩（她定，别再改）：阅读视图里批注框永远在左栏图片 / 视频下面。tests/test_annot_side.cjs 守着。
+// 硬规矩（作者定，别再改）：阅读视图里批注框永远在左栏图片 / 视频下面。tests/test_annot_side.cjs 守着。
 // 批次 D · L3（主审裁决 3）：批注框挂在 LB.mountHost 的 host（dv.container 后面的兄弟节点）上，不进 dv.container——
 // 单栏笔记 / 实时预览里没有左栏可挪，框留在容器里时 Dataview 重跑清空容器会把它摘下，Chromium 同步发 blur，
 // 「失焦即定稿」就把半截字存成一条正式批注、清空输入框（tests/test_annot_1008.cjs 的单栏用例守着）。登记的是 host，框本身记在 view.box。
@@ -18,7 +18,7 @@ root.classList.add('lba-annot-host');
 const mount = (LB && typeof LB.mountHost === 'function') ? LB.mountHost('lba-annot-mount') : root;
 const notify = (m) => { try { new Notice(m); } catch { console.log('[annot]', m); } };
 const nickname = () => app.plugins.plugins['link-brain-actions']?.settings?.nickname || '';
-// 10-03 她：「@某人 开头 = 留言给某人」是她自己的设置（给她的 AI），默认不启用；设置里「批注留言对象」填名字才开。
+// 10-03 作者：「@某人 开头 = 留言给某人」是用户自己的设置（给用户的 AI），默认不启用；设置里「批注留言对象」填名字才开。
 // 存储字段沿用 to_fable（下游按它读），显示用设置里的名字。
 const mention = () => String(app.plugins.plugins['link-brain-actions']?.settings?.annotateMention || '').trim();
 const isMention = (t) => { const m = mention(); return !!m && String(t).toLowerCase().startsWith('@' + m.toLowerCase()); };
@@ -34,15 +34,15 @@ style.textContent = `
 .lba-annot-head{display:flex;align-items:center;gap:10px;margin-bottom:12px;}
 .lba-annot-title{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--text-faint);}
 .lba-star{cursor:pointer;font-size:18px;line-height:1;user-select:none;filter:grayscale(1);opacity:.45;transition:.12s;}
-/* 1015 她：收藏的星就是黄的（以前点亮了还是正文色），点亮那一下弹一下 */
+/* 1015 作者：收藏的星就是黄的（以前点亮了还是正文色），点亮那一下弹一下 */
 .lba-star.is-on{filter:none;opacity:1;color:var(--lb-star,#f5b301);}
 .lba-star.is-pop{animation:lba-starpop .5s cubic-bezier(.3,1.6,.5,1);}
 @keyframes lba-starpop{0%{transform:scale(.6) rotate(-20deg);}60%{transform:scale(1.35) rotate(8deg);}100%{transform:scale(1) rotate(0);}}
-/* 1015 她：⭐ 放在写批注框边上（不在上面那一行）；输入框和星一行 */
+/* 1015 作者：⭐ 放在写批注框边上（不在上面那一行）；输入框和星一行 */
 .lba-input-row{display:flex;align-items:flex-start;gap:10px;}
 .lba-input-row > .lba-annot-input{flex:1 1 auto;min-width:0;}
 .lba-input-row > .lba-star{flex:none;padding-top:7px;}
-/* 1015 她：划的重点也算进批注区（一行一条，点了跳到正文那一处；取消在正文里点那一处） */
+/* 1015 作者：划的重点也算进批注区（一行一条，点了跳到正文那一处；取消在正文里点那一处） */
 .lba-marks{display:flex;flex-direction:column;gap:6px;margin-bottom:14px;}
 .lba-marks[hidden]{display:none;}
 .lba-mark-row{font-size:13px;line-height:1.6;color:var(--text-normal);cursor:pointer;padding-left:9px;border-left:3px solid rgb(255,214,10);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
@@ -55,7 +55,7 @@ style.textContent = `
 .lba-star:hover{opacity:.85;}
 .lba-star-hint{font-size:11px;color:var(--text-muted);}
 .lba-save-hint{margin-left:auto;font-size:12px;color:var(--text-muted);transition:opacity .2s;}
-/* 1023 她：打完字就要看得到「存上了」——打字时「保存中…」，停手存好后「✓ 已自动保存」常亮（不再 1.4 秒就淡掉） */
+/* 1023 作者：打完字就要看得到「存上了」——打字时「保存中…」，停手存好后「✓ 已自动保存」常亮（不再 1.4 秒就淡掉） */
 .lba-save-hint.is-ok{color:var(--text-muted);}.lba-save-hint.is-busy{color:var(--text-faint);}
 .lba-annot-list{display:flex;flex-direction:column;gap:18px;margin-bottom:16px;}
 .lba-annot-item{padding:0 44px 0 0;font-size:14px;line-height:1.75;color:var(--text-normal);white-space:pre-wrap;word-break:break-word;position:relative;}
@@ -84,7 +84,7 @@ style.textContent = `
 .xhs-note .lb-media-locked .lba-annot.lba-in-side > .lba-input-row{order:-1;padding-top:4px;}
 .xhs-note .lb-media-locked .lba-annot.lba-in-side > .lba-annot-head{margin:8px 0;}
 .xhs-note .lb-media-locked .lba-annot.lba-in-side > .lba-annot-list{gap:12px;margin-bottom:12px;}
-/* 1031 她「弹幕直接复用批注」：B 站视频笔记的批注框下面一个「记在当前时间」的勾；带时间的批注前面一个时间标，点了跳到那一秒 */
+/* 1031 作者「弹幕直接复用批注」：B 站视频笔记的批注框下面一个「记在当前时间」的勾；带时间的批注前面一个时间标，点了跳到那一秒 */
 .lba-vt-row{display:flex;align-items:center;gap:6px;margin:2px 0 0;font-size:12px;color:var(--text-muted);cursor:pointer;user-select:none;width:fit-content;}
 .lba-vt-row input{margin:0;cursor:pointer;}
 .lba-vt-row .lba-vt-now{font-variant-numeric:tabular-nums;color:var(--text-normal);}
@@ -94,7 +94,7 @@ style.textContent = `
 `;
 
 const box = mount.createEl('div', { cls: 'lba-annot' });
-// 1015 她：删掉「批注」两个字；⭐ 挪到写批注框边上。上面这一行只剩收藏 / 保存的小字提示
+// 1015 作者：删掉「批注」两个字；⭐ 挪到写批注框边上。上面这一行只剩收藏 / 保存的小字提示
 const head = box.createEl('div', { cls: 'lba-annot-head' });
 const starHint = head.createEl('span', { cls: 'lba-star-hint' });
 const saveHint = head.createEl('span', { cls: 'lba-save-hint' });
@@ -107,7 +107,7 @@ const star = inputRow.createEl('span', { cls: 'lba-star', text: '★' });
 if (typeof star.setAttribute === 'function') { star.setAttribute('role', 'button'); star.setAttribute('aria-label', '收藏'); }
 ta.placeholder = '写批注…';  // 真正的提示由 setPlaceholder() 按有没有内容决定
 
-// 1031 她「弹幕直接复用批注」：B 站视频笔记里，批注带上视频时间（notes.json 的 video_t，秒）就是她自己的弹幕——
+// 1031 作者「弹幕直接复用批注」：B 站视频笔记里，批注带上视频时间（notes.json 的 video_t，秒）就是用户自己的弹幕——
 // 插件 danmaku.js 读它在画面上飘（带细框），这里照常列出来（前面一个时间标，点了跳到那一秒）。写法和别的批注完全一样（同一个 persist：
 // 先读磁盘、按条合并、删除墓碑、读坏了另存 .corrupt 暂停保存），只是多一个字段。
 // 时间取「开始写这一条那一刻」的播放位置（看到一处、点进框里打字，视频还在往前走；落成批注时才取就晚了）；勾掉就不带时间。
@@ -196,7 +196,7 @@ function placeUnderImages(root, box) {
   mo.observe(view, { childList: true, subtree: true });
 }
 
-// 1015 她：「高亮算进批注」——正文 / 评论里划的重点在批注区列一行一条（颜色条 + 原文），点了滚到正文那一处闪一下。
+// 1015 作者：「高亮算进批注」——正文 / 评论里划的重点在批注区列一行一条（颜色条 + 原文），点了滚到正文那一处闪一下。
 // 只读页面上的 <mark>（重点本来就存在 md 里，不另存一份）；正文重画（划 / 取消 / 换色）由上面的 MutationObserver 带着重列。
 function paintMarks(view, box) {
   const wrap = box && box.querySelector && box.querySelector('.lba-marks');
@@ -218,7 +218,7 @@ function paintMarks(view, box) {
   }
 }
 
-// 10-03 她：视频变成一个奇怪的横条（灰底、没封面）。根因：Obsidian 阅读视图只改写 <img src> / <video src> 的相对路径，
+// 10-03 作者：视频变成一个奇怪的横条（灰底、没封面）。根因：Obsidian 阅读视图只改写 <img src> / <video src> 的相对路径，
 // 不改 poster——封面加载不出来，视频框按默认比例显示。这里把 poster 换成 Obsidian 能加载的地址，并按封面比例定框，
 // 看起来和封面图一样，点一下开始播放。Obsidian 重画左栏后新的 <video> 也会被 place() 再修一遍（幂等）。
 function fixVideos(view) {
@@ -440,7 +440,7 @@ function renderUndo() {
   };
   btn.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); btn.onclick(e); } };
 }
-// 1020：AI 的回复（reply_to 指着她那条）排在被回那条正下方；被回那条删了就按时间留在原处
+// 1020：AI 的回复（reply_to 指着用户那条）排在被回那条正下方；被回那条删了就按时间留在原处
 function displayOrder() {
   const all = data.annotations;
   const ids = new Set(all.map(a => a.id).filter(Boolean));
@@ -462,7 +462,7 @@ function renderList() {
     const ts = el.createEl('span', { cls: 'lba-ts', text: (who ? who + ' · ' : '') + fmtTs(a.ts) });
     if (a.to_fable) ts.createEl('span', { cls: 'lba-fable-tag', text: mention() ? '给 ' + mention() : '留言' });
     if (a.edited) ts.createEl('span', { cls: 'lba-edited', text: '· 已编辑' });
-    // 1031：带视频时间的（= 她的弹幕）前面一个时间标，点了跳到那一秒接着播
+    // 1031：带视频时间的（= 用户的弹幕）前面一个时间标，点了跳到那一秒接着播
     if (typeof a.video_t === 'number' && Number.isFinite(a.video_t) && a.video_t >= 0) {
       const t = a.video_t;
       const vt = el.createEl('span', { cls: 'lba-vt', text: '▶ ' + fmtVt(t), attr: { role: 'button', tabindex: '0', 'aria-label': '跳到视频 ' + fmtVt(t) } });
@@ -538,7 +538,7 @@ async function commit() {
   const to_fable = isMention(text);
   const prev = snapshot();
   const entry = { id: newId(), ts: new Date().toISOString(), text, to_fable, author: to_fable ? '' : nickname() };
-  if (isBili && vtOn) { const vt = vtStamp != null ? vtStamp : videoNow(); if (vt != null) entry.video_t = vt; }   // 1031：= 她的弹幕
+  if (isBili && vtOn) { const vt = vtStamp != null ? vtStamp : videoNow(); if (vt != null) entry.video_t = vt; }   // 1031：= 用户的弹幕
   data.annotations.push(entry);
   data.draft = '';
   // 失败把刚 push 的那条撤回（不然再提交一次会多出一条重复批注），字留在输入框里
@@ -549,7 +549,7 @@ async function commit() {
   if (!list.querySelector('.lba-edit-input')) renderList();   // N-M1：正在编辑某条时不重画（persist 里同样的保护）
   flash('已保存');
 }
-// 失焦即定稿（她 1008 定，N3 不改）——但只认「她离开输入框」。主审裁决 3：Dataview 重跑 / Obsidian 重画这一段 / 框被挪进左栏时，
+// 失焦即定稿（作者 1008 定，N3 不改）——但只认「用户离开输入框」。主审裁决 3：Dataview 重跑 / Obsidian 重画这一段 / 框被挪进左栏时，
 // Chromium 在摘下（挪走）有焦点的元素之前同步发 blur（那一刻元素还连着）。等这一轮同步代码跑完（微任务）再看：
 // 框已不在文档里、或换了父节点 = 后台动的，不定稿，只存草稿；框还在文档里、焦点掉到了 body 就把焦点和光标还回去。
 let blurSeq = 0;
@@ -593,7 +593,7 @@ function renderStar() {
   const off = starOffText();
   star.classList.toggle('is-disabled', !!off);
   if (typeof star.setAttribute === 'function') star.setAttribute('title', off);
-  if (!starBusy && !starHintTimer) starHint.setText('');   // 1031 她：正文页不常写「已收藏」（星本身是亮的）；正在收藏 / 没收藏上这类过程字照旧
+  if (!starBusy && !starHintTimer) starHint.setText('');   // 1031 作者：正文页不常写「已收藏」（星本身是亮的）；正在收藏 / 没收藏上这类过程字照旧
 }
 star.onclick = async () => {
   if (starBusy) return;

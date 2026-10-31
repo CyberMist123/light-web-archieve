@@ -62,7 +62,7 @@ def _delete_item(conn, item_id: str) -> dict[str, Any]:
         snapshot['objects'][0]['visible_note'] = visible
         files = []
         candidates = [vault / visible] if visible else []
-        # 1001（审计 render-8）：她改过名 / 挪过位置的、以前同步冒出来的重复份，按 frontmatter 的 item_id 一起收进回收站
+        # 1001（审计 render-8）：用户改过名 / 挪过位置的、以前同步冒出来的重复份，按 frontmatter 的 item_id 一起收进回收站
         from .render import find_visible_by_item_id
         seen = {p.resolve() for p in candidates}
         for extra in find_visible_by_item_id(item_id):
@@ -218,7 +218,7 @@ def publish_trash(vault=None):
     from .catalog import _write_if_changed  # 1023：内容没变不写，不让 Dataview 重画
     _write_if_changed(vault / '_archive/trash-data.json', json.dumps({'items': items}, ensure_ascii=False, indent=2) + '\n')
     script = (Path(__file__).parent / 'assets/trash-view.js').read_text(encoding='utf-8')
-    # 第 3 批：页头带 lb-page: trash，她改了名也按标记找回那一份重写（不再按固定名另冒一份「回收站.md」）
+    # 第 3 批：页头带 lb-page: trash，用户改了名也按标记找回那一份重写（不再按固定名另冒一份「回收站.md」）
     # 批次 D · C16：和目录页同一套前导（lb-page-lib 内联在前面：host、样式挂 head、提示 / 确认 / busy、手机只读）；
     # 标题和说明挪进页面脚本里画（cssclasses 让外框隐形规则只作用在这一页）
     from .catalog import _PAGE_LIB, library_pages
@@ -240,7 +240,7 @@ def _one(action, conn, item_id: str) -> dict[str, Any]:
             reason = '文件被占用或没有权限：' + reason
         elif isinstance(exc, storage.LockBusy):
             reason = '这篇正在被别的任务写入，稍后再试'       # 锁名 / 持有者是内部 id，不给用户看
-        # 用户自己点的操作：原因当场给她看，不进问题记录，故障码留空
+        # 用户自己点的操作：原因当场给用户看，不进问题记录，故障码留空
         return {'item_id': item_id, 'status': 'failed', 'code': '', 'error': reason}
 
 

@@ -99,7 +99,7 @@ def visible_dir(source: str | None = None) -> Path:
 
 
 def visible_root() -> Path:
-    """所有来源可见笔记的公共上层（`Web/`）：按 item_id 找她改过名 / 挪过位置的笔记时从这里扫。"""
+    """所有来源可见笔记的公共上层（`Web/`）：按 item_id 找用户改过名 / 挪过位置的笔记时从这里扫。"""
     return vault_root().joinpath(*VISIBLE_SUBDIR[:1])
 
 
@@ -322,7 +322,7 @@ _IN_PLACE_ARCHIVE_FILES = {"catalog-data.json", "trash-data.json", "problems-sum
 
 
 def _is_index_file(p: Path) -> bool:
-    """她手写的 `索引.md`（库根默认名，或设置 indexFile 指的那份）：真相文件，不是能重生成的页面。"""
+    """用户手写的 `索引.md`（库根默认名，或设置 indexFile 指的那份）：真相文件，不是能重生成的页面。"""
     if p.name == "索引.md":
         return True
     try:
@@ -701,7 +701,7 @@ class FileLock:
         """拿锁（同一进程可重入）。wait_s 内拿不到 → LockBusy。on_wait(holder, 剩余秒) 第一次要等时调一次。
 
         1009：要等的时候留一个「我在等」标记（拿到锁 / 放弃时撤掉）；polite=True（后台补跑）的一方看到别人的标记就先不抢、
-        自己也不留标记——同步、夜跑、导入这些她在等结果的活优先。"""
+        自己也不留标记——同步、夜跑、导入这些用户在等结果的活优先。"""
         owner = owner or f"pid {os.getpid()}"
         st = self.state()
         deadline = time.monotonic() + max(0.0, float(wait_s or 0))

@@ -10,7 +10,7 @@ const ORDER_TEXT = { newest: '新→旧', oldest: '旧→新', shuffle: '乱序'
 const SPEEDS = [1, 1.25, 1.5, 2, 0.75];
 const mmss = s => { const n = Math.round(Number(s) || 0); return n ? `${Math.floor(n / 60)}:${String(n % 60).padStart(2, '0')}` : ''; };
 const norm = t => String(t || '').trim().replace(/^#/, '').trim().toLowerCase();
-// 1026 她：「你看它不是全屏」——连播的「全屏」铺满屏幕的是整块画面（上一条 / 倍速 / 循环 / 下一条 / 标题都在），
+// 1026 作者：「你看它不是全屏」——连播的「全屏」铺满屏幕的是整块画面（上一条 / 倍速 / 循环 / 下一条 / 标题都在），
 // 不是 <video> 自己（原生全屏会把这些控件丢掉）；和笔记页共用 media-nav 的那套（退出时滚动位置放回）。
 let FS = null;
 try { FS = require('./media-nav.js').fullscreen || null; } catch { FS = null; }

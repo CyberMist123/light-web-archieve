@@ -132,7 +132,7 @@ def test_edit_move_and_merge_paths_and_undo_refuses_after_hand_edit(vault, fake)
     new = rows(it.load(vault, fresh=False))
     assert "游戏/游戏推荐" not in new
     assert set(before["游戏/游戏推荐"]["items"]) <= set(new["游戏/游戏"]["items"])
-    # 她在编辑器里又改了 → 不撤
+    # 用户在编辑器里又改了 → 不撤
     p = vault / "索引.md"
     p.write_text(p.read_text(encoding="utf-8") + "\t新加\n", encoding="utf-8")
     u = ie.edit("undo", m["undo"], vault=vault)

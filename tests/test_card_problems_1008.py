@@ -1,4 +1,4 @@
-"""1008（L6·B2）：目录卡片问题角标——减去她隐藏的、过期的接口码不再标（1009 起连灰色「待补」也不上卡片）、原帖打不开出标；
+"""1008（L6·B2）：目录卡片问题角标——减去用户隐藏的、过期的接口码不再标（1009 起连灰色「待补」也不上卡片）、原帖打不开出标；
 卡片有标、面板没有的精细识图失败一次性补登记（1017 起作废，精细识图放弃不算故障）。全部本地文件。"""
 from __future__ import annotations
 
@@ -40,7 +40,7 @@ def test_item_problems_drops_stale_api_codes_when_ai_health_clear():
     obj = _obj()
     vision = {"images": [{"visual": {"status": "failed", "code": "NEEDS_HUMAN.AUTH_FAILED", "error": "401"}}]}
     extracted = {"status": "failed", "code": "NEEDS_HUMAN.AUTH_FAILED", "error": "401"}
-    # ai-health 里没有这两个能力（key 早好了）：1009 她——后台静默补，卡片上不标（以前降成灰色「待补」）
+    # ai-health 里没有这两个能力（key 早好了）：1009 用户——后台静默补，卡片上不标（以前降成灰色「待补」）
     assert _codes(obj, vision=vision, extracted=extracted) == []
     # ai-health 里识图还开着：识图那条照原码出；概要那侧已好，不标
     storage.write_json(storage.archive_root() / ai_health.FILE_NAME, {"visionAI": {"code": "NEEDS_HUMAN.AUTH_FAILED"}})
@@ -72,7 +72,7 @@ def test_orphan_refine_not_backfilled_after_1017(capsys):
 
 
 def test_light_mode_shows_no_ai_badges():
-    """1009 她：轻量版（「开始」页没勾 AI）本来就不做识图 / 概要——卡片上什么都不标（附件 / 原帖打不开这类照旧）。"""
+    """1009 作者：轻量版（「开始」页没勾 AI）本来就不做识图 / 概要——卡片上什么都不标（附件 / 原帖打不开这类照旧）。"""
     from link_brain import ai_config
     p = ai_config.data_json_path()
     p.parent.mkdir(parents=True, exist_ok=True)
