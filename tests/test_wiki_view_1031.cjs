@@ -340,7 +340,7 @@ const run = async (name, fn) => { try { await fn(); console.log('  ok   ' + name
     const P = fakePlugin(); const { A } = await open({ plugin: P });
     // 1101 作者：Wiki 不要页头——右上角一小撮：三页切换 + 历史 + ···
     assert.equal(A.q('.lbw-head'), null);
-    assert.deepEqual(A.qa('.lbw-corner .lb-page-nav button').map(b => b.textContent), ['浏览收藏', '问收藏', 'Wiki']);
+    assert.deepEqual(A.qa('.lbw-corner .lb-page-nav button').map(b => b.textContent), ['浏览收藏', '问收藏']);
     assert.deepEqual(A.qa('.lbw-corner .lbw-hbtn').map(b => b.dataset.hist ? '历史' : b.classList.contains('is-more') ? '…' : '?'), ['历史', '…'], '右上角 历史 · ···（AI 不在这里）');
     assert.ok(!A.q('.lbw-hbtn[data-ai]'), '首页没有「AI 整理本页」');
     await openPage(A, 'pw-kyoto');

@@ -193,9 +193,8 @@ const tocPage = (A, title) => A.qa('.lbw-tpage').find(b => b.textContent === tit
   assert.match(dom.document.getElementById('lb-wiki-style').textContent, /LB Digits Inline/);
   assert.match(dom.document.getElementById('lb-wiki-style').textContent, /\.lbw\{--lbw-serif:"LB Digits Inline",var\(--lb-font-serif\)/, 'Digits Inline 只挂在 .lbw 的字栈里');
   const wrap = A.q('.lbw');
-  assert.deepEqual(texts(A, '.lbw-corner .lb-page-nav button'), ['浏览收藏', '问收藏', 'Wiki'], '1101 作者：Wiki 不要页头，三页切换在右上角（以前问收藏页那种白底小卡）');
+  assert.deepEqual(texts(A, '.lbw-corner .lb-page-nav button'), ['浏览收藏', '问收藏'], '1101 作者：Wiki 不要页头，右上角只写要跳过去的那两页（白底浅阴影小长方形）');
   assert.equal(A.q('.lbw-head'), null, '没有页头');
-  assert.ok(A.q('.lbw-corner .lb-page-nav button.is-current').textContent === 'Wiki');
   assert.match(A.q('.lbw-sub').textContent, /^全部 3 页 · 更新 \d\d\/\d\d \d\d:\d\d$/, '篇数行：只数 role=page，更新时间取最新');
   assert.equal(A.qa('.lbw-fold').length, 3, '首页：一个文件夹 + 未归类 + 新文件夹');
   assert.ok(A.q('.lbw-ov'), '首页有 OVERVIEW 数字');

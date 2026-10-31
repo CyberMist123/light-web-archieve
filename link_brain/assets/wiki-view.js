@@ -563,8 +563,11 @@ ${LB.brandCss('.lbw .lbw-brand', '.lbw .lbw-engr')}
 .lbw.is-tocoff.has-rail:not(.is-mid):not(.is-narrow) .lbw-corner,.lbw.is-tocoff.has-rail:not(.is-mid):not(.is-narrow) .lbw-main > .lbw-rail{grid-column:2;}
 .lbw.is-narrow .lbw-corner{display:flex;justify-content:flex-end;}
 .lbw .lbw-corner .lb-page-nav{background:transparent;padding:0;gap:2px;justify-self:auto;}
-.lbw .lbw-corner .lb-page-nav button{padding:7px 12px;font:400 13.5px/1.2 var(--lbw-sans)!important;color:var(--lb-muted);}
-.lbw .lbw-corner .lb-page-nav button.is-current{color:var(--lb-ink);font-weight:600!important;}
+/* 按钮照 lb-page-lib 的 .lb-page-nav 原样（13px、9×16、当前页白底 + 0 1px 4px 浅阴影、字重 500）；只把字体定成无衬线（问收藏页当时继承的就是无衬线，Wiki 页默认是衬线） */
+.lbw .lbw-corner .lb-page-nav button{font-family:var(--lbw-sans);}
+.lbw .lbw-corner .lbw-jumps{gap:8px;}
+.lbw .lbw-corner .lbw-jumps button{height:auto;padding:9px 16px;border-radius:9px;font-size:13px;line-height:1.2;background:var(--lb-surface)!important;color:var(--lb-ink);box-shadow:0 1px 4px #0000000c!important;font-weight:500;}
+.lbw .lbw-corner .lbw-jumps button:hover{box-shadow:0 2px 8px #00000018!important;}
 .lbw .lbw-corner .lbw-acts{margin-left:0;gap:0;}
 .lbw .lbw-corner .lbw-hbtn{width:36px;height:36px;}
 .lbw .lbw-corner .lbw-hbtn .lbw-ico{width:18px;height:18px;}
@@ -883,10 +886,10 @@ const R = {};
 // 1101 作者：Wiki 不要页头（COLLECTIONS 那一整条不要）——三页切换 + 历史 + ··· 放到右上角（打开一页时就在右栏「ON THIS PAGE」上面）；
 // 切换照以前问收藏页的样子：没有外框，当前那页是白底小卡带一点阴影（.lb-page-nav），中英文同一种无衬线字
 R.corner = h('div', { cls: 'lbw-corner' }, h('h2', { cls: 'lb-visually-hidden', text: '个人 Wiki' }));
-const nav = h('nav', { cls: 'lb-page-nav' },
+// 1101 作者：只写要跳过去的那两页（不写 Wiki 自己），两颗都是 .lb-page-nav 当前页那种白底 + 浅阴影的小长方形
+const nav = h('nav', { cls: 'lb-page-nav lbw-jumps' },
   btn({ text: '浏览收藏', on: { click: () => LB.openPage('catalog') } }),
-  btn({ text: '问收藏', on: { click: () => LB.openPage('chat') } }),
-  btn({ text: 'Wiki', cls: 'is-current', attr: { 'aria-current': 'page' }, on: { click: () => go('home') } }));
+  btn({ text: '问收藏', on: { click: () => LB.openPage('chat') } }));
 const acts = h('div', { cls: 'lbw-acts' });
 add(R.corner, [nav, acts]);
 // 「全部 N 页 · 更新 …」：放左栏搜索框下面一行小字（renderToc 里挂）

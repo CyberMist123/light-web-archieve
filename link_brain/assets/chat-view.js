@@ -1139,6 +1139,13 @@ ${LB.brandCss('.lbchat .lbchat-title', '.lbchat .lbchat-engr')}
 /* 1101 设计交接包 §1「页头」：目录 / 问收藏 / Wiki 三页同一个——字标 + ＋ ｜ 空间切换胶囊 ｜ 右边「已保存」· 历史 · ···，下面一道 1px 墨线，铺满整页宽 */
 ${LB.siteHeaderCss()}
 .lbchat .lbchat-head{display:flex;flex-direction:row;flex-wrap:wrap;justify-content:flex-start;align-items:center;gap:16px 40px;width:auto;max-width:none;box-sizing:border-box;margin:0 0 18px;padding:28px 0 22px;border-bottom:1px solid var(--lb-line);text-align:left;}
+/* 1101 作者：问收藏不要页头——字标不显示、没有线；右上角一排：浏览收藏 / Wiki（白底浅阴影小长方形）· 已保存 · 历史 · ··· */
+.lbchat .lbchat-head{justify-content:flex-end;gap:8px 14px;padding:10px 0 0;margin:0 0 8px;border-bottom:0;}
+.lbchat .lbchat-head > .lbchat-titleblock{display:none;}
+.lbchat .lbchat-head > .lbchat-tools{margin-left:0;}
+.lbchat .lbchat-jumps{flex:none;display:inline-flex;gap:8px;padding:0;background:transparent;}
+.lbchat .lbchat-jumps button{font-family:var(--lb-font-body)!important;background:var(--lb-surface)!important;color:var(--lb-ink);box-shadow:0 1px 4px #0000000c!important;font-weight:500;}
+.lbchat .lbchat-jumps button:hover{box-shadow:0 2px 8px #00000018!important;}
 .lbchat .lbchat-titleblock{display:flex;flex-direction:row;flex-wrap:wrap;align-items:center;gap:2px;width:auto;max-width:100%;}
 .lbchat .lbchat-head > .lbchat-sub{flex-basis:100%;margin:-6px 0 0;text-align:left;}
 .lbchat .lbchat-titlerow{display:flex;align-items:center;}
@@ -1238,7 +1245,12 @@ const titleRow = titleBlock.createEl('div', { cls: 'lbchat-titlerow' });
 const chatTitle = LB.brandTitle(titleRow, 'lbchat-title', 'lbchat-engr');
 lbEvent(app.workspace.on('link-brain:catalog-prefs', () => chatTitle.set()));
 // 1101 作者：问收藏标题旁不要 ＋（设计稿三页都有，这一页不要；导入在浏览收藏页）
-LB.spaceSwitch(head, 'chat');
+// 1101 作者：问收藏不要页头（COLLECTIONS 不显示）——右上角只写要跳过去的那两页，白底 + 浅阴影的小长方形（以前 .lb-page-nav 当前页那个样子）
+{ const jumps = head.createEl('nav', { cls: 'lb-page-nav lbchat-jumps' });
+  for (const [role, label] of [['catalog', '浏览收藏'], ['wiki', 'Wiki']]) {
+    const b = jumps.createEl('button', { text: label }); b.type = 'button';
+    b.onclick = () => { const p = provider(); if (typeof p?.openLibraryPage === 'function') p.openLibraryPage(role); else LB.openPage(role); };
+  } }
 const tools = head.createEl('div', { cls: 'lbchat-tools' });
 try { resizeObserver?.observe(head); } catch {}
 let clearBtn = null;
