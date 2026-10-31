@@ -666,6 +666,8 @@ module.exports = function (obsidian, plugin) {
       if (t.sub) last.createDiv({ cls: 'lb-bili-last-sub', text: t.sub });
       if (l && l.exists) { const a = last.createEl('button', { cls: 'lb-link', text: '打开 B站待选清单' }); a.onclick = () => openVaultNote(l.pending_note); }
     };
+    // 1031 她：跑的时候还挂着上一趟的报错，看着像没在跑——开跑就换成进度，跑完再读回「上次」
+    const paintLive = text => { last.empty(); last.createDiv({ cls: 'lb-bili-last-main', text }); };
     const loadLast = async () => {
       try { const r = await plugin.runPy(['-m', 'link_brain', 'bilibili', 'last', '--json'], { label: 'B 站上次同步', timeoutMs: 60000 }); paintLast(r.json); }
       catch (e) { last.empty(); plugin.failBox ? plugin.failBox(last, '上次同步', e, loadLast) : null; }
@@ -680,7 +682,7 @@ module.exports = function (obsidian, plugin) {
         try {
           const j = JSON.parse(await plugin.app.vault.adapter.read(plugin.lbPath('_archive/bilibili-sync/last-sync.json')));
           const p = j && j.state === 'running' && j.progress;
-          if (p && Date.parse(j.started_at || '') >= since - 60000) { plugin.runningProgress = `${p.done}/${p.total} 条`; plugin.taskChanged(); }
+          if (p && Date.parse(j.started_at || '') >= since - 60000) { plugin.runningProgress = `${p.done}/${p.total} 条`; plugin.taskChanged(); paintLive(`正在同步：第 ${p.done}/${p.total} 条`); }
         } catch {}
       }, 3000);
       return () => clearInterval(timer);
@@ -709,6 +711,7 @@ module.exports = function (obsidian, plugin) {
       const started = Date.now();
       const pending = plugin.run(biliSyncArgs(biliOpts()), BILI_RUN_LABEL, true, { quiet: true });
       paintRunning();
+      paintLive('正在同步：先读收藏夹（6 小时内扫过的直接复用），再一条条下');
       const stopWatch = watchProgress(started);
       plugin.notify('B 站收藏开始下载：底部状态栏能看进度、能停止；关掉设置页也照样在跑', { ms: 5000 });
       try {
