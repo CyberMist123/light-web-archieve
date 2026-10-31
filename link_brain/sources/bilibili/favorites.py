@@ -206,8 +206,19 @@ def _item_row(raw: dict[str, Any]) -> dict[str, Any]:
         "upper_name": str(upper.get("name") or ""),
         "pubtime": int(raw.get("pubtime") or 0) or None,
         "duration": int(raw.get("duration") or 0) or None,
+        # 1101：封面网址（待下载页的卡片用；只是网址，不下载）。B 站给的有 http:// 和 //，统一成 https
+        "cover": _https(raw.get("cover")),
     }
     return row
+
+
+def _https(url: Any) -> str:
+    u = str(url or "").strip()
+    if u.startswith("//"):
+        return "https:" + u
+    if u.startswith("http://"):
+        return "https://" + u[len("http://"):]
+    return u if u.startswith("https://") else ""
 
 
 def item_key(item: dict[str, Any]) -> str:

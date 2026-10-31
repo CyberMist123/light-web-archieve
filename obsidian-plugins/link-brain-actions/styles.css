@@ -916,6 +916,7 @@ body.lb-notip .tooltip{display:none!important;}
 /* 1031 作者「没有让我选哪些下载」：设置页②「挑选要同步的…」入口 + 挑选弹窗（收藏夹开关、超长视频逐条勾）。弹窗大一点，中间可滚，底部按钮常在 */
 .lb-settings .lb-v7 .lb-bili-pick-entry { margin: var(--lb-space-3) 0 var(--lb-space-2); }
 .lb-settings .lb-v7 .lb-bili-pick-entry .lb-bili-pick-btn { height: auto; min-height: var(--lb-ctl-h); padding: 6px var(--lb-space-5); }
+.lb-settings .lb-v7 .lb-bili-pick-entry .lb-bili-folders-btn { height: auto; min-height: var(--lb-ctl-h); margin-left: var(--lb-space-2); }
 .lb-bili-pick-modal { width: min(860px, calc(100vw - 32px)); max-width: none; }
 .lb-bili-pick-modal .modal-content { display: flex; flex-direction: column; min-height: 0; }
 .lb-bili-pick-modal .lb-bili-note { font-size: var(--lb-fs-small); color: var(--lb-muted); margin: var(--lb-space-1) 0 var(--lb-space-2); }

@@ -331,15 +331,14 @@ SNAPS = [{"media_id": 1, "title": "夹", "items": [_item("BV1aaaaaaaa1", "短", 
                                                    _item("BV1aaaaaaaa4", "失效", invalid=True)]}]
 
 
-def test_pending_note_only_flags_multi_p_and_moves_long_invalid_to_details():
+def test_pending_note_counts_long_and_multi_p_but_lists_nothing():
+    # 1101：清单不再逐条列（挑在「挑要下的视频」页里做）；只说有几个在等（长讲座 + 八P；≤5 P 的拆开下了、失效的不算）
     pl = sync.plan(SNAPS)
     out = {"buckets": {**pl["buckets"], "downloaded": [], "failed": []}, "counts": {**pl["counts"], "folders": 1},
            "bv_total": pl["bv_total"], "options": {"max_duration_s": 3600}}
     text = sync.render_pending_note(out)
-    head, details = text.split("# 明细（不用处理，只是查得到）")
-    assert "多 P 待选 1" in head and "## 多 P 超过 5 P 的" in head and "八P" in head and "三P" not in head   # 1031：≤5 P 的拆开下了
-    assert "长讲座" not in head and "失效" not in head.split("---", 2)[-1].split("下面这些")[0]
-    assert "## 超过 1 小时" in details and "长讲座" in details and "## 原站已失效" in details
+    assert "有 2 个视频超过 1 小时或分 P 超过 5 个" in text and "太长" not in text
+    assert "八P" not in text and "长讲座" not in text and "失效" not in text
 
 
 def test_max_duration_zero_means_unlimited():

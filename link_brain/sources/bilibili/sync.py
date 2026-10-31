@@ -9,6 +9,7 @@
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -35,6 +36,9 @@ RESCAN_HOURS = 6.0       # 收藏夹的完整快照不到这么久就直接复�
 FOLDER_GAP_S = 3.0       # 两个收藏夹之间歇一下；翻页间隔见 PAGE_GAP_S
 PAGE_GAP_S = 2.0
 PENDING_NOTE = "B站待选清单.md"
+PENDING_PAGE = "B站挑选.md"            # 1101：「挑要下的视频」页（仓根，页头 lb-page: bili-pending）；用户改了名按页头找回
+PENDING_DATA = "pending-data.json"     # 1101：给那一页读的数据（_archive/bilibili-sync/ 下，只读本地快照算出来）
+PENDING_SCRIPT = "bili-pending-page.js"
 LAST_SYNC = "last-sync.json"
 FOLDER_LIST = "folder-list.json"   # 1031：上次列到的全部收藏夹（含被关掉的），挑选页不连网就靠它列收藏夹
 MULTI_P_AUTO = 5         # 1031 作者：多 P 不超过这么多 P 的自动拆开、一个 P 一条下；更多的进挑选页，用户勾了才下
@@ -114,7 +118,7 @@ def plan(snaps: list[dict[str, Any]], *, max_duration_s: int = MAX_DURATION_S, a
                    "duration": it.get("duration"), "page_count": int(it.get("page_count") or 0), "folders": [folder],
                    "folder_ids": [fid] if fid else [],
                    "fav_time": it.get("fav_time"), "kind": it.get("kind"), "invalid": bool(it.get("invalid")),
-                   "invalid_reason": it.get("invalid_reason"), "listed": it.get("listed", True)}
+                   "invalid_reason": it.get("invalid_reason"), "listed": it.get("listed", True), "cover": it.get("cover") or ""}
             if it.get("kind") != "video" or not row["bvid"]:
                 row["url"] = ""
                 others.append(row)
@@ -130,6 +134,8 @@ def plan(snaps: list[dict[str, Any]], *, max_duration_s: int = MAX_DURATION_S, a
                     got["folder_ids"].append(fid)
                 if not got["title"] and row["title"]:
                     got.update(title=row["title"], upper=row["upper"], duration=row["duration"], page_count=row["page_count"])
+                if not got.get("cover") and row["cover"]:
+                    got["cover"] = row["cover"]
     buckets: dict[str, list[dict[str, Any]]] = {"download": [], "hit": [], "long": [], "multi_p": [], "invalid": [],
                                                 "non_video": others, "denied": []}
     for bv, row in by_bv.items():
@@ -175,59 +181,27 @@ def _parts(row: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 # ---- 待选清单（可见笔记，纯 Markdown，不是 LWA 对象）---------------------------------------------------------------
+# 1101 作者「打了勾划掉了，是删还是要下呢，很迷惑；而且不能默认用户会用命令行」：清单里不再列条目、不让打勾，
+# 只留一句话 + 指向「挑要下的视频」页（bili-pending-view.js），在那一页每条点「下载」/「不下」。
 
-def _line(r: dict[str, Any]) -> str:
-    bits = [f"**{r.get('title') or r.get('bvid') or '（无标题）'}**"]
-    if r.get("upper"):
-        bits.append(r["upper"])
-    if r.get("duration"):
-        bits.append(_hms(r["duration"]))
-    if (r.get("page_count") or 0) > 1:
-        bits.append(f"{r['page_count']} P")
-    if r.get("folders"):
-        bits.append("收藏夹：" + " / ".join(r["folders"]))
-    if r.get("fav_time"):
-        try:
-            bits.append("收藏于 " + datetime.fromtimestamp(int(r["fav_time"])).strftime("%Y-%m-%d"))
-        except (TypeError, ValueError, OSError):
-            pass
-    link = f" [打开]({r['url']})" if r.get("url") else ""
-    reason = f"（{r['reason']}）" if r.get("reason") else ""
-    return f"- [ ] {' · '.join(bits)}{link}{reason}"
-
-
-def render_pending_note(result: dict[str, Any]) -> str:
-    # 1031 作者：失效的、超过 1 小时的都不用管——不算「待选」、不在上面提醒，只放到「明细」里查得到；待选只剩多 P
-    b = result["buckets"]
-    lines = ["---", "cssclasses: [link-brain]", "tags: [bilibili, 待选]", "---", "",
+def render_pending_note(result: dict[str, Any], *, page: str = PENDING_PAGE) -> str:
+    b = result.get("buckets") or {}
+    c = result.get("counts") or {}
+    waiting = len(b.get("long") or []) + len(b.get("multi_p") or [])
+    failed = len(b.get("failed") or [])
+    link = f"[[{Path(page).stem}|挑要下的视频]]"
+    lines = ["---", "cssclasses: [link-brain]", "tags: [bilibili]", "---", "",
              f"> [!info] B 站收藏同步 · {result.get('finished_at') or _now()}",
-             f"> 收藏夹 {result['counts'].get('folders', 0)} 个 · 去重后 {result.get('bv_total', 0)} 个 BV · "
-             f"已入库 {result['counts'].get('downloaded', 0) + result['counts'].get('hit', 0)} · 本次新下 {result['counts'].get('downloaded', 0)} · "
-             f"失败 {result['counts'].get('failed', 0)} · 多 P 待选 {len(b.get('multi_p') or [])}",
-             "",
-             "下面这些**只记了链接，没下载**。想同步哪条就告诉 Fable / 在命令行加 `--allow BV号` 再跑一次 `bilibili sync`。", ""]
-    sections = [(f"多 P 超过 {MULTI_P_AUTO} P 的（在「挑选要同步的…」里勾了才下）", b.get("multi_p") or []),
-                ("这次没下成（下次同步会再试）", b.get("failed") or [])]
+             f"> 本次新下 {c.get('downloaded', 0)} 条 · 已在库 {c.get('hit', 0)} 条" + (f" · 没下成 {failed} 条" if failed else ""), ""]
     limit = (result.get("options") or {}).get("max_duration_s", MAX_DURATION_S)
-    details = [(f"超过 {_dur(limit) if limit else '时长上限'}（只记链接，不用处理；想要的话放行后再同步）", b.get("long") or []),
-               ("原站已失效（只留记录）", b.get("invalid") or []),
-               ("不是视频稿件（音频 / 合集等，暂不支持）", b.get("non_video") or []),
-               ("你删了的（不再下载，只留记录）", b.get("denied") or [])]
-    for title, rows in sections:
-        if not rows:
-            continue
-        lines += [f"## {title}（{len(rows)}）", ""]
-        lines += [_line(r) for r in rows]
-        lines.append("")
-    if any(rows for _t, rows in details):
-        lines += ["---", "", "# 明细（不用处理，只是查得到）", ""]
-        for title, rows in details:
-            if not rows:
-                continue
-            lines += [f"## {title}（{len(rows)}）", ""]
-            lines += [_line(r) for r in rows]
-            lines.append("")
-    return "\n".join(lines).rstrip() + "\n"
+    rule = (f"超过 {_dur(limit)}或" if limit else "") + f"分 P 超过 {MULTI_P_AUTO} 个"
+    if waiting:
+        lines.append(f"有 {waiting} 个视频{rule}，先只记了链接、没下载。打开 {link}，选中想要的点「下载」；不要的选中点「删除」（放进回收站，以后不再同步）。")
+    else:
+        lines.append(f"这次没有要挑的视频：收藏里的都自动下了。以后{rule}的视频会列在 {link} 里。")
+    if failed:
+        lines += ["", f"没下成的 {failed} 条不用管，下次同步会自动再试。"]
+    return "\n".join(lines) + "\n"
 
 
 def pending_note_path() -> Path:
@@ -790,7 +764,8 @@ def long_list(*, max_duration_s: int = MAX_DURATION_S) -> dict[str, Any]:
     finally:
         conn.close()
     rows = [{"bvid": r["bvid"], "title": r["title"], "upper": r["upper"], "duration": r["duration"], "duration_text": _hms(r["duration"]),
-             "folders": r["folders"], "folder_ids": r.get("folder_ids") or [], "url": r["url"],
+             "page_count": r["page_count"], "folders": r["folders"], "folder_ids": r.get("folder_ids") or [], "url": r["url"],
+             "cover": r.get("cover") or "", "fav_time": r.get("fav_time"),
              "chosen": r["bvid"] in ch["allow"]} for r in pl["buckets"]["long"]]
     rows.sort(key=lambda r: (r["chosen"], -(r["duration"] or 0)))
     return {"items": rows, "total": len(rows), "chosen": sum(1 for r in rows if r["chosen"]), "max_duration": max_duration_s}
@@ -811,7 +786,8 @@ def multi_list() -> dict[str, Any]:
             done = sum(1 for part in _parts(r) if index_mod.find_object(conn, SOURCE, part["source_id"]) is not None)
             rows.append({"bvid": r["bvid"], "title": r["title"], "upper": r["upper"], "page_count": r["page_count"],
                          "duration": r["duration"], "duration_text": _hms(r["duration"]), "folders": r["folders"],
-                         "folder_ids": r.get("folder_ids") or [], "url": r["url"], "chosen": r["bvid"] in ch["allow"], "done": done})
+                         "folder_ids": r.get("folder_ids") or [], "url": r["url"], "cover": r.get("cover") or "",
+                         "fav_time": r.get("fav_time"), "chosen": r["bvid"] in ch["allow"], "done": done})
     finally:
         conn.close()
     rows.sort(key=lambda r: (r["chosen"], r["page_count"]))
@@ -895,6 +871,78 @@ def picker(*, max_duration_s: int = MAX_DURATION_S) -> dict[str, Any]:
     return {"folders": folders, "long": lo, "multi": mp, "fetched_at": listed.get("fetched_at"), "empty": not folders, "message": msg}
 
 
+# ---- 「挑要下的视频」页（1101 作者：做成目录页那样一张张封面卡片，每条「下载」/「不下」，可切封面 / 列表）-----------------
+# 数据只读本地快照（同 picker），写成 `_archive/bilibili-sync/pending-data.json` 给页面读；页面脚本照目录页的做法放
+# `_archive/bili-pending-page.js`，仓根那份 md 只放引导（页头 lb-page: bili-pending）。下载 = choose --allow，不下 = choose --undo。
+
+def _duration_limit(max_duration_s: int | None) -> int:
+    """给了就用；没给按上次同步用的上限（插件设置每次同步都传过来），再没有用默认。"""
+    if max_duration_s is not None:
+        return max(0, int(max_duration_s))
+    try:
+        opts = (storage.read_json(favorites.sync_root() / LAST_SYNC) or {}).get("options") or {}
+        if opts.get("max_duration_s") is not None:
+            return max(0, int(opts["max_duration_s"]))
+    except (OSError, ValueError, TypeError, AttributeError):
+        pass
+    return MAX_DURATION_S
+
+
+def pending_data(*, max_duration_s: int | None = None) -> dict[str, Any]:
+    """页面要的：{items: [...], folders: [{id, title}], max_duration, auto_max, synced, message}。
+    每条 {bvid, title, upper, cover, duration, duration_text, page_count, done, folders, folder_ids, fav_time, url, kind, chosen}；
+    kind = long（太长）/ multi（分 P 太多）；chosen = 点过「下载」（下次同步就下）。按收藏时间新的在前。"""
+    limit = _duration_limit(max_duration_s)
+    items: list[dict[str, Any]] = []
+    if limit:
+        items += [{**r, "kind": "long", "done": 0} for r in long_list(max_duration_s=limit)["items"]]
+    items += [{**r, "kind": "multi"} for r in multi_list()["items"]]
+    items.sort(key=lambda r: (-(r.get("fav_time") or 0), r["bvid"]))
+    folders: dict[str, str] = {}
+    for r in items:
+        for fid, title in zip(r.get("folder_ids") or [], r.get("folders") or []):
+            folders.setdefault(str(fid), title or str(fid))
+    synced = bool(_local_snapshots())
+    n = len(items)
+    msg = (f"{n} 个视频等你挑，点过「下载」的 {sum(1 for r in items if r['chosen'])} 个" if n
+           else ("没有要挑的视频" if synced else "还没同步过 B 站收藏"))
+    return {"items": items, "folders": [{"id": k, "title": v} for k, v in folders.items()], "max_duration": limit,
+            "auto_max": MULTI_P_AUTO, "synced": synced, "message": msg}
+
+
+def pending_page_name(vault: Path | None = None) -> str:
+    from ...catalog import library_pages
+    return library_pages(vault or storage.vault_root())["bili-pending"]
+
+
+def publish_pending(vault: Path | None = None, *, max_duration_s: int | None = None) -> dict[str, Any]:
+    """写数据 + 页面脚本 + 仓根的页（内容没变不写，免得 Dataview 重画）。返回 pending_data。写不上只记日志。"""
+    from ...catalog import _PAGE_LIB, _page_bootstrap, _write_if_changed, _ASSETS
+    vault = vault or storage.vault_root()
+    data = pending_data(max_duration_s=max_duration_s)
+    try:
+        sync_dir = vault / "_archive" / favorites.SYNC_DIRNAME
+        sync_dir.mkdir(parents=True, exist_ok=True)
+        _write_if_changed(sync_dir / PENDING_DATA, json.dumps(data, ensure_ascii=False, indent=1) + "\n")
+        _write_if_changed(vault / "_archive" / PENDING_SCRIPT,
+                          _PAGE_LIB + "\n" + (_ASSETS / "bili-pending-view.js").read_text(encoding="utf-8") + "\n")
+        _write_if_changed(vault / pending_page_name(vault),
+                          "---\nlb-page: bili-pending\ncssclasses: [lb-bilipage]\n---\n\n" + _page_bootstrap(PENDING_SCRIPT) + "\n")
+    except OSError as exc:
+        print(f"[bilibili] 「挑要下的视频」页没写上：{errtext(exc)}", file=sys.stderr)
+    return data
+
+
+def run_pending(args) -> int:
+    from ... import read as read_mod
+    from ...cli import EXIT_OK
+    md = getattr(args, "max_duration", None)
+    out = publish_pending(max_duration_s=None if md is None else max(0, int(md)))
+    out["page"] = pending_page_name()
+    read_mod.dump_json(read_mod.outcome(out, ok=True, message=out["message"]))
+    return EXIT_OK
+
+
 def run_pick(args) -> int:
     from ... import read as read_mod
     from ...cli import EXIT_OK
@@ -958,10 +1006,11 @@ def _persist(out: dict[str, Any]) -> None:
     except OSError as exc:
         print(f"[bilibili sync] last-sync.json 没写上：{errtext(exc)}", file=sys.stderr)
     try:
+        publish_pending(max_duration_s=(out.get("options") or {}).get("max_duration_s"))
         p = pending_note_path()
         p.parent.mkdir(parents=True, exist_ok=True)
-        storage.atomic_write_text(p, render_pending_note(out))
-    except OSError as exc:
+        storage.atomic_write_text(p, render_pending_note(out, page=pending_page_name()))
+    except Exception as exc:  # noqa: BLE001 - 人看的页写不上不耽误同步结果
         print(f"[bilibili sync] 待选清单没写上：{errtext(exc)}", file=sys.stderr)
     try:
         from ...catalog import ensure_fresh
@@ -974,6 +1023,14 @@ def run_choose(args) -> int:
     from ... import read as read_mod
     from ...cli import EXIT_OK
     out = choose(allow=getattr(args, "allow", None) or [], deny=getattr(args, "deny", None) or [], undo=getattr(args, "undo", None) or [])
+    md = getattr(args, "max_duration", None)
+    publish_pending(max_duration_s=None if md is None else max(0, int(md)))   # 1101：「挑要下的视频」页跟着变
+    if out["denied"]:   # 删了的在回收站「记录」里（屏蔽记录），回收站页跟着刷新
+        try:
+            from ...remove import publish_trash
+            publish_trash()
+        except Exception as exc:  # noqa: BLE001
+            print(f"[bilibili] 回收站页没刷新：{errtext(exc)}", file=sys.stderr)
     ch = load_choices()
     msg = (f"放行 {len(out['allowed'])} 条、删 {len(out['denied'])} 条、撤销 {len(out['undone'])} 条；"
            f"现在放行表 {len(ch['allow'])} 条、屏蔽表 {len(ch['deny'])} 条")
@@ -1001,6 +1058,8 @@ def run(args) -> int:
         payload["pending_note"] = pending_note_path().relative_to(storage.vault_root()).as_posix()
     except (ValueError, OSError):
         payload["pending_note"] = None
+    # 1101：同步完的提示「挑要下的视频」按这两个数决定出不出
+    payload["waiting"] = len((out.get("buckets") or {}).get("long") or []) + len((out.get("buckets") or {}).get("multi_p") or [])
     read_mod.dump_json(read_mod.outcome(payload, ok=bool(out.get("ok")), message=out.get("message") or "", code=out.get("code") or ""))
     if out.get("ok"):
         return EXIT_OK

@@ -1476,3 +1476,22 @@ manifest 的 B 站条目（§4 字段之外）：`video` 带 `duration_sec / wid
   10-31：`create --folder` 的新页排到那个文件夹 `order` 末尾；`trash` 列 `.trash`（新→旧 {name, id, title, at}），`undelete` 放回（同 id 已有换新 id，同名标题加「（找回）」，记一版 restore）；`pwiki` 走轻入口（只载 personal_wiki），`pwiki ai` 由 `wiki_ai.main` 接；`pwiki plan`（stdin {id, idea, text?} → {sections:[{title, query, why}]}）/ `pwiki fill`（stdin {id, idea, text, sections} → {text 整页新正文, sources:[{n, id, title}], bad_quotes, dropped}，不写盘）由 `wiki_plan.main` 接。纯解析函数在 `link_brain/wiki_page.py`。
   失败码：`BAD_ARGS` / `NOT_FOUND`（退出 2）、`CONFLICT` / `TITLE_TAKEN` / `LOCK_BUSY` / `WRITE_FAILED`（退出 1）。
 - 已知风险（Codex 审查 10-29）：页面写盘走 `storage.atomic_write_text`；Obsidian 一直开着某个 `.md` 时，`os.replace` 重试失败会退成原地覆写（storage 对 `.md` 的既有降级），那一刻失去「不留半截」的保证。没改 storage 规则：不降级，正在 Obsidian 里开着的页就存不上。读法兼容 Obsidian 属性面板的块状列表（`tags:` 下一行一个 `- x`），写回统一成 JSON 数组。
+
+### 2026-11-01「挑要下的视频」页（`B站挑选.md`，取代「B站待选清单」里打勾）
+
+同步时超过时长上限、分 P 超过 5 个的收藏只记链接；页面每条一张封面卡片，选中一批点「下载」（`bilibili choose --allow`，下次同步就下，也可当场开始）、
+「删除」（`--deny`：写删除屏蔽，回收站「记录」里有它，以后不再同步）、点过下载的「不下了」（`--undo`）。`Web/Bilibili/B站待选清单.md` 只剩一句话 + 指向这一页。
+
+```
+vault/
+├─ B站挑选.md                                  ← 页头 lb-page: bili-pending（改了名按页头找回）；正文只有引导，脚本在下面
+└─ _archive/
+   ├─ bili-pending-page.js                     ← lb-page-lib.js + assets/bili-pending-view.js（publish_pending 写，内容没变不写）
+   └─ bilibili-sync/pending-data.json          ← 页面数据：只读本地收藏夹快照算的，不连 B 站
+```
+
+`pending-data.json`：`{items, folders: [{id, title}], max_duration, auto_max, synced, message}`；每条
+`{bvid, title, upper, cover, duration, duration_text, page_count, done, folders, folder_ids, fav_time, url, kind: long|multi, chosen}`
+（`cover` 是 B 站封面网址，只接受 https，不下载；`done` = 多 P 已入库几 P；`chosen` = 点过下载）。按收藏时间新的在前。
+谁写：同步收尾（`_persist`）、`bilibili choose`（带 `--max-duration` 时按它算）、`bilibili pending`（设置页每次打开这一页前跑一次）；重建目录不写它（共享代码不 import B 站模块）。
+收藏夹快照的条目从这版起多一个 `cover`（收藏夹接口的 `cover`、稍后再看接口的 `pic`），旧快照没有就画标题当封面。
