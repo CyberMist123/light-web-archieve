@@ -1,9 +1,13 @@
 // danmaku.js — 1031 她：B 站视频的弹幕。media-nav 给正文视频装工具行时调 attach()：
 // 只认 B 站来源（item_id 是 bili-<BV>，或视频地址在 _archive/bilibili/<BV>/ 下），读 meta.json → 当前版本 manifest 里 role=danmaku 的 XML，
-// 连同她本地发的 `_archive/bilibili/<BV>/danmaku-mine.json`（只存本机，绝不发到 B 站；格式见 FORMAT.md「B 站弹幕：本地发的弹幕」）一起，
-// 叠在画面上播：滚动 / 顶部 / 底部三种，跟 video.currentTime 走（暂停就停、拖进度条按新时间重排、倍速跟着变），全屏时照样在（层挂在 .lb-media 里）。
+// 叠在画面上播：滚动 / 顶部 / 底部三种 + 高级弹幕（mode 7）按坐标静态停几秒，跟 video.currentTime 走（暂停就停、拖进度条按新时间重排、倍速跟着变），
+// 全屏时照样在（层挂在 .lb-media 里）。
+// 1031 她（第二轮）：「弹幕直接复用批注」——她自己的弹幕 = 这篇 notes.json 里带视频时间（video_t 秒）的批注，带细框飘；不带时间的不播。
+// 写批注只走批注框（annotate-view.js，勾「记在当前时间」），本文件只读 notes.json + 听 link-brain:annotations 事件（批注框存完就发），不写盘。
+// 以前那套 danmaku-mine.json 去掉了（一次性迁移：python -m link_brain.migrate_danmaku_mine，见 FORMAT.md）。
 // 性能：弹幕按时间排好、只往前走一个指针；只给屏幕上的那几十条建节点（节点回收复用）；每帧只改这几条的 transform，宽度用 canvas 量字、不读布局。
-// 设置记在插件设置 settings.media.danmaku（所有视频共用）：开关、透明度、字号、显示区域、滚动速度、屏蔽三种。焦点在视频上按 D 开关（全屏里也行）。
+// 设置记在插件设置 settings.media.danmaku（所有视频共用）：开关、透明度、字号、显示区域、滚动速度、屏蔽三种。焦点在视频上按 D 开关（全屏里也行）；
+// 画面右下角（原生控制条上方）一个「弹」字开关：鼠标在画面上动时出现，静止 2 秒淡出——全屏时工具行不显示，靠它开关。
 'use strict';
 
 const DEFAULTS = Object.freeze({ on: true, opacity: 0.9, scale: 1, area: 0.5, speed: 1, block: Object.freeze({ scroll: false, top: false, bottom: false }) });
@@ -16,14 +20,17 @@ const MAX_LIVE = 150;     // 同屏最多这么多条，再多就丢（B 站「�
 const LATE_SEC = 1;       // 播放中晚到超过 1 秒的不补（卡了一下 / 切回来之后不一下子冒一堆）
 const GAP = 12;           // 同一行前后两条至少隔开这么多像素
 const POOL_MAX = 200;
-const MINE_FILE = 'danmaku-mine.json';
-const TEXT_MAX = 100;
+const NOTES_FILE = 'notes.json';
+const MINE_TEXT_MAX = 40;  // 批注当弹幕飘：只飘前 40 个字（批注常是一整段话），多的用「…」
+const ADV_MAX = 15;        // 高级弹幕最多停 15 秒
+const ADV_W = 672, ADV_H = 438;   // 高级弹幕的像素坐标按 B 站旧播放器舞台算（填小数 ≤1 的是比例）
+const AWAKE_MS = 2000;     // 画面上的「弹」字开关：鼠标静止 2 秒淡出（和原生控制条差不多一起）
+const ANNOT_EVENT = 'link-brain:annotations';
 const STYLE_ID = 'lb-danmaku-style';
 const SID_RE = /^[A-Za-z0-9_-]{3,64}$/;
 
 const live = new Set();          // 当前挂着的控制器（设置一变全都换；插件卸载全拆）
 const xmlCache = new Map();      // 「文件路径 + sha256」→ 解析好的原弹幕（同一篇重画不重读重解析；最多 12 份）
-const writeChains = new Map();   // danmaku-mine.json 路径 → 写盘链（同一个文件的写排队）
 
 function clamp(v, lo, hi) { v = Number(v); return Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : lo; }
 function nearest(v, list, d) {
@@ -61,9 +68,24 @@ function decodeEntities(s) {
     return v === undefined ? m : v;
   });
 }
-// B 站模式：1 / 2 / 3 滚动（2、3 是旧的变体）、6 逆向（当滚动画）、4 底部、5 顶部；7 高级 / 8 代码 / 9 BAS 不画
-const MODE = { 1: 'scroll', 2: 'scroll', 3: 'scroll', 6: 'scroll', 4: 'bottom', 5: 'top' };
-const MODE_CODE = { scroll: 1, bottom: 4, top: 5 };
+// B 站模式：1 / 2 / 3 滚动（2、3 是旧的变体）、6 逆向（当滚动画）、4 底部、5 顶部；7 高级（静态显示，见 parseAdv）；8 代码 / 9 BAS 不画
+const MODE = { 1: 'scroll', 2: 'scroll', 3: 'scroll', 6: 'scroll', 4: 'bottom', 5: 'top', 7: 'adv' };
+// 高级弹幕的正文是一个 JSON 数组：[x, y, "透明度起-止", 停留秒数, 文字, 旋转Z, 旋转Y, 终点x, 终点y, 移动毫秒, 延迟毫秒, 描边, 字体, 线性, 路径]。
+// 1031 她：「能简单支持就支持」——只取 位置 / 起始透明度 / 停留秒数 / 文字，在那个位置静态停几秒；旋转、移动、路径都不做。读不懂的丢掉。
+function advPos(v, ref) {
+  const s = String(v == null ? '' : v).trim(), n = Number(s);
+  if (!s || !Number.isFinite(n)) return 0;
+  return clamp(s.includes('.') && n <= 1 ? n : n / ref, 0, 0.98);
+}
+function parseAdv(raw) {
+  let a;
+  try { a = JSON.parse(raw); } catch { return null; }
+  if (!Array.isArray(a) || a.length < 5) return null;
+  const text = String(a[4] == null ? '' : a[4]).replace(/\/n/g, '\n').replace(/\r/g, '').split('\n').map(x => x.trimEnd()).join('\n').trim().slice(0, 2000);
+  if (!text) return null;
+  const alpha = parseFloat(String(a[2] == null ? '1' : a[2]).split('-')[0]);
+  return { x: advPos(a[0], ADV_W), y: advPos(a[1], ADV_H), alpha: Number.isFinite(alpha) ? clamp(alpha, 0.05, 1) : 1, dur: clamp(Number(a[3]) || 4, 0.5, ADV_MAX), text };
+}
 function parseXml(text) {
   const out = [];
   const re = /<d\s[^>]*?\bp\s*=\s*"([^"]*)"[^>]*>([\s\S]*?)<\/d>/g;
@@ -73,10 +95,16 @@ function parseXml(text) {
     const p = m[1].split(',');
     const time = Number(p[0]), mode = MODE[Number(p[1])];
     if (!Number.isFinite(time) || time < 0 || !mode) continue;
+    const color = Number(p[3]);
+    const base = { time, mode, size: clamp(Number(p[2]) || 25, 12, mode === 'adv' ? 128 : 64), color: Number.isFinite(color) ? color & 0xffffff : 0xffffff, mine: false };
+    if (mode === 'adv') {
+      const adv = parseAdv(decodeEntities(m[2]));
+      if (adv) out.push({ ...base, ...adv });
+      continue;
+    }
     const txt = decodeEntities(m[2]).replace(/\s*[\r\n]+\s*/g, ' ').trim();
     if (!txt) continue;
-    const color = Number(p[3]);
-    out.push({ time, mode, size: clamp(Number(p[2]) || 25, 12, 64), color: Number.isFinite(color) ? color & 0xffffff : 0xffffff, text: txt, mine: false });
+    out.push({ ...base, text: txt });
   }
   out.sort((a, b) => a.time - b.time);
   return out;
@@ -92,6 +120,9 @@ function estimateWidth(text, px) {
   for (const ch of String(text)) n += ch.codePointAt(0) > 0x2e7f ? 1 : 0.58;
   return Math.ceil(n * px);
 }
+
+// 顶部 / 底部停 FIX_SEC 秒；高级弹幕停它自己写的秒数
+function holdOf(d) { return d.mode === 'adv' ? (Number(d.dur) || FIX_SEC) : FIX_SEC; }
 
 // ── 弹幕引擎：只管「在时间 t 时屏幕上该有哪些、在哪」，不碰 video；控制器每帧把时间喂进来 ──
 class Engine {
@@ -131,7 +162,9 @@ class Engine {
   emit(d, start, { force = false, visibleNow = false } = {}) {
     const s = this.settings;
     if (!force && (s.block[d.mode] || this.live.length >= MAX_LIVE)) return null;
-    const px = this.fontPx(d), w = this.measure(d.text, px, this.doc) + (d.mine ? 10 : 0);
+    const px = this.fontPx(d);
+    if (d.mode === 'adv') return this.emitAdv(d, start, px);
+    const w = this.measure(d.text, px, this.doc) + (d.mine ? 10 : 0);
     let lane = -1, v = 0;
     if (d.mode === 'scroll') {
       v = (this.W + w) / this.dur;
@@ -160,10 +193,28 @@ class Engine {
     el.textContent = d.text;
     el.style.color = colorCss(d.color);
     el.style.fontSize = px + 'px';
+    el.style.opacity = '';
     const y = d.mode === 'bottom' ? Math.max(0, this.H - (lane + 1) * this.laneH) : lane * this.laneH;
     const rec = { d, el, mode: d.mode, lane, start, w, v, y, dead: false };
     el.style.transform = d.mode === 'scroll' ? `translate3d(${this.W}px,${y}px,0)` : `translate3d(-50%,${y}px,0)`;
     this.lanes[d.mode][lane] = rec;
+    this.live.push(rec);
+    this.layer.appendChild(el);
+    this.stats.emitted++;
+    return rec;
+  }
+  // 高级弹幕：不占行，按 XML 里的位置（画面比例）放，起始透明度，停 d.dur 秒
+  emitAdv(d, start, px) {
+    let el = this.pool.pop();
+    if (!el) { el = this.doc.createElement('div'); this.stats.created++; }
+    el.className = 'lb-dm-item is-adv';
+    el.textContent = d.text;
+    el.style.color = colorCss(d.color);
+    el.style.fontSize = px + 'px';
+    el.style.opacity = String(d.alpha == null ? 1 : d.alpha);
+    const x = Math.round(d.x * this.W), y = Math.round(d.y * this.H);
+    el.style.transform = `translate3d(${x}px,${y}px,0)`;
+    const rec = { d, el, mode: 'adv', lane: -1, start, w: 0, v: 0, y, dead: false };
     this.live.push(rec);
     this.layer.appendChild(el);
     this.stats.emitted++;
@@ -184,7 +235,7 @@ class Engine {
         const x = this.W - (t - r.start) * r.v;
         if (x + r.w < 0) { this.drop(r); continue; }
         r.el.style.transform = `translate3d(${x.toFixed(1)}px,${r.y}px,0)`;
-      } else if (t - r.start >= FIX_SEC) { this.drop(r); continue; }
+      } else if (t - r.start >= holdOf(r.d)) { this.drop(r); continue; }
       this.live[j++] = r;
     }
     this.live.length = j;
@@ -211,10 +262,10 @@ class Engine {
     this.clear();
     this.t = t;
     const items = this.items;
-    let i = lowerBound(items, t - Math.max(this.dur, FIX_SEC));
+    let i = lowerBound(items, t - Math.max(this.dur, FIX_SEC, ADV_MAX));
     for (; i < items.length && items[i].time <= t; i++) {
       const d = items[i], age = t - d.time;
-      if (d.mode === 'scroll' ? age < this.dur : age < FIX_SEC) this.emit(d, d.time);
+      if (d.mode === 'scroll' ? age < this.dur : age < holdOf(d)) this.emit(d, d.time);
     }
     this.next = i;
     this.place(t);
@@ -245,59 +296,37 @@ function sourceIdOf(itemId, src) {
   return m && SID_RE.test(m[1]) ? m[1] : '';
 }
 async function readJson(adapter, p) { try { const v = JSON.parse(await adapter.read(p)); return v && typeof v === 'object' ? v : null; } catch { return null; } }
-function cleanText(s) { return String(s == null ? '' : s).replace(/[\r\n\t]+/g, ' ').replace(/\s{2,}/g, ' ').trim().slice(0, TEXT_MAX); }
-function isoNow(d = new Date()) {
-  const p = n => String(Math.floor(Math.abs(n))).padStart(2, '0');
-  const off = -d.getTimezoneOffset();
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}${off >= 0 ? '+' : '-'}${p(off / 60)}:${p(off % 60)}`;
+function cleanText(s, max = MINE_TEXT_MAX) {
+  const t = String(s == null ? '' : s).replace(/[\r\n\t]+/g, ' ').replace(/\s{2,}/g, ' ').trim();
+  const chars = [...t];
+  return chars.length > max ? chars.slice(0, max).join('') + '…' : t;
 }
-function mineToItem(r) {
-  const mode = MODE[Number(r.mode)] || 'scroll';
-  return { time: Number(r.time), mode, size: clamp(Number(r.size) || 25, 12, 64), color: Number.isFinite(Number(r.color)) ? Number(r.color) & 0xffffff : 0xffffff, text: cleanText(r.text), mine: true, id: String(r.id || '') };
-}
-function validMine(r) { return r && typeof r === 'object' && Number.isFinite(Number(r.time)) && Number(r.time) >= 0 && typeof r.text === 'string' && cleanText(r.text); }
-
-// danmaku-mine.json：{ok, items, broken}。文件不在 = 空；上次换名换到一半崩了（只剩 .bak）就读 .bak；读不懂 = broken（不许覆盖它）
-async function readMineDoc(adapter, file) {
-  for (const p of [file, file + '.bak']) {
-    let raw;
-    try { if (typeof adapter.exists === 'function' && !(await adapter.exists(p))) continue; raw = await adapter.read(p); }
-    catch { continue; }
-    let doc = null;
-    try { doc = JSON.parse(String(raw).replace(/^﻿/, '')); } catch { return { items: [], broken: true, path: p }; }
-    if (!doc || typeof doc !== 'object' || !Array.isArray(doc.items)) return { items: [], broken: true, path: p };
-    return { items: doc.items.filter(validMine), broken: false, path: p, doc };
+// 批注的 key：和 annotate-view.js 的 akey 同一认法（老批注没 id 按 时间 + 原文认），删除墓碑 deleted[] 按它算
+function annotKey(a) { return a.id || ('ts:' + (a.ts || '') + '|' + (a.text || '')); }
+// notes.json（或批注框发来的 {annotations, deleted}）→ 她的弹幕：没删的、非空的、带视频时间 video_t（≥0 的数）的批注，按时间排好。
+// 不带时间的不播；草稿不算。一律白色滚动、带细框（is-mine）。
+function annotationItems(doc) {
+  if (!doc || typeof doc !== 'object' || !Array.isArray(doc.annotations)) return [];
+  const tomb = new Set(Array.isArray(doc.deleted) ? doc.deleted : []);
+  const out = [];
+  for (const a of doc.annotations) {
+    if (!a || typeof a !== 'object' || typeof a.video_t !== 'number' || !Number.isFinite(a.video_t) || a.video_t < 0) continue;
+    const key = annotKey(a);
+    if (tomb.has(key)) continue;
+    const text = cleanText(a.text);
+    if (!text) continue;
+    out.push({ time: a.video_t, mode: 'scroll', size: 25, color: 0xffffff, text, mine: true, id: key });
   }
-  return { items: [], broken: false, path: null };
+  out.sort((x, y) => x.time - y.time);
+  return out;
 }
-// 原子写（CONVENTIONS §6.5）：先写 .tmp 再换名。Obsidian 的 adapter.rename 目标已存在会报错：旧的先挪成 .bak，换名成功再删 .bak；失败把旧的挪回去
-async function writeJsonAtomic(adapter, file, obj) {
-  const text = JSON.stringify(obj, null, 2) + '\n';
-  const tmp = file + '.tmp', bak = file + '.bak';
-  await adapter.write(tmp, text);
-  const had = typeof adapter.exists === 'function' ? await adapter.exists(file) : false;
-  if (had) {
-    if (await adapter.exists(bak)) await adapter.remove(bak);
-    await adapter.rename(file, bak);
-  }
-  try { await adapter.rename(tmp, file); }
-  catch (e) { if (had) { try { await adapter.rename(bak, file); } catch {} } throw e; }
-  if (had) { try { await adapter.remove(bak); } catch {} }
-}
-function chain(key, fn) {
-  const prev = writeChains.get(key) || Promise.resolve();
-  const p = prev.then(fn, fn);
-  writeChains.set(key, p.catch(() => {}));
-  return p;
-}
-// 追加一条：在写盘链里先读磁盘最新（别的窗口可能也发过），再写回
-function appendMine(adapter, file, rec, head) {
-  return chain(file, async () => {
-    const cur = await readMineDoc(adapter, file);
-    if (cur.broken) throw new Error(MINE_FILE + ' 读不懂，没改它（先把它挪走或修好）');
-    const items = cur.items.filter(x => x.id !== rec.id).concat([rec]);
-    await writeJsonAtomic(adapter, file, { schema_version: 1, item_id: head.item_id, source_id: head.source_id, updated_at: rec.created_at, items });
-  });
+// notes.json：文件不在 = 没有批注；读不懂就当没有（批注框那边会把坏文件另存 .corrupt 并暂停保存，这里只是不播）
+async function readNotes(adapter, file) {
+  try {
+    if (typeof adapter.exists === 'function' && !(await adapter.exists(file))) return { items: [], broken: false };
+    const doc = JSON.parse(String(await adapter.read(file)).replace(/^\uFEFF/, ''));
+    return { items: annotationItems(doc), broken: !doc || typeof doc !== 'object' };
+  } catch { return { items: [], broken: true }; }
 }
 
 function ensureStyle(doc) {
@@ -315,7 +344,7 @@ const CSS = [
   '.lb-dm-item{position:absolute;left:0;top:0;white-space:pre;will-change:transform;user-select:none;text-shadow:1px 0 1px #000,-1px 0 1px #000,0 1px 1px #000,0 -1px 1px #000;}',
   '.lb-dm-item.is-fixed{left:50%;}',
   '.lb-dm-item.is-mine{box-shadow:0 0 0 1px rgb(255 255 255 / .9);border-radius:3px;padding:0 4px;}',
-  '.lb-dm-flash{position:absolute;left:12px;bottom:12px;z-index:5;pointer-events:none;padding:2px 10px;border-radius:var(--lb-radius-pill);background:rgb(0 0 0 / .6);color:#fff;font-family:var(--lb-font-body);font-size:var(--lb-fs-small);opacity:0;transition:opacity .2s;}',
+  '.lb-dm-flash{position:absolute;left:12px;bottom:56px;z-index:5;pointer-events:none;padding:2px 10px;border-radius:var(--lb-radius-pill);background:rgb(0 0 0 / .6);color:#fff;font-family:var(--lb-font-body);font-size:var(--lb-fs-small);opacity:0;transition:opacity .2s;}',
   '.lb-dm-flash.is-on{opacity:1;}',
   '.xhs-note .lb-media-tools .lb-dm-toggle,.xhs-note .lb-media-tools .lb-dm-menu{font-size:13px!important;}',
   '.xhs-note .lb-media-tools .lb-dm-toggle[aria-pressed="true"]{color:var(--lb-ink);font-weight:600;}',
@@ -331,13 +360,17 @@ const CSS = [
   '.lb-dm-panel button[aria-pressed="true"]{background:var(--lb-accent);border-color:var(--lb-accent);color:var(--lb-surface);}',
   '.lb-dm-panel .lb-dm-close{align-self:flex-end;}',
   '.lb-dm-tip,.lb-dm-count{margin:0;color:var(--lb-muted);line-height:1.5;}',
-  '.lb-dm-send{display:flex;align-items:center;gap:var(--lb-space-2);margin:0 0 var(--lb-space-3);}',
-  '.lb-dm-send[hidden]{display:none!important;}',
-  '.lb-dm-send .lb-dm-input{flex:1;min-width:0;height:30px;box-sizing:border-box;padding:0 var(--lb-space-3);border:1px solid var(--lb-line);border-radius:var(--lb-radius-pill);background:var(--lb-soft);color:var(--lb-ink);font-family:var(--lb-font-body);font-size:var(--lb-fs-small);}',
-  '.lb-dm-send .lb-dm-send-btn{flex:none;height:30px;padding:0 var(--lb-space-4);border:0;border-radius:var(--lb-radius-pill);background:var(--lb-accent);color:var(--lb-surface);box-shadow:none;font-family:var(--lb-font-body);font-size:var(--lb-fs-small);cursor:pointer;}',
-  '.lb-dm-send .lb-dm-send-btn:disabled{opacity:.45;cursor:default;}',
+  // 高级弹幕：多行照原样（\n 换行），左上角对齐它写的坐标
+  '.lb-dm-item.is-adv{line-height:1.15;}',
+  // 画面上的「弹」字开关：右下角、原生控制条（约 40px 高）上方，不挡音量 / ⋮；鼠标在画面上动才出现（is-awake），静止 2 秒淡出；关着时字上一道斜杠
+  '.xhs-note .lb-dm-ovbtn{position:absolute;right:12px;bottom:54px;z-index:6;width:34px;height:34px;min-width:0;padding:0;display:flex;align-items:center;justify-content:center;border:1px solid rgb(255 255 255 / .35)!important;border-radius:var(--lb-radius-pill);background:rgb(0 0 0 / .5)!important;box-shadow:none!important;color:#fff!important;font-family:var(--lb-font-body);font-size:15px;font-weight:700;line-height:1;cursor:pointer;opacity:0;pointer-events:none;transition:opacity .3s;}',
+  '.xhs-note .lb-dm-ovbtn.is-awake,.xhs-note .lb-dm-ovbtn.is-awake:hover,.xhs-note .lb-dm-ovbtn:focus-visible{opacity:1;pointer-events:auto;}',
+  '.xhs-note .lb-dm-ovbtn:hover{background:rgb(0 0 0 / .7)!important;}',
+  '.xhs-note .lb-dm-ovbtn[aria-pressed="false"]{color:rgb(255 255 255 / .6)!important;}',
+  '.xhs-note .lb-dm-ovbtn[aria-pressed="false"]::after{content:"";position:absolute;left:7px;right:7px;top:50%;height:2px;margin-top:-1px;background:currentColor;transform:rotate(-40deg);border-radius:1px;}',
+  '.xhs-note .lb-media.is-lb-fullscreen .lb-dm-ovbtn{right:18px;bottom:60px;width:40px;height:40px;font-size:18px;}',
   '.xhs-note .lb-media.is-lb-fullscreen .lb-dm-panel{bottom:auto!important;top:12px!important;}',
-  '@media print{.lb-dm-layer,.lb-dm-send,.lb-dm-panel,.lb-dm-flash{display:none!important;}}',
+  '@media print{.lb-dm-layer,.lb-dm-panel,.lb-dm-flash,.lb-dm-ovbtn{display:none!important;}}',
 ].join('\n');
 
 // 用 canvas 量字宽（不碰布局）；量不了就按字数估
@@ -405,10 +438,12 @@ async function attach({ plugin, media, video, note = null, bar = null, itemId = 
       } catch (e) { origState = 'failed'; origError = (e && e.message) || String(e); console.error('[lb] 原弹幕没读出来', e); }
     }
   }
-  const minePath = `${base}/${MINE_FILE}`;
-  const mineDoc = await readMineDoc(adapter, minePath);
-  if (mineDoc.broken) console.error('[lb] ' + minePath + ' 读不懂，先不播我发的弹幕');
-  const mine = mineDoc.items.map(mineToItem).filter(d => d.text);
+  // 她的弹幕 = 这篇 notes.json 里带 video_t 的批注（批注框写；这里只读）
+  const notesPath = `${base}/${NOTES_FILE}`;
+  const itemKey = String(meta.item_id || ('bili-' + sid));
+  const notesDoc = await readNotes(adapter, notesPath);
+  if (notesDoc.broken) console.error('[lb] ' + notesPath + ' 读不懂，先不播批注弹幕');
+  const mine = notesDoc.items;
   if (media.isConnected === false || video.isConnected === false) return null;   // 读的工夫里这篇被重画了
   if (media.__lbDanmaku) return media.__lbDanmaku;
 
@@ -463,21 +498,15 @@ async function attach({ plugin, media, video, note = null, bar = null, itemId = 
   });
   const count = doc.createElement('p'); count.className = 'lb-dm-count'; panel.appendChild(count);
   const tip = doc.createElement('p'); tip.className = 'lb-dm-tip';
-  tip.textContent = '点一下画面再按 D 开关弹幕（全屏里也能按）。自己发的弹幕带细框，只存在本机，不会发到 B 站。';
+  tip.textContent = '点一下画面再按 D 开关弹幕（全屏里也能按，或点画面右下角的「弹」）。自己的弹幕 = 批注框里勾了「记在当前时间」写的批注，带细框飘，只存在本机，不会发到 B 站。';
   panel.appendChild(tip);
   const closeBtn = btn(doc, 'lb-dm-close', '收起'); panel.appendChild(closeBtn);
   media.appendChild(panel);
 
-  // 视频下面一条发弹幕（不挡画面；弹幕关着时收起）
-  const sendRow = div(doc, 'lb-dm-send');
-  const input = doc.createElement('input'); input.type = 'text'; input.className = 'lb-dm-input';
-  input.maxLength = TEXT_MAX; input.setAttribute('maxlength', String(TEXT_MAX));
-  input.placeholder = '发个弹幕：只存在本机，不会发到 B 站（Enter 发送）';
-  input.setAttribute('aria-label', '发弹幕');
-  const sendBtn = btn(doc, 'lb-dm-send-btn', '发送');
-  sendRow.appendChild(input); sendRow.appendChild(sendBtn);
-  if (typeof media.after === 'function') media.after(sendRow);
-  else if (media.parentNode) media.parentNode.insertBefore(sendRow, media.nextSibling);
+  // 画面上的「弹」字开关（全屏时工具行不显示，就靠它；不全屏时播放中工具行收起，它也在）
+  const ovBtn = btn(doc, 'lb-dm-ovbtn', '弹');
+  ovBtn.setAttribute('aria-label', '弹幕开关');
+  slide.appendChild(ovBtn);
 
   let raf = 0, lastVt = -1, baseVt = 0, baseNow = 0, flashTimer = null, destroyed = false, ro = null;
   const alive = () => !destroyed && media.isConnected !== false && video.isConnected !== false;
@@ -512,7 +541,7 @@ async function attach({ plugin, media, video, note = null, bar = null, itemId = 
   const updateCount = () => {
     const nMine = engine.items.reduce((n, d) => n + (d.mine ? 1 : 0), 0);
     const head = origState === 'ok' ? `原弹幕 ${orig.length} 条` : origState === 'failed' ? `原弹幕没读出来（${origError}）` : '这条视频没存下原弹幕';
-    count.textContent = `${head} · 我发的 ${nMine} 条` + (mineDoc.broken ? `（${MINE_FILE} 读不懂，先没播）` : '');
+    count.textContent = `${head} · 我的批注弹幕 ${nMine} 条` + (notesDoc.broken ? `（${NOTES_FILE} 读不懂，先没播）` : '');
   };
 
   const placePanel = () => {
@@ -536,9 +565,10 @@ async function attach({ plugin, media, video, note = null, bar = null, itemId = 
     const s = settingsOf(plugin);
     layer.style.opacity = String(s.opacity);
     layer.hidden = !s.on;
-    sendRow.hidden = !s.on;
     media.classList.toggle('lb-dm-off', !s.on);
     toggleBtn.setAttribute('aria-pressed', String(s.on));
+    ovBtn.setAttribute('aria-pressed', String(s.on));
+    ovBtn.setAttribute('aria-label', s.on ? '弹幕：开（点一下关；也可按 D）' : '弹幕：关（点一下开；也可按 D）');   // 不用 title：LWA 界面不出气泡（no-tooltip.js）
     const wasOn = ctl.on;
     ctl.on = s.on;
     engine.setSettings(s);
@@ -571,30 +601,58 @@ async function attach({ plugin, media, video, note = null, bar = null, itemId = 
   const toggle = async (fromKey) => {
     const on = !settingsOf(plugin).on;
     const p = setSetting({ on }, true);
-    if (fromKey) showFlash(on ? '弹幕：开（再按 D 关）' : '弹幕：关（再按 D 开）');
+    if (fromKey === 'overlay') showFlash(on ? '弹幕：开' : '弹幕：关');
+    else if (fromKey) showFlash(on ? '弹幕：开（再按 D 关）' : '弹幕：关（再按 D 开）');
     return p;
   };
 
-  async function send(raw) {
-    const text = cleanText(raw);
-    if (!text) return false;
-    const t = curTime();
-    const rec = { id: 'm' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), time: Math.round(t * 1000) / 1000, text, mode: MODE_CODE.scroll, color: 0xffffff, size: 25, created_at: isoNow() };
-    const d = mineToItem(rec);
-    if (settingsOf(plugin).on) { if (Math.abs(engine.t - t) > 0.25) engine.reset(t); engine.insertNow(d, t); }
-    else { const idx = upperBound(engine.items, d.time); engine.items.splice(idx, 0, d); if (idx <= engine.next) engine.next++; }
-    if (input.value && cleanText(input.value) === text) input.value = '';
-    updateCount();
-    try {
-      await appendMine(adapter, minePath, rec, { item_id: meta.item_id || ('bili-' + sid), source_id: meta.source_id || sid });
-      return true;
-    } catch (e) {
-      engine.removeItem(d); updateCount();
-      if (!input.value) input.value = text;
-      say('没保存上，内容还在，可重试：' + ((e && e.message) || e), 'error');
-      return false;
+  // 批注变了（批注框存完发 link-brain:annotations，或重开时重读）：按 key 对一遍——没变的不动，删掉 / 改过的撤下，
+  // 新写的（这一端刚记的、时间就在眼前）立刻挤上画面，其余排进时间线等播到那里
+  function setMine(next) {
+    const cur = new Map(engine.items.filter(d => d.mine).map(d => [d.id, d]));
+    const now = curTime(), on = settingsOf(plugin).on;
+    const fresh = [];
+    for (const d of next) {
+      const old = cur.get(d.id);
+      if (old && old.text === d.text && old.time === d.time) { cur.delete(d.id); continue; }
+      if (old) { engine.removeItem(old); cur.delete(d.id); }
+      else if (on && Math.abs(d.time - now) <= 3) { fresh.push(d); continue; }
+      const idx = upperBound(engine.items, d.time); engine.items.splice(idx, 0, d); if (idx <= engine.next) engine.next++;
+      // 改了字的那条如果此刻本该在画面上：按原出发时间放回去
+      if (on && old && d.time <= engine.t && engine.t - d.time < engine.dur) engine.emit(d, d.time);
     }
+    for (const old of cur.values()) engine.removeItem(old);
+    for (const d of fresh) { if (Math.abs(engine.t - now) > 0.25) engine.reset(now); engine.insertNow(d, now); }
+    if (on && video.paused) engine.place(engine.t);
+    updateCount();
   }
+  const ws = plugin.app && plugin.app.workspace;
+  let wsRef = null;
+  if (ws && typeof ws.on === 'function') {
+    wsRef = ws.on(ANNOT_EVENT, (id, data) => {
+      if (String(id || '') !== itemKey || !alive()) return;
+      try { setMine(annotationItems(data)); } catch (e) { console.error('[lb] 批注弹幕没换上', e); }
+    });
+  }
+
+  // 「弹」字开关的显隐：鼠标在画面上动 → 出现，静止 2 秒淡出（和原生控制条一起）；全屏里暂停时一直在（原生控制条暂停时也一直在）；
+  // 不全屏时暂停就不出（工具行那时候露着，有「弹幕」按钮）；视频还没开始播（只有封面）时不出
+  let ovOver = false, ovRecent = false, ovTimer = null;
+  const isFs = () => (doc && doc.fullscreenElement === media) || media.classList.contains('is-lb-fullscreen');
+  const ovPaint = () => {
+    const started = !video.paused || curTime() > 0;
+    const show = ovOver && started && (video.paused ? isFs() : ovRecent);
+    ovBtn.classList.toggle('is-awake', !!show);
+  };
+  const onMediaMove = (e) => {
+    if (e && e.pointerType === 'touch') return;
+    ovOver = true; ovRecent = true;
+    clearTimeout(ovTimer); ovTimer = setTimeout(() => { ovRecent = false; ovPaint(); }, AWAKE_MS);
+    ovPaint();
+  };
+  const onMediaLeave = () => { ovOver = false; ovRecent = false; clearTimeout(ovTimer); ovPaint(); };
+  media.addEventListener('pointermove', onMediaMove);
+  media.addEventListener('mouseleave', onMediaLeave);
 
   // 键盘：焦点在这条视频（或它的工具行）上按 D；全屏时焦点在哪都算
   const onKey = (e) => {
@@ -616,15 +674,14 @@ async function attach({ plugin, media, video, note = null, bar = null, itemId = 
   toggleBtn.addEventListener('click', e => { blurAfterMouse(toggleBtn, e); toggle(false); });
   menuBtn.addEventListener('click', e => { blurAfterMouse(menuBtn, e); if (panel.hidden) openPanel(); else closePanel(); });
   closeBtn.addEventListener('click', () => closePanel());
-  sendBtn.addEventListener('click', () => { send(input.value); });
-  input.addEventListener('keydown', e => {
-    e.stopPropagation?.();   // 打字时 D / ←→ 不归视频
-    if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); send(input.value); }
-    else if (e.key === 'Escape') { e.preventDefault(); input.blur?.(); }
-  });
+  // 画面上的「弹」：点了只开关弹幕，不让这一下落到画面上（不暂停、不双击全屏）
+  const swallow = e => { e.stopPropagation?.(); };
+  ovBtn.addEventListener('pointerdown', swallow);
+  ovBtn.addEventListener('dblclick', e => { e.preventDefault?.(); swallow(e); });
+  ovBtn.addEventListener('click', e => { e.preventDefault?.(); swallow(e); blurAfterMouse(ovBtn, e); toggle('overlay'); onMediaMove(e); });
 
-  const onPlay = () => { lastVt = -1; startLoop(); };
-  const onPause = () => { stopLoop(); if (settingsOf(plugin).on) engine.place(engine.t); };
+  const onPlay = () => { lastVt = -1; startLoop(); ovPaint(); };
+  const onPause = () => { stopLoop(); if (settingsOf(plugin).on) engine.place(engine.t); ovPaint(); };
   const onSeeked = () => { syncTo(); if (!video.paused) startLoop(); };
   const onReset = () => { engine.t = 0; syncTo(); };
   video.addEventListener('play', onPlay);
@@ -637,21 +694,24 @@ async function attach({ plugin, media, video, note = null, bar = null, itemId = 
   if (typeof RO === 'function') { try { ro = new RO(() => measureLayer()); ro.observe(slide); } catch { ro = null; } }
 
   const ctl = {
-    sid, media, video, layer, panel, sendRow, toggleBtn, menuBtn, engine, input, on: false,
-    applySettings, setSetting, toggle, send, openPanel, closePanel,
+    sid, itemId: itemKey, media, video, layer, panel, ovBtn, toggleBtn, menuBtn, engine, on: false,
+    applySettings, setSetting, toggle, setMine, openPanel, closePanel,
     get origState() { return origState; },
     // 测试用：不等 rAF，按给定时间画一帧
     tick(t) { engine.frame(t); },
     destroy() {
       if (destroyed) return;
       destroyed = true;
-      stopLoop(); clearTimeout(flashTimer);
+      stopLoop(); clearTimeout(flashTimer); clearTimeout(ovTimer);
       try { if (ro) ro.disconnect(); } catch {}
+      try { if (wsRef && ws && typeof ws.offref === 'function') ws.offref(wsRef); } catch {}
       doc.removeEventListener('keydown', onKey);
       doc.removeEventListener('pointerdown', onDocDown, true);
+      media.removeEventListener('pointermove', onMediaMove);
+      media.removeEventListener('mouseleave', onMediaLeave);
       for (const [t, fn] of [['play', onPlay], ['playing', onPlay], ['pause', onPause], ['ended', onPause], ['seeked', onSeeked], ['emptied', onReset]]) video.removeEventListener(t, fn);
       engine.clear();
-      for (const el of [layer, flash, panel, sendRow, toggleBtn, menuBtn]) { try { el.remove(); } catch {} }
+      for (const el of [layer, flash, panel, ovBtn, toggleBtn, menuBtn]) { try { el.remove(); } catch {} }
       media.classList.remove('lb-dm-off');
       if (media.__lbDanmaku === ctl) media.__lbDanmaku = null;
       live.delete(ctl);
@@ -674,6 +734,6 @@ function broadcast() {
 function destroyAll() { for (const c of [...live]) c.destroy(); xmlCache.clear(); }
 
 module.exports = {
-  attach, destroyAll, broadcast, normalizeSettings, parseXml, sourceIdOf, readMineDoc, writeJsonAtomic, appendMine, Engine,
-  controllers: live, DEFAULTS, AREAS, SPEEDS, MINE_FILE, SCROLL_SEC, FIX_SEC, MAX_LIVE, estimateWidth, lowerBound, upperBound,
+  attach, destroyAll, broadcast, normalizeSettings, parseXml, parseAdv, sourceIdOf, annotationItems, readNotes, Engine,
+  controllers: live, DEFAULTS, AREAS, SPEEDS, NOTES_FILE, ANNOT_EVENT, ADV_MAX, AWAKE_MS, SCROLL_SEC, FIX_SEC, MAX_LIVE, estimateWidth, lowerBound, upperBound,
 };

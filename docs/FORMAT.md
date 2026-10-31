@@ -1381,7 +1381,7 @@ vault/
    │     ├─ cover-001.jpg                                ← 封面（role video_cover）
    │     ├─ subtitle.<lang>.srt                          ← 站点字幕，一种语言一个文件（role subtitle，index 从 1 起）
    │     └─ danmaku.xml                                  ← 弹幕原始 XML（role danmaku）
-   ├─ danmaku-mine.json                                 ← 她在笔记页本地发的弹幕（用户数据，可变；只存本机，见下「B 站弹幕」）
+   ├─ notes.json                                        ← 批注 / ⭐（用户数据，可变）；带 video_t 的批注 = 她自己的弹幕（见下「B 站弹幕」）
    └─ derived/
       ├─ transcript.json                                 ← 站点字幕的纯文字：{status: ok|no_subtitle, engine: "bilibili-cc", text, lang, file}
       └─ agent.md                                        ← 现有渲染；字幕文字进「## 视频文字稿」，目录检索走 search_fields.transcript
@@ -1399,32 +1399,48 @@ manifest 的 B 站条目（§4 字段之外）：`video` 带 `duration_sec / wid
 
 `derived/transcript.json` 的 `status` 多一个值 `no_subtitle`（`videos.DONE_STATUSES`）：B 站来源无站点字幕，本轮不对它起 ASR；画面文字（本地 OCR）照现有规则。
 
-### 2026-10-31 B 站弹幕：本地发的弹幕 `_archive/bilibili/<BV号>/danmaku-mine.json`（对象级，可变；用户数据）
+### 2026-10-31 B 站弹幕：她自己的弹幕 = 带视频时间的批注（`notes.json` 的 `video_t`）
 
-笔记页 B 站视频的弹幕层（插件 `danmaku.js`，media-nav 挂）播「当前版本 manifest 里 role `danmaku` 的 XML」+ 这个文件。这里是她在视频下面那条输入框里发的弹幕，
-**只存本机、绝不发到 B 站**；不进 RAW（不建新版本）、不进 `derived/`（不是派生，删不得、重建不了），后端不读不写。插件经 `app.vault.adapter` 读写：
-先写 `danmaku-mine.json.tmp` 再换名（目标已在：旧的先挪成 `.bak`，换名成功再删；读的时候主文件不在就读 `.bak`）；同一个文件的写排队，每次先读磁盘最新再追加；
-读不懂（坏 JSON / 没有 `items` 数组）就不播、也不覆盖它，发送报「没保存上，内容还在，可重试：…」。没发过就没有这个文件。
+笔记页 B 站视频的弹幕层（插件 `danmaku.js`，media-nav 挂）播两样：「当前版本 manifest 里 role `danmaku` 的 XML」（原弹幕，只读），
+和这篇 `_archive/bilibili/<BV号>/notes.json` 里**带 `video_t` 的批注**（她自己的弹幕，白色滚动、带细框）。**只存本机、绝不发到 B 站**。
+1031 第二轮她定「弹幕直接复用批注」：没有另一套存储，写弹幕 = 在批注框里写批注（B 站视频笔记的批注框下面多一个「记在当前时间」的勾，默认勾着，
+勾的状态记在本机 `localStorage['lb:annot-vt']`）。写盘就是批注原来那套（`annotate-view.js` 的 persist：先读磁盘、按条合并、删除墓碑、读坏了另存
+`.corrupt` 暂停保存）；Python 侧仍是 `note.load_notes / save_notes`。
+
+`notes.json` 批注条目多一个可选字段：
 
 ```jsonc
 {
-  "schema_version": 1,
-  "item_id": "bili-BV1xxxxxxxxx",          // 同 meta.json
-  "source_id": "BV1xxxxxxxxx",
-  "updated_at": "2026-10-31T17:05:12+11:00", // 最后一条的发送时间
-  "items": [                                // 按发送先后追加
-    {
-      "id": "mmhk2f0a9x3",                  // 本地生成，不重复即可
-      "time": 12.346,                       // 出现在视频第几秒（发送那一刻的播放位置，保留 3 位小数）
-      "text": "弹幕文字",                    // 去掉换行、≤100 字
-      "mode": 1,                            // 照 B 站编码：1 滚动 / 4 底部 / 5 顶部（现在只发滚动）
-      "color": 16777215,                    // 十进制 RGB，同 XML 第 4 个字段
-      "size": 25,                           // 字号，同 XML 第 3 个字段
-      "created_at": "2026-10-31T17:05:12+11:00"
-    }
-  ]
+  "starred": false,
+  "annotations": [
+    { "id": "a…", "ts": "2026-10-31T06:35:12.000Z", "text": "批注原文（可多行）", "to_fable": false, "author": "",
+      "video_t": 12.346 },                       // 可选：视频第几秒（≥0 的数，3 位小数）。有 = 这条也是她的弹幕；没有 = 普通批注，不播
+    { "id": "adm-m1", "ts": "…", "text": "…", "to_fable": false, "video_t": 0, "migrated_from": "danmaku-mine" }   // 迁移来的（见下）
+  ],
+  "deleted": ["…"],                              // 删除墓碑（按 id；老条目按 "ts:<ts>|<text>"），删掉的不播
+  "draft": "…"                                   // 草稿不算批注、不播
 }
 ```
+
+- `video_t` 取「开始写这一条那一刻」的播放位置（看到一处、点进框里打字时视频还在走；落成批注时才取就晚了）。视频还没开始播（只有封面）、或勾掉了，就不带。
+  改字（✎）保留原来的 `video_t`；撤销删除也保留。小红书等别的来源不出这个勾、不写这个字段。
+- 批注列表里带 `video_t` 的前面一个时间标（`▶ 1:05`），点了跳到那一秒并播放。
+- 当弹幕画时：换行压成空格，只飘前 40 个字（多的「…」）；同一份批注不重复飘。
+- 批注框每次存完（新写 / 改 / 删 / 撤销，以及打开和别处改了重读）发 Obsidian 事件 `link-brain:annotations`（参数 `itemId, {annotations, deleted}`），
+  弹幕层按 `id` 对一遍：新写的、时间就在眼前（±3 秒）的立刻挤上画面，删掉的撤下，其余排进时间线。插件只读 `notes.json`，不写。
+- 后端不因为 `video_t` 改行为：检索 / 打印 / 压缩包照旧按 `text` 用（`note.live_annotations` 原样带出这个字段）。
+
+**以前的 `danmaku-mine.json` 去掉了**（10-31 上午那版：视频下面一条「发弹幕」输入框，存 `_archive/bilibili/<BV号>/danmaku-mine.json`，
+`{schema_version: 1, item_id, source_id, updated_at, items: [{id, time, text, mode, color, size, created_at}]}`）。插件不再读写它。
+一次性迁移 `python -m link_brain.migrate_danmaku_mine [--dry-run] [--vault <收藏库>]`：每条 → 批注
+`{id: "adm-<原 id>", ts: <原 created_at>, text, to_fable: false, video_t: <原 time>, migrated_from: "danmaku-mine"}`（颜色 / 字号 / 模式不带——
+以前只发过白色 25 号滚动），只往 `annotations` 末尾追加（同 id 已在、或在墓碑里就不加，可重跑），写成功后原文件改名
+`danmaku-mine.json.migrated`（已有同名加 `-YYYYMMDD-HHMMSS`），不删；主文件不在只剩 `.bak` 时迁 `.bak`；原文件读不懂 / `notes.json` 读坏了跳过、什么都不改，退出码 1。
+
+**高级弹幕（XML mode 7）**：正文是 JSON 数组 `[x, y, "透明度起-止", 停留秒, 文字, 旋转Z, 旋转Y, 终点x, 终点y, 移动毫秒, 延迟毫秒, 描边, 字体, 线性, 路径]`。
+只取位置 / 起始透明度 / 停留秒数（0.5–15）/ 文字（`\n` 或 `/n` 换行），在那个位置静态显示，旋转、移动、路径都不做；
+坐标带小数且 ≤1 的是画面比例，否则是像素，按 B 站旧播放器舞台 672×438 折成比例。不占滚动 / 顶部 / 底部的行，不受「屏蔽」三项管（关弹幕就都不显示）。
+读不懂的 JSON / 空文字丢掉。mode 8（代码）/ 9（BAS）仍不显示。全库 10-31 只有 28 条。
 
 显示设置在插件设置 `media.danmaku = {on, opacity, scale, area, speed, block: {scroll, top, bottom}}`（所有视频共用；`area` 取 0.25 / 0.5 / 1，`speed` 取 0.7 / 1 / 1.35 / 1.7，
 `opacity` 0.1–1，`scale` 0.5–2，缺的按默认 开 / 0.9 / 1 / 0.5 / 1 / 都不屏蔽），后端不读。

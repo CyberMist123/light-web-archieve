@@ -214,7 +214,7 @@ class MediaNav {
     }
     this.register(() => { for (const ro of this.ros) { try { ro.disconnect(); } catch {} } this.ros.clear(); this.noteState.clear();
       for (const [fn, pv] of this.paneScrolls) { try { pv.removeEventListener('scroll', fn); } catch {} } this.paneScrolls.clear(); });
-    this.register(()=>{try{this._dm?.destroyAll?.();}catch(e){console.error('[lb] 弹幕没拆干净',e);}document.querySelectorAll('.lb-dm-layer,.lb-dm-flash,.lb-dm-panel,.lb-dm-send,#lb-danmaku-style').forEach(e=>e.remove());});   // 1031 弹幕
+    this.register(()=>{try{this._dm?.destroyAll?.();}catch(e){console.error('[lb] 弹幕没拆干净',e);}document.querySelectorAll('.lb-dm-layer,.lb-dm-flash,.lb-dm-panel,.lb-dm-ovbtn,#lb-danmaku-style').forEach(e=>e.remove());});   // 1031 弹幕
     this.register(()=>{document.querySelectorAll('.lb-media-tools,.lb-media-pin,.lb-thumbnails').forEach(e=>e.remove());document.querySelectorAll('[data-lb-enhanced]').forEach(e=>delete e.dataset.lbEnhanced);document.querySelectorAll('.lb-media-locked,.lb-media-free').forEach(e=>e.classList.remove('lb-media-locked','lb-media-free'));document.querySelectorAll('.lb-pane-locked').forEach(e=>e.classList.remove('lb-pane-locked'));document.querySelectorAll('.xhs-note .lb-carousel video').forEach(v=>{v.controls=true;});});
 
     const rememberCarousel = (event) => {
@@ -640,7 +640,7 @@ class MediaNav {
         if(ui&&typeof ui.openTagPicker==='function'){try{const r=ui.openTagPicker({itemId:this.itemIdOf(note)});if(r&&typeof r.catch==='function')r.catch(e=>console.error('[lb] 连播没打开',e));}catch(e){console.error('[lb] 连播没打开',e);}}
         else this.notice('连播还没装好：更新 Link Brain Actions 插件后再试');
       };
-      // 1031 她：B 站视频的弹幕（danmaku.js）：画面上叠弹幕、工具行「弹幕」「弹幕设置」、视频下面本地发弹幕（只存本机）；不是 B 站来源什么都不加
+      // 1031 她：B 站视频的弹幕（danmaku.js）：画面上叠弹幕、工具行「弹幕」「弹幕设置」、画面右下角「弹」字开关；她自己的弹幕 = 带视频时间的批注（批注框写）；不是 B 站来源什么都不加
       this.attachDanmaku({media,video,note,bar});
       return;
     }

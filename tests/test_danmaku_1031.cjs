@@ -2,8 +2,9 @@
 // ①解析 B 站 XML（模式 / 颜色 / 字号 / 实体、7 高级弹幕不画、按时间排好）；②引擎：一千多条只建屏幕上的节点（回收复用）、同一行不撞车、
 // 拖进度条按新时间重排、屏蔽 / 显示区域 / 速度；③控制器：只认 B 站来源（小红书视频不出控件）、工具行「弹幕」「弹幕设置」、D 键开关
 // （焦点在视频上；全屏里焦点在哪都算；输入框里不算）、设置存 settings.media.danmaku（markSettingDirty('media') + saveSettings，没存上拨回 + 说原因）、
-// 所有视频共用；④本地发弹幕：立刻上画面、带 is-mine、存 _archive/bilibili/<BV>/danmaku-mine.json（原子写、追加、不留 .tmp / .bak），
-// 写失败撤回并把字放回输入框，下次打开和原弹幕一起播；⑤插件卸载拆干净。
+// 所有视频共用；④她自己的弹幕 = notes.json 里带 video_t 的批注（1031 第二轮：弹幕复用批注，不再有 danmaku-mine.json / 发弹幕框）：
+// 打开时读、批注框发 link-brain:annotations 就换（新写的立刻挤上画面、带 is-mine；删掉的撤下；不带时间的不播）；
+// 画面右下角「弹」字开关（动鼠标出现、静止 2 秒淡出、点了开关）；高级弹幕（mode 7）按坐标静态停几秒；⑤插件卸载拆干净。
 'use strict';
 const assert = require('node:assert/strict');
 const fs = require('fs'), path = require('path');
@@ -24,7 +25,7 @@ function bigXml(n, dur = 120) {
   for (let i = 0; i < n; i++) { const m = rnd() < 0.8 ? 1 : rnd() < 0.5 ? 4 : 5; rows.push([(rnd() * dur).toFixed(3), m, 25, 16777215, '弹幕' + i + (i % 3 ? '哈哈哈哈' : '')]); }
   return xmlOf(rows);
 }
-function archiveFiles(sid, { xml = null, danmakuStatus = 'ok', mine = null } = {}) {
+function archiveFiles(sid, { xml = null, danmakuStatus = 'ok', notes = null } = {}) {
   const base = `_archive/bilibili/${sid}`;
   const files = {
     [`${base}/meta.json`]: JSON.stringify({ item_id: 'bili-' + sid, source: 'bilibili', source_id: sid, current_version: 2 }),
@@ -34,7 +35,7 @@ function archiveFiles(sid, { xml = null, danmakuStatus = 'ok', mine = null } = {
     ] }),
   };
   if (xml != null) files[`${base}/raw/v0002/assets/danmaku.xml`] = xml;
-  if (mine) files[`${base}/danmaku-mine.json`] = JSON.stringify(mine);
+  if (notes) files[`${base}/notes.json`] = JSON.stringify(notes);
   return files;
 }
 
@@ -53,8 +54,15 @@ function loadNav(E, { settings = { media: { loop: true, playlistOrder: 'newest' 
   const m = { exports: {} };
   const req = p => (p === './danmaku.js' ? DM : {});
   new Function('require', 'module', 'exports', 'document', 'window', 'Element', 'MutationObserver', 'ResizeObserver', 'innerWidth', 'innerHeight', 'Event', src)(req, m, m.exports, E.D, E.window, E.dom.El, E.MO, E.RO, 1200, 800, E.dom.Event);
+  // 插件事件总线（Obsidian workspace.on / offref / trigger 的最小替身）
+  const bus = new Map();
+  const workspace = { activeLeaf: null, getLeavesOfType: () => [],
+    on(name, fn) { const ref = { name, fn }; (bus.get(name) || bus.set(name, new Set()).get(name)).add(ref); return ref; },
+    offref(ref) { const s = bus.get(ref && ref.name); if (s) s.delete(ref); },
+    trigger(name, ...a) { for (const r of [...(bus.get(name) || [])]) r.fn(...a); },
+    listeners: name => (bus.get(name) || new Set()).size };
   const host = {
-    app: { plugins: { enabledPlugins: new Set(), manifests: {} }, workspace: { activeLeaf: null, getLeavesOfType: () => [] }, metadataCache: { getFileCache: () => null }, vault: E.V.vault },
+    app: { plugins: { enabledPlugins: new Set(), manifests: {} }, workspace, metadataCache: { getFileCache: () => null }, vault: E.V.vault },
     settings, saves: 0, dirty: [], notes: [],
     async saveSettings() { this.saves++; if (saveFail && saveFail()) throw new Error('磁盘满了'); },
     markSettingDirty(...k) { this.dirty.push(...k); },
@@ -92,6 +100,32 @@ const key = (E, target, k, extra = {}) => { const e = E.dom.event('keydown', { k
     assert.deepEqual(items.map(d => d.text), ['顶部 & <b>', '底部😀', '逆向当滚动', '滚动'], '按时间排好；7 / 8 / 空文字 / 坏时间不要');
     assert.deepEqual(items.map(d => d.mode), ['top', 'bottom', 'scroll', 'scroll']);
     assert.equal(items[0].size, 36); assert.equal(items[0].color, 15138834); assert.equal(items[1].size, 18);
+    // 高级弹幕（mode 7）：正文是 JSON 数组；取位置 / 起始透明度 / 停留秒数 / 文字（\n 换行），读不懂的丢
+    const adv = DM.parseXml(xmlOf([
+      [10, 7, 60, 16776960, '[&quot;542&quot;,&quot;323&quot;,&quot;0.8-0&quot;,&quot;9&quot;,&quot;露伴牌面！！！&quot;,&quot;0&quot;,&quot;20&quot;,&quot;74&quot;,&quot;206&quot;,500,0,1,&quot;SimHei&quot;,1]'],
+      [11, 7, 25, 255, '["0.5","0.25","1-1","40","第一行\\n第二行"]'],
+      [12, 7, 25, 255, '不是 JSON'], [13, 7, 25, 255, '["1","2","1-1","3","   "]'],
+    ]));
+    assert.equal(adv.length, 2, '读不懂的 / 空文字的高级弹幕丢掉');
+    assert.equal(adv[0].mode, 'adv'); assert.equal(adv[0].text, '露伴牌面！！！'); assert.equal(adv[0].size, 60); assert.equal(adv[0].color, 16776960);
+    assert.ok(Math.abs(adv[0].x - 542 / 672) < 1e-9 && Math.abs(adv[0].y - 323 / 438) < 1e-9, '像素坐标按 672×438 舞台折成比例');
+    assert.equal(adv[0].alpha, 0.8); assert.equal(adv[0].dur, 9);
+    assert.equal(adv[1].x, 0.5); assert.equal(adv[1].y, 0.25, '带小数 ≤1 的是比例');
+    assert.equal(adv[1].dur, DM.ADV_MAX, '停留最多 15 秒'); assert.equal(adv[1].text, '第一行\n第二行', '多行照原样');
+    {
+      const { document: D } = makeDom();
+      const layer = D.body.createEl('div', { cls: 'lb-dm-layer' });
+      const eng = new DM.Engine(layer); eng.resize(672, 438); eng.setItems(adv);
+      eng.frame(10.1);
+      const r = eng.live.find(x => x.mode === 'adv');
+      assert.ok(r && r.el.classList.contains('is-adv'), '高级弹幕上画面');
+      assert.equal(r.el.style.transform, 'translate3d(542px,323px,0)', '放在它写的位置');
+      assert.equal(r.el.style.opacity, '0.8');
+      eng.frame(18.9); assert.ok(eng.live.some(x => x.d === adv[0]), '停 9 秒内还在');
+      eng.frame(19.2); assert.ok(!eng.live.some(x => x.d === adv[0]), '9 秒后收走');
+      eng.frame(30); eng.frame(15);   // 往回拖到 15 秒：按新时间重排，两条都该在
+      assert.deepEqual(eng.live.map(x => x.d.text).sort(), ['第一行\n第二行', '露伴牌面！！！'].sort(), '拖回去重排也认停留秒数');
+    }
     const real = path.join(ROOT, 'tests/fixtures/bilibili_danmaku_sample.xml');
     if (fs.existsSync(real)) assert.ok(DM.parseXml(fs.readFileSync(real, 'utf8')).length > 0);
   }
@@ -162,19 +196,26 @@ const key = (E, target, k, extra = {}) => { const e = E.dom.event('keydown', { k
   // ── ③ 控制器：B 站视频挂上、小红书视频不挂 ──
   const SID = 'BV1test0001';
   {
-    const E = makeEnv(archiveFiles(SID, { xml: xmlOf([[0.5, 1, 25, 16777215, '第一条'], [1, 5, 25, 255, '顶'], [40, 1, 25, 16777215, '后面']]) }));
+    const E = makeEnv(archiveFiles(SID, { xml: xmlOf([[0.5, 1, 25, 16777215, '第一条'], [1, 5, 25, 255, '顶'], [40, 1, 25, 16777215, '后面']]), notes: { starred: false, annotations: [
+      { id: 'a1', ts: '2026-10-30T01:00:00Z', text: '不带时间的批注' },
+      { id: 'a2', ts: '2026-10-30T01:01:00Z', text: '老批注带时间', video_t: 30 },
+      { id: 'a3', ts: '2026-10-30T01:02:00Z', text: '删掉了', video_t: 31 },
+      { id: 'a4', ts: '2026-10-30T01:03:00Z', text: '   ', video_t: 32 },
+    ], deleted: ['a3'], draft: '草稿不算' } }));
     const A = videoNote(E, 'bili-' + SID), B = videoNote(E, 'xhs-v1');
     const { nav, host } = loadNav(E);
     nav.attach();
     await settle();
     const c = A.media.__lbDanmaku;
     assert.ok(c, 'B 站视频挂上弹幕');
-    assert.ok(!B.media.__lbDanmaku && !B.media.querySelector('.lb-dm-toggle') && !E.D.body.querySelectorAll('.lb-dm-send').some(r => B.side.contains(r)), '小红书视频不出弹幕控件');
+    assert.ok(!B.media.__lbDanmaku && !B.media.querySelector('.lb-dm-toggle') && !B.media.querySelector('.lb-dm-ovbtn'), '小红书视频不出弹幕控件');
     const bar = A.media.querySelector('.lb-media-tools');
     assert.deepEqual(bar.children.map(b => b.textContent).slice(-2), ['弹幕', '弹幕设置'], '工具行末尾「弹幕」「弹幕设置」');
     assert.ok(A.slide.querySelector('.lb-dm-layer'), '弹幕层叠在视频那一格里（.lb-media 里：全屏照样在）');
-    assert.equal(A.media.nextElementSibling && A.media.nextElementSibling.className, 'lb-dm-send', '发弹幕那一条在视频下面（不挡画面）');
-    assert.equal(c.origState, 'ok'); assert.equal(c.engine.items.length, 3);
+    assert.ok(!E.D.body.querySelector('.lb-dm-send') && !A.media.querySelector('.lb-dm-input'), '没有另一个发弹幕框了（写批注就是发弹幕）');
+    assert.ok(A.slide.querySelector('.lb-dm-ovbtn'), '画面上有「弹」字开关');
+    assert.equal(c.origState, 'ok'); assert.equal(c.engine.items.length, 4, '3 条原弹幕 + 1 条带时间的批注（不带时间的、删掉的、空的不算）');
+    assert.deepEqual(c.engine.items.filter(d => d.mine).map(d => [d.time, d.text]), [[30, '老批注带时间']]);
     assert.equal(c.toggleBtn.getAttribute('aria-pressed'), 'true', '默认开');
     // 暂停在 0.6 秒拖到这里：画面上是这一刻该有的
     A.video.currentTime = 0.6; A.video.dispatchEvent({ type: 'seeked' });
@@ -195,14 +236,15 @@ const key = (E, target, k, extra = {}) => { const e = E.dom.event('keydown', { k
     c.toggleBtn.click(); await settle();
     assert.equal(host.settings.media.danmaku.on, false); assert.equal(host.settings.media.loop, true, '同组的循环设置不丢');
     assert.ok(host.saves >= 1 && host.dirty.includes('media'));
-    assert.ok(c.layer.hidden && c.sendRow.hidden, '关了：弹幕层藏起来、发送栏收起');
+    assert.ok(c.layer.hidden, '关了：弹幕层藏起来');
+    assert.equal(c.ovBtn.getAttribute('aria-pressed'), 'false', '画面上的「弹」跟着变成关的样子');
     assert.equal(c.engine.live.length, 0);
     // D：焦点在视频上按 → 开；输入框里按不算；别处按不算；全屏时焦点在哪都算
     key(E, A.video, 'd'); await settle();
     assert.equal(host.settings.media.danmaku.on, true, '焦点在视频上按 D 开');
     assert.ok(!c.layer.hidden && A.slide.querySelector('.lb-dm-flash.is-on'), '画面上冒一句「弹幕：开」');
     assert.match(A.slide.querySelector('.lb-dm-flash').textContent, /弹幕：开/);
-    key(E, c.input, 'd'); await settle();
+    const ta = A.side.createEl('textarea'); key(E, ta, 'd'); await settle();
     assert.equal(host.settings.media.danmaku.on, true, '输入框里打 d 不切');
     key(E, E.D.body, 'd'); await settle();
     assert.equal(host.settings.media.danmaku.on, true, '焦点不在视频上不切');
@@ -218,7 +260,8 @@ const key = (E, target, k, extra = {}) => { const e = E.dom.event('keydown', { k
     assert.equal(c.panel.hidden, false, '「弹幕设置」打开弹层');
     assert.match(c.panel.textContent, /按 D 开关弹幕/, '可见文字里说明了 D 键');
     assert.match(c.panel.textContent, /不会发到 B 站/);
-    assert.match(c.panel.textContent, /原弹幕 3 条 · 我发的 0 条/);
+    assert.match(c.panel.textContent, /原弹幕 3 条 · 我的批注弹幕 1 条/);
+    assert.match(c.panel.textContent, /记在当前时间/, '说明了自己的弹幕从批注框写');
     const opt = text => c.panel.querySelectorAll('button').find(b => b.textContent === text);
     for (const t of ['1/4 屏', '半屏', '全屏', '慢', '标准', '快', '很快', '滚动', '顶部', '底部', '收起']) assert.ok(opt(t), '弹层里有「' + t + '」');
     opt('全屏').click(); await settle();
@@ -235,41 +278,68 @@ const key = (E, target, k, extra = {}) => { const e = E.dom.event('keydown', { k
     assert.equal(host.settings.media.danmaku.scale, 1.5);
     opt('收起').click(); assert.equal(c.panel.hidden, true);
 
-    // ④ 发弹幕：立刻上画面（带细框）、存 danmaku-mine.json
+    // ④ 批注框存了一条带时间的批注（发 link-brain:annotations）→ 立刻飘出来（带细框）
     A.video.currentTime = 12.3456;
-    c.input.value = '  第一次\n发弹幕 ';
-    c.media.nextElementSibling.querySelector('.lb-dm-send-btn').click(); await settle();
-    const mineRec = c.engine.live.find(r => r.d.mine);
+    const W = host.app.workspace;
+    assert.equal(W.listeners('link-brain:annotations'), 1, '挂上时订阅批注事件');
+    const notes1 = { annotations: [
+      { id: 'a1', ts: '2026-10-30T01:00:00Z', text: '不带时间的批注' },
+      { id: 'a2', ts: '2026-10-30T01:01:00Z', text: '老批注带时间', video_t: 30 },
+      { id: 'a5', ts: '2026-10-31T01:00:00Z', text: '刚写的\n一条批注', video_t: 12.346 },
+    ], deleted: ['a3'] };
+    W.trigger('link-brain:annotations', 'xhs-other', notes1);
+    assert.ok(!c.engine.items.some(d => d.id === 'a5'), '别的笔记的批注不管');
+    W.trigger('link-brain:annotations', 'bili-' + SID, notes1);
+    const mineRec = c.engine.live.find(r => r.d.mine && r.d.id === 'a5');
     assert.ok(mineRec && mineRec.el.classList.contains('is-mine'), '立刻飘出来、带 is-mine 细框');
-    assert.equal(mineRec.d.text, '第一次 发弹幕');
-    assert.equal(c.input.value, '', '发完清空');
-    const file = `_archive/bilibili/${SID}/danmaku-mine.json`;
-    const doc1 = JSON.parse(E.V.get(file));
-    assert.equal(doc1.schema_version, 1); assert.equal(doc1.item_id, 'bili-' + SID); assert.equal(doc1.source_id, SID);
-    assert.equal(doc1.items.length, 1);
-    const it = doc1.items[0];
-    assert.deepEqual(Object.keys(it).sort(), ['color', 'created_at', 'id', 'mode', 'size', 'text', 'time']);
-    assert.equal(it.time, 12.346); assert.equal(it.mode, 1); assert.equal(it.color, 16777215); assert.equal(it.size, 25);
-    assert.match(it.created_at, /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d[+-]\d\d:\d\d$/, '本地时区带偏移');
-    assert.ok(E.V.get(file).endsWith('\n') && E.V.get(file).includes('\n  "items"'), '缩进 2、末尾换行');
-    // Enter 发第二条：追加，不留临时文件
-    A.video.currentTime = 20;
-    c.input.value = '第二条'; key(E, c.input, 'Enter'); await settle();
-    assert.equal(JSON.parse(E.V.get(file)).items.length, 2, '追加');
-    assert.ok(![...E.V.disk.keys()].some(k => /danmaku-mine\.json\.(tmp|bak)$/.test(k)), '不留 .tmp / .bak');
-    assert.match(c.panel.textContent, /我发的 2 条/);
-    // 写盘失败：撤回、字放回输入框、说原因
-    const w0 = E.V.vault.adapter.write;
-    E.V.vault.adapter.write = async () => { throw new Error('只读'); };
-    c.input.value = '写不进去'; key(E, c.input, 'Enter'); await settle();
-    E.V.vault.adapter.write = w0;
-    assert.equal(c.input.value, '写不进去', '内容还在');
-    assert.ok(!c.engine.items.some(d => d.text === '写不进去'), '撤回');
-    assert.ok(host.notes.some(([m, k]) => /^没保存上，内容还在，可重试：只读/.test(m) && k === 'error'));
-    assert.equal(JSON.parse(E.V.get(file)).items.length, 2);
-    // 空的不发
-    c.input.value = '   '; key(E, c.input, 'Enter'); await settle();
-    assert.equal(JSON.parse(E.V.get(file)).items.length, 2);
+    assert.equal(mineRec.d.text, '刚写的 一条批注', '换行压成空格');
+    assert.match(c.panel.textContent, /我的批注弹幕 2 条/);
+    // 很长的批注只飘前 40 个字
+    const long = '长'.repeat(60);
+    W.trigger('link-brain:annotations', 'bili-' + SID, { annotations: [...notes1.annotations, { id: 'a6', ts: 'x', text: long, video_t: 100 }], deleted: [] });
+    assert.equal(c.engine.items.find(d => d.id === 'a6').text, '长'.repeat(40) + '…');
+    // 删掉 a5（墓碑）、改 a2 的字：撤下 / 换字
+    W.trigger('link-brain:annotations', 'bili-' + SID, { annotations: [notes1.annotations[0], { ...notes1.annotations[1], text: '改过的' }, notes1.annotations[2]], deleted: ['a3', 'a5'] });
+    assert.ok(!c.engine.items.some(d => d.id === 'a5') && !c.engine.live.some(r => r.d.id === 'a5'), '删掉的撤下');
+    assert.ok(!c.engine.items.some(d => d.id === 'a6'), '不在列表里的撤下');
+    assert.deepEqual(c.engine.items.filter(d => d.mine).map(d => d.text), ['改过的']);
+    assert.equal(c.engine.items.filter(d => !d.mine).length, 3, '原弹幕不动');
+    // 弹幕关着时来的：只排进时间线，不上画面
+    c.toggleBtn.click(); await settle();
+    W.trigger('link-brain:annotations', 'bili-' + SID, { annotations: [{ id: 'a7', ts: 'y', text: '关着时写的', video_t: 12.4 }], deleted: [] });
+    assert.ok(c.engine.items.some(d => d.id === 'a7') && c.engine.live.length === 0);
+    c.toggleBtn.click(); await settle();
+    // notes.json 由批注框写（这里只读）——模拟它写好，下面重开时读
+    E.V.disk.set(`_archive/bilibili/${SID}/notes.json`, JSON.stringify({ annotations: [
+      { id: 'b1', ts: '1', text: '第一次 发弹幕', video_t: 12.346 }, { id: 'b2', ts: '2', text: '第二条', video_t: 20 }, { id: 'b3', ts: '3', text: '没时间' }] }));
+
+    // 画面上的「弹」字开关：播放中动鼠标出现，静止 2 秒淡出；点了开关弹幕（不落到画面上：不暂停）
+    const ov = c.ovBtn;
+    assert.ok(!ov.classList.contains('is-awake'), '平常看不见');
+    A.video.paused = false; A.video.dispatchEvent({ type: 'play' });
+    A.media.dispatchEvent(E.dom.event('pointermove', { pointerType: 'mouse', bubbles: true }));
+    assert.ok(ov.classList.contains('is-awake'), '播放中动鼠标就出来');
+    ov.click(); await settle();
+    assert.equal(host.settings.media.danmaku.on, false, '点「弹」关弹幕');
+    assert.equal(ov.getAttribute('aria-pressed'), 'false');
+    assert.match(A.slide.querySelector('.lb-dm-flash').textContent, /弹幕：关/);
+    assert.equal(A.video.paused, false, '没把这一下当成点画面（没暂停）');
+    ov.click(); await settle();
+    assert.equal(host.settings.media.danmaku.on, true);
+    await tick(DM.AWAKE_MS + 150);
+    assert.ok(!ov.classList.contains('is-awake'), '静止 2 秒淡出');
+    A.media.dispatchEvent(E.dom.event('pointermove', { pointerType: 'touch', bubbles: true }));
+    assert.ok(!ov.classList.contains('is-awake'), '触屏不算');
+    // 暂停：不全屏时不出（工具行露着），全屏时动一下就在（原生控制条暂停时也一直在）
+    A.video.paused = true; A.video.dispatchEvent({ type: 'pause' });
+    A.media.dispatchEvent(E.dom.event('pointermove', { pointerType: 'mouse', bubbles: true }));
+    assert.ok(!ov.classList.contains('is-awake'), '不全屏 + 暂停：不出');
+    A.media.classList.add('is-lb-fullscreen');
+    A.media.dispatchEvent(E.dom.event('pointermove', { pointerType: 'mouse', bubbles: true }));
+    assert.ok(ov.classList.contains('is-awake'), '全屏 + 暂停：出');
+    A.media.dispatchEvent(E.dom.event('mouseleave', {}));
+    assert.ok(!ov.classList.contains('is-awake'), '鼠标离开画面就收');
+    A.media.classList.remove('is-lb-fullscreen');
 
     // 设置存不上：拨回原来的样子并说原因
     const E2 = makeEnv(archiveFiles(SID, { xml: xmlOf([]) }));
@@ -282,20 +352,20 @@ const key = (E, target, k, extra = {}) => { const e = E.dom.event('keydown', { k
     assert.ok(L2.host.notes.some(([m]) => m === '没保存上，开关已拨回原来的位置：磁盘满了'));
     L2.host.cleanups.forEach(f => f());
 
-    // 重新打开：原弹幕 + 我发的一起播
+    // 重新打开：原弹幕 + notes.json 里带时间的批注一起播
     A.note.remove();
     const A2 = videoNote(E, 'bili-' + SID);
     nav.enhance(A2.car); await settle();
     const c3 = A2.media.__lbDanmaku;
     assert.ok(c3 && c3 !== c);
-    assert.equal(c3.engine.items.length, 5, '3 条原弹幕 + 2 条我发的');
+    assert.equal(c3.engine.items.length, 5, '3 条原弹幕 + 2 条带时间的批注');
     assert.deepEqual(c3.engine.items.filter(d => d.mine).map(d => d.text), ['第一次 发弹幕', '第二条']);
     // 所有视频共用一份设置：一条视频上关掉，另一条也关
     const Bv = videoNote(E, 'bili-BV1other02');
     for (const [k, v] of Object.entries(archiveFiles('BV1other02', { danmakuStatus: 'unavailable' }))) E.V.disk.set(k, v);
     nav.enhance(Bv.car); await settle();
     const c4 = Bv.media.__lbDanmaku;
-    assert.ok(c4, '原弹幕没有（unavailable）照样能发自己的');
+    assert.ok(c4, '原弹幕没有（unavailable）照样挂上（播自己的批注弹幕）');
     c4.menuBtn.click(); assert.match(c4.panel.textContent, /这条视频没存下原弹幕/);
     c4.toggleBtn.click(); await settle();
     assert.ok(c3.layer.hidden && c3.toggleBtn.getAttribute('aria-pressed') === 'false', '另一条视频跟着关');
@@ -305,7 +375,8 @@ const key = (E, target, k, extra = {}) => { const e = E.dom.event('keydown', { k
     // ⑤ 插件卸载：拆干净
     host.cleanups.forEach(f => f());
     assert.equal(DM.controllers.size, 0);
-    assert.equal(E.D.body.querySelectorAll('.lb-dm-layer').length + E.D.body.querySelectorAll('.lb-dm-send').length + E.D.body.querySelectorAll('.lb-dm-panel').length, 0);
+    assert.equal(E.D.body.querySelectorAll('.lb-dm-layer').length + E.D.body.querySelectorAll('.lb-dm-ovbtn').length + E.D.body.querySelectorAll('.lb-dm-panel').length, 0);
+    assert.equal(host.app.workspace.listeners('link-brain:annotations'), 0, '批注事件退订');
     assert.equal((E.D.listeners.keydown || []).length, 1, 'D 键监听摘掉（剩下那个是 media-nav 自己的 ←/→，由插件 registerDomEvent 管）');
   }
   // 弹幕模块加载不上（旧测试那样 require 返回 {}）：视频工具行照常
@@ -319,5 +390,5 @@ const key = (E, target, k, extra = {}) => { const e = E.dom.event('keydown', { k
     nav.attach(); await settle();
     assert.ok(A.media.querySelector('.lb-video-full') && !A.media.querySelector('.lb-dm-toggle'));
   }
-  console.log('PASS danmaku 1031: XML 解析、引擎只建屏幕上的节点且同行不撞车、拖进度条重排、倍速 / 暂停、屏蔽 / 区域 / 速度；只认 B 站视频；弹幕 / 弹幕设置 / D 键；设置共用且存不上拨回；本地发弹幕原子写 danmaku-mine.json、失败撤回、重开一起播；卸载拆干净');
+  console.log('PASS danmaku 1031: XML 解析、引擎只建屏幕上的节点且同行不撞车、拖进度条重排、倍速 / 暂停、屏蔽 / 区域 / 速度；只认 B 站视频；弹幕 / 弹幕设置 / D 键；设置共用且存不上拨回；她的弹幕 = 带 video_t 的批注（打开读、事件换、删掉撤下、重开一起播）；「弹」字开关；卸载拆干净');
 })().catch(e => { console.error(e); process.exit(1); });

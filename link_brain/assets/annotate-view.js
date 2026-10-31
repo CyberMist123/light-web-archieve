@@ -84,6 +84,13 @@ style.textContent = `
 .xhs-note .lb-media-locked .lba-annot.lba-in-side > .lba-input-row{order:-1;padding-top:4px;}
 .xhs-note .lb-media-locked .lba-annot.lba-in-side > .lba-annot-head{margin:8px 0;}
 .xhs-note .lb-media-locked .lba-annot.lba-in-side > .lba-annot-list{gap:12px;margin-bottom:12px;}
+/* 1031 她「弹幕直接复用批注」：B 站视频笔记的批注框下面一个「记在当前时间」的勾；带时间的批注前面一个时间标，点了跳到那一秒 */
+.lba-vt-row{display:flex;align-items:center;gap:6px;margin:2px 0 0;font-size:12px;color:var(--text-muted);cursor:pointer;user-select:none;width:fit-content;}
+.lba-vt-row input{margin:0;cursor:pointer;}
+.lba-vt-row .lba-vt-now{font-variant-numeric:tabular-nums;color:var(--text-normal);}
+.xhs-note .lb-media-locked .lba-annot.lba-in-side > .lba-vt-row{order:-1;margin-bottom:4px;}
+.lba-vt{display:inline-block;margin-right:6px;padding:0 6px;border-radius:999px;background:var(--background-modifier-hover);color:var(--text-accent);font-size:12px;line-height:1.6;font-variant-numeric:tabular-nums;cursor:pointer;user-select:none;white-space:nowrap;}
+.lba-vt:hover{background:var(--interactive-accent);color:var(--text-on-accent);}
 `;
 
 const box = mount.createEl('div', { cls: 'lba-annot' });
@@ -99,6 +106,66 @@ const ta = inputRow.createEl('textarea', { cls: 'lba-annot-input' });
 const star = inputRow.createEl('span', { cls: 'lba-star', text: '★' });
 if (typeof star.setAttribute === 'function') { star.setAttribute('role', 'button'); star.setAttribute('aria-label', '收藏'); }
 ta.placeholder = '写批注…';  // 真正的提示由 setPlaceholder() 按有没有内容决定
+
+// 1031 她「弹幕直接复用批注」：B 站视频笔记里，批注带上视频时间（notes.json 的 video_t，秒）就是她自己的弹幕——
+// 插件 danmaku.js 读它在画面上飘（带细框），这里照常列出来（前面一个时间标，点了跳到那一秒）。写法和别的批注完全一样（同一个 persist：
+// 先读磁盘、按条合并、删除墓碑、读坏了另存 .corrupt 暂停保存），只是多一个字段。
+// 时间取「开始写这一条那一刻」的播放位置（看到一处、点进框里打字，视频还在往前走；落成批注时才取就晚了）；勾掉就不带时间。
+// 视频还没开始播（只有封面）不带时间。存完发 link-brain:annotations（itemId, {annotations, deleted}），弹幕层立刻换上。
+const isBili = /^bili-/.test(String(itemId || ''));
+let vtOn = true, vtStamp = null, vtTimer = null, vtBox = null, vtNow = null;
+if (isBili) {
+  try { vtOn = localStorage.getItem('lb:annot-vt') !== '0'; } catch {}
+  const vtRow = box.createEl('label', { cls: 'lba-vt-row' });
+  vtBox = vtRow.createEl('input', { attr: { type: 'checkbox' } });
+  vtBox.checked = vtOn;
+  vtRow.createEl('span', { text: '记在当前时间' });
+  vtNow = vtRow.createEl('span', { cls: 'lba-vt-now' });
+  // 按下这一行不让输入框失焦（失焦即定稿：不然一点勾，正在写的那条就先存了）
+  vtRow.onmousedown = (e) => { if (e && e.target !== vtBox && e.preventDefault) e.preventDefault(); };
+  vtBox.onchange = () => {
+    vtOn = !!vtBox.checked;
+    try { localStorage.setItem('lb:annot-vt', vtOn ? '1' : '0'); } catch {}
+    paintVt();
+    if (hasDoc && document.activeElement !== ta && !ta.disabled) { try { ta.focus(); } catch {} }
+  };
+}
+// 这篇的视频（左栏那一个）。批注框挪进左栏前后都找得到：从框往上找到这篇的视图再往下找
+function findVideo() {
+  let view = null;
+  try { view = (box.closest && box.closest('.markdown-reading-view, .markdown-preview-view')) || (root.closest && root.closest('.markdown-reading-view, .markdown-preview-view')); } catch {}
+  return (view && view.querySelector && view.querySelector('.xhs-note .lb-side video, .xhs-note .lb-carousel video')) || null;
+}
+// 当前播放位置（秒，3 位小数）；没有视频 / 还没开始播 = null
+function videoNow() {
+  const v = findVideo();
+  if (!v) return null;
+  const t = Number(v.currentTime);
+  if (!Number.isFinite(t) || (t <= 0 && v.paused !== false)) return null;
+  return Math.round(Math.max(0, t) * 1000) / 1000;
+}
+function fmtVt(sec) {
+  const s = Math.max(0, Math.floor(Number(sec) || 0)), h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60, ss = String(s % 60).padStart(2, '0');
+  return h ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`;
+}
+function paintVt() {
+  if (!vtNow) return;
+  if (!vtOn) { vtNow.setText(''); return; }
+  const t = vtStamp != null ? vtStamp : videoNow();
+  const focused = hasDoc && document.activeElement === ta;
+  vtNow.setText(t != null ? fmtVt(t) : (focused || findVideo() ? '（视频还没开始播）' : ''));
+}
+function seekTo(sec) {
+  const v = findVideo();
+  if (!v) { notify('没找到这篇的视频'); return; }
+  try { v.currentTime = Number(sec) || 0; } catch {}
+  try { const p = v.play && v.play(); if (p && p.catch) p.catch(() => {}); } catch {}
+  try { v.scrollIntoView && v.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch {}
+}
+function emitAnnots() {
+  if (!isBili) return;
+  try { app.workspace && app.workspace.trigger && app.workspace.trigger('link-brain:annotations', itemId, { annotations: data.annotations, deleted: Array.isArray(data.deleted) ? data.deleted : [] }); } catch {}
+}
 
 // 0928 Owner：批注挪到左栏图片下面，和图在一屏。只在阅读视图挪（编辑视图里挪 DOM 会和编辑器打架），
 // 事件都绑在 box 上，挪了照样能用；重渲染时先清掉左栏里的旧副本，不会叠出两个。
@@ -264,6 +331,7 @@ async function persist() {
   const before = JSON.stringify(data.annotations);
   adopt(doc);
   if (JSON.stringify(data.annotations) !== before && !list.querySelector('.lba-edit-input')) renderList();
+  emitAnnots();   // 1031：弹幕层跟着换（删 / 改 / 撤销 / 新写都走这里）
 }
 // 1023：自动保存的状态常亮在标题行右边；flash 用于一次性提示（别的动作），会淡掉
 function saving() { clearTimeout(flash._t); saveHint.removeClass?.('is-ok'); saveHint.addClass?.('is-busy'); saveHint.setText('保存中…'); saveHint.style.opacity = '1'; }
@@ -394,6 +462,13 @@ function renderList() {
     const ts = el.createEl('span', { cls: 'lba-ts', text: (who ? who + ' · ' : '') + fmtTs(a.ts) });
     if (a.to_fable) ts.createEl('span', { cls: 'lba-fable-tag', text: mention() ? '给 ' + mention() : '留言' });
     if (a.edited) ts.createEl('span', { cls: 'lba-edited', text: '· 已编辑' });
+    // 1031：带视频时间的（= 她的弹幕）前面一个时间标，点了跳到那一秒接着播
+    if (typeof a.video_t === 'number' && Number.isFinite(a.video_t) && a.video_t >= 0) {
+      const t = a.video_t;
+      const vt = el.createEl('span', { cls: 'lba-vt', text: '▶ ' + fmtVt(t), attr: { role: 'button', tabindex: '0', 'aria-label': '跳到视频 ' + fmtVt(t) } });
+      vt.onclick = (ev) => { if (ev && ev.stopPropagation) ev.stopPropagation(); seekTo(t); };
+      vt.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); seekTo(t); } };
+    }
     const textSpan = el.createEl('span', { cls: 'lba-annot-text' });
     textSpan.setText(a.text || '');
     const ctl = el.createEl('span', { cls: 'lba-ctl' });
@@ -438,6 +513,8 @@ function renderList() {
 let draftTimer;
 ta.oninput = () => {
   fitHeight(ta);
+  // 1031：开始写这一条的那一刻记下播放位置；删空了就不算
+  if (isBili) { if (!ta.value.trim()) vtStamp = null; else if (vtStamp == null) vtStamp = videoNow(); paintVt(); }
   clearTimeout(draftTimer);
   saving();
   draftTimer = setTimeout(async () => {
@@ -460,10 +537,13 @@ async function commit() {
   if (!text) { if (data.draft) { data.draft = ''; try { await persist(); } catch (err) { flash('草稿没清掉：' + (err.message || err)); } } return; }
   const to_fable = isMention(text);
   const prev = snapshot();
-  data.annotations.push({ id: newId(), ts: new Date().toISOString(), text, to_fable, author: to_fable ? '' : nickname() });
+  const entry = { id: newId(), ts: new Date().toISOString(), text, to_fable, author: to_fable ? '' : nickname() };
+  if (isBili && vtOn) { const vt = vtStamp != null ? vtStamp : videoNow(); if (vt != null) entry.video_t = vt; }   // 1031：= 她的弹幕
+  data.annotations.push(entry);
   data.draft = '';
   // 失败把刚 push 的那条撤回（不然再提交一次会多出一条重复批注），字留在输入框里
   try { await persist(); } catch (err) { restore(prev); failNotice(err); return; }
+  vtStamp = null; paintVt();
   ta.value = '';
   fitHeight(ta);
   if (!list.querySelector('.lba-edit-input')) renderList();   // N-M1：正在编辑某条时不重画（persist 里同样的保护）
@@ -490,6 +570,12 @@ ta.onblur = () => {
       }
       return saveDraftNow();
     });
+};
+// 1031：框里有光标时「记在当前时间」后面的时间跟着视频走（每半秒刷一次）；离开就停
+ta.onfocus = () => {
+  if (!isBili) return;
+  paintVt(); clearInterval(vtTimer);
+  vtTimer = setInterval(() => { if (ta.isConnected === false || !hasDoc || document.activeElement !== ta) { clearInterval(vtTimer); vtTimer = null; paintVt(); return; } paintVt(); }, 500);
 };
 ta.onkeydown = (e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); commit(); } };
 
@@ -544,6 +630,8 @@ await load();
 LB?.t('read');
 renderStar();
 renderList();
+paintVt();
+emitAnnots();
 ta.value = data.draft || '';
 fitHeight(ta);
 LB?.t('render');
@@ -553,6 +641,7 @@ LB?.keep(mount === root ? box : mount, { versionOf: { abs: notePath }, version: 
   await load();
   renderStar();
   if (!list.querySelector('.lba-edit-input')) renderList();
+  emitAnnots();
   const typing = typeof document !== 'undefined' && document.activeElement === ta;
   if (!typing && !ta.disabled) { ta.value = data.draft || ''; fitHeight(ta); }
 } });
