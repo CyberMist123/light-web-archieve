@@ -395,3 +395,44 @@ def test_normal_page_mentioning_captcha_word_is_not_stopped(monkeypatch):
     monkeypatch.setattr(xhs.httpx, "get", lambda *a, **k: _Resp(page))
     out = xhs.fetch_related_file("0000000000000000deadbeef", "tok", stop_on_captcha=True)
     assert out["ok"] is True and not out.get("captcha")
+
+
+def test_all_retries_failed_ones_same_night(monkeypatch):
+    """1031 她「补附件应该当天结束，马上补，而不是推迟重试」：attachments --all 第一轮没下好的，同一晚末尾再试一次（retry_pass），
+    读取服务刚挂过先歇一会儿；第二轮补上了这次就算成功。"""
+    import types
+    from link_brain import index as index_mod
+
+    class Conn:
+        def execute(self, *a):
+            return types.SimpleNamespace(fetchall=lambda: [{"source": "xiaohongshu", "source_id": "pp01"},
+                                                          {"source": "xiaohongshu", "source_id": "pp02"}])
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(index_mod, "connect", lambda: Conn())
+    monkeypatch.setattr(index_mod, "set_attachments_status", lambda *a: None)
+    backend = types.SimpleNamespace(attempt_cost=lambda n: 1, blocked_message=lambda: "", looks_blocked=lambda m: False)
+    monkeypatch.setattr(att, "_backend", lambda key: backend)
+    monkeypatch.setattr(att, "convert_downloads", lambda *a: False)
+    monkeypatch.setattr(att, "_sync_index_status", lambda *a: None)
+    monkeypatch.setattr(att, "_rebuild_catalog", lambda *a: True)
+    monkeypatch.setattr(att, "describe_problem", lambda key, sid, name, msg: f"{sid} {name}：{msg}")
+    monkeypatch.setattr(att.time, "sleep", lambda s: slept.append(s))
+    from link_brain import render as render_mod
+    monkeypatch.setattr(render_mod, "render_object", lambda *a: None)
+    monkeypatch.setattr(storage, "read_json", lambda p: {})
+    slept, calls = [], []
+
+    def fake_download(source_key, source_id, *, retry_pass=False, **kw):
+        calls.append((source_id, retry_pass))
+        if source_id == "pp01" and not retry_pass:
+            return {"item_id": "xhs-pp01", "results": [{"status": "failed", "name": "a.pdf", "error": "读取服务这次没响应（TIMEOUT）"}]}
+        return {"item_id": f"xhs-{source_id}", "results": [{"status": "downloaded", "file": "a.pdf", "bytes": 1, "sha256": "x" * 12}]}
+
+    monkeypatch.setattr(att, "download_for_object", fake_download)
+    args = types.SimpleNamespace(all=True, target=None, force=False, verbose=False, recheck=False, dedupe=False, budget_min=0)
+    assert att._run(args) == 0, "第二轮补上了：这次算成功"
+    assert calls == [("pp01", False), ("pp02", False), ("pp01", True)], "只把没下好的那篇在末尾再试一次"
+    assert slept == [60], "读取服务刚挂过：先歇 1 分钟"

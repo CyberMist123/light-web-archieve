@@ -320,7 +320,8 @@ def local_download(name: str) -> Path | None:
 
 
 def download_for_object(
-    source_key: str, source_id: str, *, force: bool = False, verbose: bool = False, budget_left=None
+    source_key: str, source_id: str, *, force: bool = False, verbose: bool = False, budget_left=None,
+    retry_pass: bool = False,
 ) -> dict[str, Any]:
     """把一个对象的附件字节下下来，落对象级 `attachments/` 并写 `attachments.json`。
 
@@ -403,14 +404,14 @@ def download_for_object(
             prior = backoff.get(doc_id) or {}
             if prior.get("local") or "读取服务" in str(prior.get("error") or ""):
                 prior = {}   # 1031：上次是本机读取服务没响应（不是小红书拒了），不退避，这次照常重试（旧记录按原因字认）
-            if not force and prior.get("next_at") and now < _parse_dt(prior["next_at"], now):
+            if not force and not retry_pass and prior.get("next_at") and now < _parse_dt(prior["next_at"], now):
                 # 1008（B3-P3）：同一份附件下载失败后按 1/2/4/7 天跨夜退避，退避期内不开页（以前每晚最多开 6 次号页）
                 results.append({"doc_id": doc_id, "name": att.get("name"), "status": "backoff",
                                 "error": f"上次没下好（{prior.get('error') or '原因见上次'}），{prior['next_at'][5:16]} 之后再试"})
                 continue
             record = backend.acquire(source_key, source_id, doc_id=doc_id, name=att.get("name") or "file",
                              xsec_token=backend.fresh_token(source_id) or backend.best_token(source_id, note.get("xsec_token")) or "",
-                             verbose=verbose, budget_left=budget_left, tries=1 if prior else None)
+                             verbose=verbose, budget_left=budget_left, tries=1 if prior or retry_pass else None)
             known = load_downloaded(source_key, source_id)
             backoff.pop(doc_id, None)
             results.append({**record, "status": "downloaded"})
@@ -798,6 +799,9 @@ def _run(args, budget_left=None) -> int:
     any_downloaded = False
     problem_lines: list[str] = []
     deferred_objects = 0
+    retry_later: list[tuple[str, str]] = []   # 1031：这一轮没下好的（非要人处理），同一晚末尾再补一轮
+    lines_of: dict[tuple[str, str], list[str]] = {}
+    service_down = convert_failed = False
     for n, (source_key, source_id) in enumerate(targets):
         backend = _backend(source_key)
         if backend is None:
@@ -809,6 +813,9 @@ def _run(args, budget_left=None) -> int:
             source_key, source_id, force=getattr(args, "force", False), verbose=getattr(args, "verbose", False),
             budget_left=budget_left,
         )
+        if any(r["status"] == "failed" and not r.get("code") for r in outcome["results"]):
+            retry_later.append((source_key, source_id))
+            service_down = service_down or any("读取服务" in str(r.get("error") or "") for r in outcome["results"])
         for r in outcome["results"]:
             if r["status"] == "downloaded":
                 any_downloaded = True
@@ -823,13 +830,14 @@ def _run(args, budget_left=None) -> int:
                 message = str(r.get("error") or "")
                 line = describe_problem(source_key, source_id, r.get("name") or r.get("file") or r.get("doc_id"), message)
                 problem_lines.append(line)
+                lines_of.setdefault((source_key, source_id), []).append(line)
                 print(f"✗ {line}", file=sys.stderr)
                 # 附件要登录态，挂了很可能是掉线/撞风控 —— 停车；问题已在 download_for_object 里登记
                 # （账号类 NEEDS_HUMAN 推一次，其余 TRANSIENT 只记）
                 if r.get("code") or _looks_blocked(source_key, message):
                     account_blocked = True
         if convert_downloads(source_key, source_id):
-            failed = True
+            failed = convert_failed = True
         render_mod.render_object(source_key, source_id)
         meta_now = storage.read_json(storage.object_dir(source_key, source_id) / "meta.json")
         if meta_now.get("attachments_status"):
@@ -843,6 +851,32 @@ def _run(args, budget_left=None) -> int:
             print(backend.blocked_message(), file=sys.stderr)
             return EXIT_NEEDS_HUMAN
 
+    # 1031 她「补附件应该当天结束，马上补，而不是推迟重试」：这一轮没下好的，同一晚末尾再试一次（只一次、照时间预算），
+    # 读取服务刚挂过就先歇一分钟等它起来；第二次还不行才按 1/2/4/7 天退避
+    if retry_later and not deferred_objects:
+        if service_down and _fits(budget_left, 60 + 60):
+            print("读取服务刚才没响应：歇 1 分钟再把没下好的补一轮", file=sys.stderr)
+            time.sleep(60)
+        for source_key, source_id in retry_later:
+            backend = _backend(source_key)
+            if backend is None or not _fits(budget_left, backend.attempt_cost(1)):
+                print("时间预算到了：第二轮没补完，下次接着补", file=sys.stderr)
+                break
+            again = download_for_object(source_key, source_id, verbose=getattr(args, "verbose", False),
+                                        budget_left=budget_left, retry_pass=True)
+            for r in again["results"]:
+                if r["status"] == "downloaded":
+                    any_downloaded = True
+                    print(f"{again['item_id']}  ↓（第二轮补上）{r['file']}  {r['bytes']} 字节")
+            if not any(r["status"] == "failed" for r in again["results"]):
+                gone = set(lines_of.get((source_key, source_id), []))
+                problem_lines[:] = [x for x in problem_lines if x not in gone]
+            if convert_downloads(source_key, source_id):
+                failed = convert_failed = True
+            render_mod.render_object(source_key, source_id)
+            _sync_index_status(source_key, source_id)
+        if not problem_lines and not convert_failed:
+            failed = False   # 第二轮全补上了：这次算成功
     if deferred_objects:
         print(f"时间预算到了：还有 {deferred_objects} 篇没看，下次接着补", file=sys.stderr)
     # 下到了新字节就重建目录，否则 UI 角标还停在「待补」（补跑却没同步就是这坑）
