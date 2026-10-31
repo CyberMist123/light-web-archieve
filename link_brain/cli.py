@@ -118,21 +118,30 @@ def build_parser() -> argparse.ArgumentParser:
     pb = bsub.add_parser("login", help="终端出二维码，用手机 B 站 App 扫码；成功后保存登录态")
     pb.add_argument("--timeout", type=int, default=180, help="扫码等待秒数（默认 180）")
     pb.add_argument("--qr-png", dest="qr_png", default=None, help="把二维码另存成 PNG（终端画不出时用图片扫）")
+    pb.add_argument("--tv", action="store_true", help="1031：电视端登录（拿无水印 / 高画质片源；和网页登录分开扫一次）")
     pb.add_argument("--json", action="store_true")
-    pb = bsub.add_parser("status", help="查当前登录态：已登录 / 需重新登录 / 未知（不打印任何凭证）")
+    pb = bsub.add_parser("status", help="查当前登录态：已登录 / 需重新登录 / 未知（不打印任何凭证）；另报电视端登录态（不联网）")
     pb.add_argument("--json", action="store_true")
     pb = bsub.add_parser("logout", help="删掉本地保存的 B 站登录态")
+    pb.add_argument("--tv", action="store_true", help="只删电视端登录态")
+    pb.add_argument("--json", action="store_true")
+    pb = bsub.add_parser("last", help="1031：上次收藏同步的摘要（设置页用）：下了几条、失败几条、多 P 待选几条；中途被打断的说停在第几条、为什么")
     pb.add_argument("--json", action="store_true")
     pb = bsub.add_parser("sync", help="同步自己全部收藏夹：收藏夹名当专辑，逐条下视频 / 字幕 / 弹幕；超过时长上限和多 P 的只记清单")
     pb.add_argument("--dry-run", dest="dry_run", action="store_true", help="只扫描、列计划，不下载")
     pb.add_argument("--limit", type=int, default=None, help="本轮最多下载几条")
-    pb.add_argument("--max-duration", dest="max_duration", type=int, default=3600, help="超过这么多秒的只记链接（默认 3600）")
+    pb.add_argument("--max-duration", dest="max_duration", type=int, default=3600, help="超过这么多秒的只记链接（默认 3600；0 = 不限）")
     pb.add_argument("--gap", type=float, default=5.0, help="两条下载之间歇几秒（默认 5）")
     pb.add_argument("--workers", type=int, default=int(os.environ.get("LWA_BILI_WORKERS") or 1),
                     help="并行下载几路（只并行 yt-dlp，入库仍一条一条；撞限流自动退回 1；默认 1 或 LWA_BILI_WORKERS）")
     pb.add_argument("--min-free-gb", dest="min_free_gb", type=float, default=10.0, help="磁盘余量低于多少 GB 就停（默认 10）")
     pb.add_argument("--folder", action="append", default=None, help="只同步这些收藏夹（名字或 id，可多次）")
     pb.add_argument("--allow", action="append", default=None, help="放行这些 BV（不看时长上限，可多次）")
+    # 1031 她：画质默认最高；弹幕默认存
+    pb.add_argument("--quality", choices=("max", "1080", "720"), default=None,
+                    help="画质：max 最高（排除杜比视界，同分辨率 AV1 > HEVC > AVC）/ 1080 / 720；默认 max 或 LWA_BILI_QUALITY")
+    pb.add_argument("--no-danmaku", dest="no_danmaku", action="store_true", help="不存弹幕（字幕照存）")
+    pb.add_argument("--no-tv", dest="no_tv", action="store_true", help="不用电视端片源，只走 yt-dlp 网页流（默认电视端登录过就优先电视端）")
     pb.add_argument("--json", action="store_true")
     pb = bsub.add_parser("choose", help="对待选清单做选择：--allow 放行（下次同步就下）；--deny 删 = 写删除屏蔽，任何情况下都不保存；--undo 撤销")
     pb.add_argument("--allow", action="append", default=None, help="放行的 BV（可多次）")
@@ -671,17 +680,30 @@ def _dispatch(args) -> int:
         if cmd == "choose":
             from .sources.bilibili import sync as bili_sync
             return bili_sync.run_choose(args)
-        if cmd == "login":
+        if cmd == "last":
+            from .sources.bilibili import sync as bili_sync
+            return bili_sync.run_last(args)
+        from .sources.bilibili import tvapi as bili_tv
+        tv_flag = bool(getattr(args, "tv", False))
+        if cmd == "login" and tv_flag:
+            from pathlib import Path as _P
+            st = bili_tv.qr_login(timeout_s=args.timeout, qr_png=_P(args.qr_png) if args.qr_png else None)
+        elif cmd == "login":
             from pathlib import Path as _P
             st = bili_login.qr_login(timeout_s=args.timeout, qr_png=_P(args.qr_png) if args.qr_png else None)
+        elif cmd == "logout" and tv_flag:
+            removed = bili_tv.clear_token()
+            st = {"state": "logged_out", "detail": "已删掉电视端登录态" if removed else "电视端本来就没登录", "mid_masked": ""}
         elif cmd == "logout":
             removed = bili_login.logout()
             st = {"state": "logged_out", "detail": "已删掉本地登录态" if removed else "本来就没有登录态", "mid_masked": ""}
         else:
             st = bili_login.status()
         ok = st["state"] == "logged_in" or (cmd == "logout")
-        payload = read_mod.outcome({"state": st["state"], "mid_masked": st.get("mid_masked", "")}, ok=ok,
-                                   message=st["detail"], code="" if ok else ("NOT_LOGGED_IN" if st["state"] == "logged_out" else "UNKNOWN"))
+        # 1031：每次都附电视端登录态（不联网，只看本地 token 和到期时间），设置页一张卡两行
+        payload = read_mod.outcome({"state": st["state"], "mid_masked": st.get("mid_masked", ""), "vip": bool(st.get("vip")),
+                                    "tv": bili_tv.token_status()}, ok=ok,
+                                   message=st["detail"], code="" if ok else ("NOT_LOGGED_IN" if st["state"] in ("logged_out", "expired") else "UNKNOWN"))
         if getattr(args, "json", False):
             read_mod.dump_json(payload)
         else:

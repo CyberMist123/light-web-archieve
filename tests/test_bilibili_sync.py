@@ -117,7 +117,9 @@ def test_run_sync_stops_on_account_blocked(vault, monkeypatch):
     monkeypatch.setattr(ingest, "ingest_url", blocked)
     monkeypatch.setattr(catalog, "ensure_fresh", lambda **k: None)
     out = sync.run_sync(gap_s=0, log=lambda m: None)
-    assert out["ok"] is False and out["code"] == "NEEDS_HUMAN" and "要人处理" in out["stopped"]
+    # 1031：停下来带具体细分码（设置页按码给下一步），不再是笼统的 NEEDS_HUMAN
+    assert out["ok"] is False and out["code"] == "NOT_LOGGED_IN" and "要人处理" in out["stopped"]
+    assert "扫码登录" in out["message"]
     assert out["counts"]["failed"] == 1 and out["counts"]["not_reached"] == 1
 
 

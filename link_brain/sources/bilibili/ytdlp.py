@@ -31,6 +31,43 @@ from . import login
 # 可播放优先：AVC 视频流 + 最好音轨，退到任意视频流 + 音轨，再退到单文件；-S res:1080 按短边限到 1080（竖屏 1080x1920 也对）
 FORMAT = "bv*[vcodec^=avc1]+ba/bv*+ba/b"
 SORT = "res:1080"
+# 1031 她：画质要最高。三档 max | 1080 | 720，默认 max（环境变量 LWA_BILI_QUALITY 可改；sync / 设置页按次传）。
+# max = 拿得到的最高分辨率 → 最高帧率 → 同档编码 AV1 > HEVC > AVC（登录且有大会员时 4K / 8K 才会出来），
+# 但要能在 Obsidian（Electron / Chromium）里放：杜比视界排除（Chromium 放不了 DV 的增强层，画面发紫发绿）——
+# 按 yt-dlp 给 B 站格式标的 dynamic_range=DV，再按编码前缀 dvh* / dva* 兜一道；`!=?` 让没这个字段的格式照样能选。
+# 全被排除（极少）才退到不挑的 bv*+ba，下完照旧 ffprobe 校验。1080 / 720 档 = 原来的 AVC 优先、按短边限高。
+_NO_DV = "[dynamic_range!=?DV][vcodec!^=?dvh][vcodec!^=?dva]"
+QUALITIES = ("max", "1080", "720")
+QUALITY_LABELS = {"max": "最高画质", "1080": "1080p", "720": "720p"}
+QUALITY_ARGS = {
+    "max": (f"bv*{_NO_DV}+ba/b{_NO_DV}/bv*+ba/b", "res,fps,vcodec"),
+    "1080": (FORMAT, SORT),
+    "720": (FORMAT, "res:720"),
+}
+
+
+def normalize_quality(q: Any) -> str:
+    """'1080p' / '1080' / 'MAX' → 三档之一；认不出的回 max（她要最高画质）。"""
+    s = str(q or "").strip().lower().rstrip("p")
+    return s if s in QUALITIES else "max"
+
+
+DEFAULT_QUALITY = normalize_quality(os.environ.get("LWA_BILI_QUALITY") or "max")
+# 本进程这一趟下载用的选项（sync 开头 configure、结束复原；ingest 单条导入用模块默认）。prefetch 线程读同一份，一趟里不变。
+# tv = 电视端登录过就优先拿电视端（无水印）片源，见 tvapi.py；LWA_BILI_TV=0 关掉
+OPTIONS: dict[str, Any] = {"quality": DEFAULT_QUALITY, "danmaku": True, "tv": os.environ.get("LWA_BILI_TV", "1") != "0"}
+
+
+def configure(*, quality: Any = None, danmaku: bool | None = None, tv: bool | None = None) -> dict[str, Any]:
+    """改本进程的下载选项，返回改之前的那份（调用方 finally 里 configure(**旧值) 复原）。"""
+    prev = dict(OPTIONS)
+    if quality is not None:
+        OPTIONS["quality"] = normalize_quality(quality)
+    if danmaku is not None:
+        OPTIONS["danmaku"] = bool(danmaku)
+    if tv is not None:
+        OPTIONS["tv"] = bool(tv)
+    return prev
 # B 站 CDN（TencentEdgeOne 镜像）对不带 Range 的整文件 GET 返回 567：分段带 Range 请求就正常（1029 实测）
 CHUNK = "10M"
 # 1029 实测：这台机器的出口 IP 被 B 站风控，`/video/BV…` 页面只回空壳（没有 __INITIAL_STATE__），yt-dlp 报
@@ -145,11 +182,14 @@ def new_tmp_dir() -> Path:
     return p
 
 
-def build_argv(url: str, out_dir: Path, *, cookies: Path | None) -> list[str]:
+def build_argv(url: str, out_dir: Path, *, cookies: Path | None, quality: Any = None, danmaku: bool | None = None) -> list[str]:
+    """quality / danmaku 不传 = 本进程 OPTIONS（见 configure）。不存弹幕 = 字幕照下、sub-langs 去掉 danmaku 那一路。"""
+    fmt, sort = QUALITY_ARGS[normalize_quality(OPTIONS["quality"] if quality is None else quality)]
+    want_danmaku = OPTIONS["danmaku"] if danmaku is None else bool(danmaku)
     argv = [*argv_base(), "--no-playlist", "--no-progress", "--no-colors", "--newline", "--ignore-config",
             "--plugin-dirs", str(plugin_dir()), "--http-chunk-size", CHUNK,
-            "-f", FORMAT, "-S", SORT, "--merge-output-format", "mp4",
-            "--write-subs", "--sub-langs", "all",
+            "-f", fmt, "-S", sort, "--merge-output-format", "mp4",
+            "--write-subs", "--sub-langs", "all" if want_danmaku else "all,-danmaku",
             "--write-thumbnail", "--convert-thumbnails", "jpg",
             "--write-info-json", "--no-clean-info-json",
             "-o", "%(id)s.%(ext)s", "-P", str(out_dir)]
@@ -162,6 +202,8 @@ def build_argv(url: str, out_dir: Path, *, cookies: Path | None) -> list[str]:
 def classify_error(stderr: str) -> tuple[str, str]:
     """yt-dlp 的报错 → (故障码, 给人看的一句)。只认几类，其余原样（脱敏）给人。"""
     low = (stderr or "").lower()
+    if "no module named yt_dlp" in low or "起不来 yt-dlp" in low:
+        return "NEEDS_HUMAN.MISSING_DEPENDENCY", "没装 yt-dlp：python -m pip install -U yt-dlp"
     if "ffmpeg" in low and ("not found" in low or "not installed" in low or "ffmpeg is required" in low):
         return "NEEDS_HUMAN.MISSING_DEPENDENCY", "没有 ffmpeg，无法合并音视频"
     if "login" in low and ("required" in low or "premium" in low or "members only" in low):
@@ -237,22 +279,54 @@ def run(url: str, *, log=lambda _m: None, timeout_s: int | None = None, use_cook
     return _download(url, log=log, timeout_s=timeout_s, use_cookies=use_cookies)
 
 
-def _download(url: str, *, log=lambda _m: None, timeout_s: int | None = None, use_cookies: bool = True) -> dict[str, Any]:
-    out_dir = new_tmp_dir()
-    cookies = login.cookies_path() if (use_cookies and login.has_cookies()) else None
-    argv = build_argv(url, out_dir, cookies=cookies)
-    shown = [a if a != str(cookies) else "<cookies>" for a in argv]
-    log(f"yt-dlp {' '.join(shown[3:])}")
-    started = time.monotonic()
+_URL_RE = re.compile(r"/video/(?P<bv>BV[0-9A-Za-z]{10})/?(?:\?p=(?P<p>\d+))?")
+
+
+def _ytdlp(argv: list[str], out_dir: Path, timeout_s: int) -> tuple[int, str, str]:
     try:
         proc = subprocess.run(argv, capture_output=True, text=True, encoding="utf-8", errors="replace",
-                              timeout=timeout_s or TIMEOUT_S, cwd=str(out_dir))
-        code, stderr, stdout = proc.returncode, proc.stderr, proc.stdout
+                              timeout=timeout_s, cwd=str(out_dir))
+        return proc.returncode, proc.stderr, proc.stdout
     except subprocess.TimeoutExpired:
-        code, stderr, stdout = -1, f"yt-dlp 超时（{timeout_s or TIMEOUT_S} 秒）", ""
+        return -1, f"yt-dlp 超时（{timeout_s} 秒）", ""
     except OSError as exc:
-        code, stderr, stdout = -2, f"起不来 yt-dlp：{errtext(exc)}", ""
+        return -2, f"起不来 yt-dlp：{errtext(exc)}", ""
+
+
+def _download(url: str, *, log=lambda _m: None, timeout_s: int | None = None, use_cookies: bool = True) -> dict[str, Any]:
+    """1031 她：优先无水印片源。电视端登录过（tvapi）且没关：yt-dlp 只取字幕 / 弹幕 / 封面 / 信息（--skip-download），
+    视频本体走电视端取流；电视端任何一步不成就在同一个目录里让 yt-dlp 照原样把网页流下完（stream=web，tv_error 记原因）。"""
+    from . import tvapi
+    out_dir = new_tmp_dir()
+    cookies = login.cookies_path() if (use_cookies and login.has_cookies()) else None
+    quality, want_danmaku = normalize_quality(OPTIONS["quality"]), bool(OPTIONS["danmaku"])
+    budget = timeout_s or TIMEOUT_S
+    started = time.monotonic()
+    m = _URL_RE.search(url)
+    token = tvapi.usable_token() if (OPTIONS.get("tv", True) and m) else None
+    stream, tv_error, tv_pick = "web", None, None
+    code, stderr, stdout, shown = 0, "", "", []
+    if token and m:
+        argv = build_argv(url, out_dir, cookies=cookies, quality=quality, danmaku=want_danmaku)
+        argv.insert(len(argv) - 1, "--skip-download")   # url 保持在最后
+        shown = [a if a != str(cookies) else "<cookies>" for a in argv]
+        log(f"yt-dlp（只取字幕 / 弹幕 / 封面）{' '.join(shown[3:])}")
+        code, stderr, stdout = _ytdlp(argv, out_dir, budget)
+        try:
+            got = tvapi.download(m.group("bv"), int(m.group("p") or 1), out_dir, quality=quality,
+                                 info=collect_files(out_dir)["info"], token=token,
+                                 timeout_s=max(60, int(budget - (time.monotonic() - started))), log=log)
+            stream, tv_pick = "tv", {k: got[k] for k in ("qn", "label", "codec")}
+        except Exception as exc:  # noqa: BLE001 - 电视端不成不算失败：退回网页流
+            tv_error = sanitize(errtext(exc), 200)
+            log(f"电视端没拿到（{tv_error}），改用网页流")
+    if stream == "web":
+        argv = build_argv(url, out_dir, cookies=cookies, quality=quality, danmaku=want_danmaku)
+        shown = [a if a != str(cookies) else "<cookies>" for a in argv]
+        log(f"yt-dlp {' '.join(shown[3:])}")
+        code, stderr, stdout = _ytdlp(argv, out_dir, max(60, int(budget - (time.monotonic() - started))))
     result = {"dir": out_dir, "exit_code": code, "argv": shown, "cookies_used": cookies is not None,
+              "quality": quality, "danmaku_wanted": want_danmaku, "stream": stream, "tv": tv_pick, "tv_error": tv_error,
               "stderr_tail": sanitize(stderr), "duration_s": round(time.monotonic() - started, 1),
               "need_login_subtitle": "subtitles are only available when logged in" in (stderr or "").lower(),
               "stdout_tail": sanitize(stdout, 400)}

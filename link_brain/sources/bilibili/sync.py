@@ -9,6 +9,8 @@
 """
 from __future__ import annotations
 
+import os
+import re
 import shutil
 import sys
 import time
@@ -34,6 +36,14 @@ FOLDER_GAP_S = 3.0       # 两个收藏夹之间歇一下；翻页间隔见 PAGE
 PAGE_GAP_S = 2.0
 PENDING_NOTE = "B站待选清单.md"
 LAST_SYNC = "last-sync.json"
+# 1031：停下来时给她的下一步（设置页直接显示 message；码是 CONVENTIONS §2 的细分码，裸写，和原来的 NOT_LOGGED_IN 一样）
+HINTS = {
+    "NOT_LOGGED_IN": "在设置页「账号登录 → B 站」点「扫码登录」重新扫一次，再点「立即同步」（已经下好的不会重下）",
+    "MISSING_DEPENDENCY": "这台电脑缺下载要用的程序（ffmpeg / yt-dlp），装好后再点「立即同步」",
+    "HTTP_429": "B 站限流 / 风控了：先停一停（建议过 1 小时），并行路数调成 1 再同步；已经下好的不会重下",
+    "NETWORK": "网络不通或 B 站接口没响应，稍后再试",
+    "DISK_LOW": "磁盘快满了：腾出空间后再点「立即同步」，会从没下的接着下",
+}
 
 
 def _now() -> str:
@@ -48,6 +58,26 @@ def _hms(sec: Any) -> str:
     h, r = divmod(s, 3600)
     m, s = divmod(r, 60)
     return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
+
+
+def _gb(n: Any) -> str:
+    try:
+        b = float(n or 0)
+    except (TypeError, ValueError):
+        return "?"
+    return f"{b / (1 << 30):.1f} GB" if b >= (1 << 30) else f"{b / (1 << 20):.0f} MB"
+
+
+def _dur(sec: Any) -> str:
+    """耗时给人看：3 小时 20 分 / 45 分钟 / 不到 1 分钟。"""
+    try:
+        m = int(round(float(sec or 0) / 60))
+    except (TypeError, ValueError):
+        return "?"
+    if m < 1:
+        return "不到 1 分钟"
+    h, m = divmod(m, 60)
+    return (f"{h} 小时" + (f" {m} 分" if m else "")) if h else f"{m} 分钟"
 
 
 def _free_gb(path: Path) -> float:
@@ -104,7 +134,7 @@ def plan(snaps: list[dict[str, Any]], *, max_duration_s: int = MAX_DURATION_S, a
         elif row["page_count"] > 1:
             row["reason"] = f"多 P（{row['page_count']} P）：分 P 下载批次 B 做"
             buckets["multi_p"].append(row)
-        elif bv not in allow and (row["duration"] or 0) > max_duration_s:
+        elif bv not in allow and max_duration_s and (row["duration"] or 0) > max_duration_s:   # 1031：0 = 不限时长
             row["reason"] = f"时长 {_hms(row['duration'])}，超过 {_hms(max_duration_s)}"
             buckets["long"].append(row)
         else:
@@ -139,26 +169,36 @@ def _line(r: dict[str, Any]) -> str:
 
 
 def render_pending_note(result: dict[str, Any]) -> str:
+    # 1031 她：失效的、超过 1 小时的都不用管——不算「待选」、不在上面提醒，只放到「明细」里查得到；待选只剩多 P
     b = result["buckets"]
     lines = ["---", "cssclasses: [link-brain]", "tags: [bilibili, 待选]", "---", "",
              f"> [!info] B 站收藏同步 · {result.get('finished_at') or _now()}",
              f"> 收藏夹 {result['counts'].get('folders', 0)} 个 · 去重后 {result.get('bv_total', 0)} 个 BV · "
              f"已入库 {result['counts'].get('downloaded', 0) + result['counts'].get('hit', 0)} · 本次新下 {result['counts'].get('downloaded', 0)} · "
-             f"失败 {result['counts'].get('failed', 0)} · 待选 {len(b.get('long') or []) + len(b.get('multi_p') or [])}",
+             f"失败 {result['counts'].get('failed', 0)} · 多 P 待选 {len(b.get('multi_p') or [])}",
              "",
              "下面这些**只记了链接，没下载**。想同步哪条就告诉 Fable / 在命令行加 `--allow BV号` 再跑一次 `bilibili sync`。", ""]
-    sections = [("超过 1 小时（你选了再下）", b.get("long") or []),
-                ("多 P 视频（分 P 下载下一批做）", b.get("multi_p") or []),
-                ("这次没下成（下次同步会再试）", b.get("failed") or []),
-                ("原站已失效（只留记录）", b.get("invalid") or []),
-                ("不是视频稿件（音频 / 合集等，暂不支持）", b.get("non_video") or []),
-                ("你删了的（不再下载，只留记录）", b.get("denied") or [])]
+    sections = [("多 P 视频（分 P 下载下一批做）", b.get("multi_p") or []),
+                ("这次没下成（下次同步会再试）", b.get("failed") or [])]
+    limit = (result.get("options") or {}).get("max_duration_s", MAX_DURATION_S)
+    details = [(f"超过 {_dur(limit) if limit else '时长上限'}（只记链接，不用处理；想要的话放行后再同步）", b.get("long") or []),
+               ("原站已失效（只留记录）", b.get("invalid") or []),
+               ("不是视频稿件（音频 / 合集等，暂不支持）", b.get("non_video") or []),
+               ("你删了的（不再下载，只留记录）", b.get("denied") or [])]
     for title, rows in sections:
         if not rows:
             continue
         lines += [f"## {title}（{len(rows)}）", ""]
         lines += [_line(r) for r in rows]
         lines.append("")
+    if any(rows for _t, rows in details):
+        lines += ["---", "", "# 明细（不用处理，只是查得到）", ""]
+        for title, rows in details:
+            if not rows:
+                continue
+            lines += [f"## {title}（{len(rows)}）", ""]
+            lines += [_line(r) for r in rows]
+            lines.append("")
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -249,6 +289,117 @@ def choose(*, allow: list[str] | None = None, deny: list[str] | None = None, und
     return out
 
 
+# ---- 预估（1031 她：点「立即同步」前先看要下多少、多大、多久）--------------------------------------------------------
+# 全是估计：体积 = 总时长 × 每分钟体积（按画质档取已入库的实测）；耗时 = 体积 ÷ 下载速度（已入库的 yt-dlp 实测耗时，没有就按 STATE.md
+# 记的单连接 130–430 KB/s）× 并行路数，再加上每条之间歇的秒数和入库的几秒。只读 RAW 里的 manifest / source.json，不联网。
+
+FALLBACK_SPEED_BPS = (130 * 1024, 430 * 1024)    # 1029 实测：单连接拉 B 站 CDN 130–430 KB/s
+# 这一档和 1080 档都没有实测时，每分钟多少字节（B 站常见码率的粗估）：(低, 高)
+FALLBACK_BYTES_PER_MIN = {"720": (6 << 20, 12 << 20), "1080": (12 << 20, 25 << 20), "max": (12 << 20, 30 << 20)}
+# 只有 1080 档的实测时换算到别的档：720 ≈ 1080 的一半；max 没大会员 ≈ 1080 上下（同为 1080p，HEVC / AV1 还更小）；
+# 有大会员可能出 4K，大约 1080 的 2–4 倍
+QUALITY_FROM_1080 = {"720": (0.45, 0.7), "max": (0.8, 1.3), "max_vip": (0.8, 4.0)}
+INGEST_OVERHEAD_S = 5.0   # 入库（挪文件 / 算 sha / 渲染）每条大约几秒，串行
+MIN_SAMPLES = 3
+
+
+def _pct(vals: list[float], q: float) -> float:
+    vals = sorted(vals)
+    if not vals:
+        return 0.0
+    k = (len(vals) - 1) * q
+    lo = int(k)
+    hi = min(lo + 1, len(vals) - 1)
+    return vals[lo] + (vals[hi] - vals[lo]) * (k - lo)
+
+
+def library_samples() -> list[dict[str, Any]]:
+    """已入库 B 站对象的实测：每条 {bytes, duration_s, seconds（yt-dlp 下载耗时，可能缺）, quality（1031 前入库的都是 1080 档）}。"""
+    root = storage.archive_root() / SOURCE
+    out: list[dict[str, Any]] = []
+    try:
+        objs = sorted(p for p in root.iterdir() if p.is_dir())
+    except OSError:
+        return out
+    for obj in objs:
+        try:
+            versions = storage.existing_versions(SOURCE, obj.name)
+            if not versions:
+                continue
+            raw = storage.raw_dir(SOURCE, obj.name, versions[-1])
+            manifest = storage.read_json(raw / "manifest.json")
+            video = next((m for m in manifest.get("media") or [] if m.get("role") == "video" and m.get("download_status") == "ok"), None)
+            if not video or not video.get("bytes") or not video.get("duration_sec"):
+                continue
+            dl: dict[str, Any] = {}
+            try:
+                dl = (storage.read_json(raw / "source.json").get("capture") or {}).get("downloader") or {}
+            except (OSError, ValueError, AttributeError):
+                pass
+            out.append({"bytes": int(video["bytes"]), "duration_s": float(video["duration_sec"]),
+                        "seconds": float(dl["seconds"]) if dl.get("seconds") else None,
+                        "quality": dl.get("quality") or "1080"})
+        except (OSError, ValueError, TypeError, AttributeError):
+            continue
+    return out
+
+
+def estimate(rows: list[dict[str, Any]], *, quality: str = "max", workers: int = 1, gap_s: float = GAP_S, vip: bool = False,
+             samples: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    """本轮要下的 rows → {count, total_duration_s, size_bytes{low,high}, speed_bps{low,high}, eta_s{low,high}, basis{size,speed}, note}。"""
+    from . import ytdlp
+    quality = ytdlp.normalize_quality(quality)
+    workers = max(1, int(workers or 1))
+    samples = library_samples() if samples is None else samples
+    durs = [float(r.get("duration") or 0) for r in rows]
+    total = sum(durs)
+    unknown = sum(1 for d in durs if d <= 0)
+
+    def per_min(rows_: list[dict[str, Any]]) -> tuple[float, float]:
+        rates = [s["bytes"] / (s["duration_s"] / 60) for s in rows_ if s["duration_s"] > 0]
+        return _pct(rates, 0.25), _pct(rates, 0.75)
+
+    label = ytdlp.QUALITY_LABELS[quality]
+    same = [s for s in samples if s.get("quality") == quality]
+    base = [s for s in samples if s.get("quality") == "1080"]
+    if len(same) >= MIN_SAMPLES:
+        bpm = per_min(same)
+        bpm_basis = f"已入库 {len(same)} 条「{label}」的实测（取中间一半）"
+    elif len(base) >= MIN_SAMPLES:
+        lo, hi = per_min(base)
+        f = (1.0, 1.0) if quality == "1080" else QUALITY_FROM_1080["max_vip" if quality == "max" and vip else quality]
+        bpm = (lo * f[0], hi * f[1])
+        bpm_basis = f"已入库 {len(base)} 条 1080p 的实测（取中间一半）" + ("" if quality == "1080" else f"，按「{label}」换算")
+        if quality == "max":
+            bpm_basis += "；有大会员可能出 4K，上限放宽" if vip else "；没大会员时最高一般就是 1080p"
+    else:
+        bpm = FALLBACK_BYTES_PER_MIN[quality]
+        bpm_basis = "库里实测太少，按 B 站常见码率粗估"
+    timed = [s["bytes"] / s["seconds"] for s in samples if s.get("seconds") and s["seconds"] > 0]
+    if len(timed) >= MIN_SAMPLES:
+        one = (_pct(timed, 0.25), _pct(timed, 0.75))
+        speed_basis = f"已入库 {len(timed)} 条的下载耗时实测（单路，取中间一半）× {workers} 路"
+    else:
+        one = FALLBACK_SPEED_BPS
+        speed_basis = f"单连接 130–430 KB/s（10-29 实测）× {workers} 路"
+    speed = (one[0] * workers, one[1] * workers)
+    size = (total / 60 * bpm[0], total / 60 * bpm[1])
+    fixed = len(rows) * (gap_s + INGEST_OVERHEAD_S)
+    eta = ((size[0] / speed[1] if speed[1] else 0) + fixed, (size[1] / speed[0] if speed[0] else 0) + fixed)
+    note = "都是估计：体积按时长 × 每分钟体积，耗时按下载速度算，实际看 B 站给的码率和网速"
+    if unknown:
+        note += f"；{unknown} 条不知道时长，没算进去"
+    if workers > 1:
+        note += "；并行按路数线性估，带宽不够时会更慢"
+    return {"count": len(rows), "total_duration_s": int(total), "unknown_duration": unknown, "quality": quality, "workers": workers,
+            "bytes_per_min": {"low": int(bpm[0]), "high": int(bpm[1])},
+            "size_bytes": {"low": int(size[0]), "high": int(size[1])},
+            "speed_bps": {"low": int(speed[0]), "high": int(speed[1])},
+            "eta_s": {"low": int(eta[0]), "high": int(eta[1])},
+            "basis": {"size": bpm_basis, "speed": speed_basis, "samples": len(samples)},
+            "estimated": True, "note": note}
+
+
 # ---- 跑 ------------------------------------------------------------------------------------------------------------
 
 def _fresh_snapshot(owner_mid: int, media_id: int, media_count: int, rescan_hours: float) -> dict[str, Any] | None:
@@ -266,24 +417,50 @@ def _fresh_snapshot(owner_mid: int, media_id: int, media_count: int, rescan_hour
 def run_sync(*, dry_run: bool = False, limit: int | None = None, max_duration_s: int = MAX_DURATION_S, gap_s: float = GAP_S,
              min_free_gb: float = MIN_FREE_GB, folders: list[str] | None = None, allow: list[str] | None = None,
              rescan_hours: float = RESCAN_HOURS, folder_gap_s: float = FOLDER_GAP_S, workers: int = 1,
+             quality: str | None = None, danmaku: bool = True, tv: bool = True,
              log: Callable[[str], None] | None = None, sleep: Callable[[float], None] = time.sleep) -> dict[str, Any]:
-    """返回 {ok, code, message, counts, buckets, folders, ...}；stdout 不碰（调用方打 JSON），人话走 log。"""
+    """返回 {ok, code, message, counts, buckets, folders, estimate, options, ...}；stdout 不碰（调用方打 JSON），人话走 log。
+    1031：quality = max | 1080 | 720（不传 = ytdlp.DEFAULT_QUALITY）；danmaku=False 不存弹幕。这一趟 ytdlp.OPTIONS 改成这两样，结束复原。"""
+    from . import ytdlp
     say = log or (lambda m: print(m, file=sys.stderr, flush=True))
     started = _now()
-    client, st = favorites.default_client()
-    out: dict[str, Any] = {"started_at": started, "login": st.get("state"), "dry_run": dry_run, "folders": [],
-                           "counts": {}, "buckets": {}, "stopped": None}
+    quality = ytdlp.normalize_quality(quality or ytdlp.DEFAULT_QUALITY)
+    workers = max(1, int(workers or 1))
+    prev_opts = ytdlp.configure(quality=quality, danmaku=danmaku, tv=tv)
     try:
+        client, st = favorites.default_client()
+    except BaseException:
+        ytdlp.configure(**prev_opts)
+        raise
+    from . import tvapi
+    out: dict[str, Any] = {"started_at": started, "login": st.get("state"), "dry_run": dry_run, "folders": [],
+                           "counts": {}, "buckets": {}, "stopped": None, "pid": os.getpid(), "pid_created": _created(os.getpid()),
+                           "options": {"quality": quality, "danmaku": bool(danmaku), "workers": workers,
+                                       "max_duration_s": max_duration_s, "vip": bool(st.get("vip")),
+                                       "tv": bool(tv) and tvapi.usable_token() is not None}}
+    if not dry_run:
+        # 1031：上次被关机 / 注销 / 「停止」杀掉的那一趟，临时目录里留着半截的下载——不管多新，进程没了的都清掉，那条这次重下
+        cleared = sweep_dead_tmp()
+        if cleared:
+            say(f"清掉上次中断留下的 {cleared} 个半截下载目录（那几条这次重下）")
+    try:
+        if st.get("state") == "unknown":
+            # 1031：查不到 ≠ 没登录（断网 / 接口抽风），别叫她去重新扫码
+            out.update(ok=False, code="NETWORK", message=f"查不到 B 站登录状态（{st.get('detail') or st.get('reason') or '网络不通'}）：{HINTS['NETWORK']}")
+            return out
         if st.get("state") != "logged_in":
-            out.update(ok=False, code="NOT_LOGGED_IN", message=f"B 站没登录（{st.get('detail') or st.get('reason') or st.get('state')}）：先 `bilibili login`")
+            out.update(ok=False, code="NOT_LOGGED_IN", message=f"B 站没登录或登录已失效：{HINTS['NOT_LOGGED_IN']}")
             return out
         mid = login.my_mid(client)
         if not mid:
-            out.update(ok=False, code="UNKNOWN", message="查不到自己的 mid，没法列收藏夹")
+            out.update(ok=False, code="UNKNOWN", message="查不到自己的 mid，没法列收藏夹（多半是登录刚失效或网络抖了一下，稍后再试）")
             return out
         res = favorites.list_folders(client, mid)
         if res["status"] not in ("ok", "empty"):
-            out.update(ok=False, code="SYNC_FAILED", message=f"列收藏夹失败：{(res.get('error') or {}).get('message') or res['status']}")
+            kind = (res.get("error") or {}).get("reason")
+            code = {"rate_limited": "HTTP_429", "not_logged_in": "NOT_LOGGED_IN", "network": "NETWORK", "timeout": "NETWORK"}.get(str(kind), "SYNC_FAILED")
+            msg = f"列收藏夹失败：{(res.get('error') or {}).get('message') or res['status']}"
+            out.update(ok=False, code=code, message=msg + (f"；{HINTS[code]}" if code in HINTS else ""))
             return out
         rows = res["folders"]
         if folders:
@@ -327,17 +504,31 @@ def run_sync(*, dry_run: bool = False, limit: int | None = None, max_duration_s:
             f"多 P {len(b['multi_p'])}，失效 {len(b['invalid'])}，非视频 {len(b['non_video'])}，已排除 {len(b['denied'])}")
         queue = b["download"][: limit] if limit else b["download"]
         b["downloaded"], b["failed"] = [], []
+        try:
+            out["estimate"] = estimate(queue, quality=quality, workers=workers, gap_s=gap_s, vip=bool(st.get("vip")))
+        except Exception as exc:  # noqa: BLE001 - 估不出来不耽误同步
+            out["estimate"] = {"count": len(queue), "estimated": True, "error": errtext(exc)[:200]}
         if dry_run:
             b["skipped_by_limit"] = b["download"][len(queue):]
             out["buckets"] = b
             out["counts"].update(downloaded=0, failed=0)
-            out.update(ok=True, code="", message=f"预演：会下载 {len(queue)} 条，{len(b['long'])} 条超过时长只记链接", finished_at=_now())
+            e = out["estimate"]
+            msg = f"预演：会下载 {len(queue)} 条" + (f"，多 P 的 {len(b['multi_p'])} 条只记链接" if b["multi_p"] else "")
+            if e.get("size_bytes"):
+                msg += (f"；估计 {_gb(e['size_bytes']['low'])}–{_gb(e['size_bytes']['high'])}、"
+                        f"{_dur(e['eta_s']['low'])}–{_dur(e['eta_s']['high'])}（{ytdlp.QUALITY_LABELS[quality]}，{workers} 路）")
+            out.update(ok=True, code="", message=msg, finished_at=_now())
             return out
 
         from ... import ingest as ingest_mod
-        from . import ytdlp
         vault = storage.vault_root()
+        say(f"画质：{ytdlp.QUALITY_LABELS[quality]}；弹幕：{'存' if danmaku else '不存'}")
         streak, pauses = 0, 0
+        stop_code, last_fail_code = "", ""
+        # 1031：设置页的「停止」是杀进程树，走不到结尾的 _persist——每条做完先把进度写进 last-sync.json（state=running），
+        # 设置页看到 running 但进程已经没了，就说「上次中途停了」
+        out["buckets"] = b
+        out["state"] = "running"
         # 1029 她：workers>1 时后面几条的 yt-dlp 先在后台下（瓶颈是单连接拉 CDN）；入库照旧一条一条。撞限流就退回一条一条下
         parallel = workers > 1
         ytdlp.prefetch_start(workers if parallel else 1)
@@ -351,6 +542,7 @@ def run_sync(*, dry_run: bool = False, limit: int | None = None, max_duration_s:
                 pauses += 1
                 if pauses > MAX_PAUSES:
                     out["stopped"] = f"连着 {streak} 条失败、歇了 {MAX_PAUSES} 次还不行（疑似风控 / 断网），停在第 {i} 条"
+                    stop_code = last_fail_code if last_fail_code in ("HTTP_429", "NETWORK") else "HTTP_429"
                     say(out["stopped"])
                     break
                 say(f"连着 {streak} 条失败，歇 {int(PAUSE_S // 60)} 分钟再继续（第 {pauses}/{MAX_PAUSES} 次）")
@@ -359,6 +551,7 @@ def run_sync(*, dry_run: bool = False, limit: int | None = None, max_duration_s:
             free = _free_gb(vault)
             if free < min_free_gb:
                 out["stopped"] = f"磁盘只剩 {free:.1f} GB（阈值 {min_free_gb} GB），停在第 {i} 条"
+                stop_code = "DISK_LOW"
                 say(out["stopped"])
                 break
             say(f"[{i}/{len(queue)}] {r['bvid']} {r['title'][:40]} ({_hms(r['duration'])}) …")
@@ -384,12 +577,14 @@ def run_sync(*, dry_run: bool = False, limit: int | None = None, max_duration_s:
                 r["reason"] = errtext(exc)
                 b["failed"].append(r)
                 out["stopped"] = f"要人处理（{getattr(exc, 'code', '') or 'NEEDS_HUMAN'}）：{errtext(exc)}"
+                stop_code = str(getattr(exc, "code", "") or "NEEDS_HUMAN").split(".")[-1]
                 say(out["stopped"])
                 break
             except (SourceError, Exception) as exc:  # noqa: BLE001 - 一条坏了不带走整批
                 r["reason"] = errtext(exc)[:200]
                 b["failed"].append(r)
                 streak += 1
+                last_fail_code = str(getattr(exc, "code", "") or "")
                 if getattr(exc, "code", "") in ("HTTP_429", "NETWORK"):
                     streak = FAIL_STREAK   # 限流 / 断网：不用等连败，下一条前就歇
                     if parallel:
@@ -397,6 +592,7 @@ def run_sync(*, dry_run: bool = False, limit: int | None = None, max_duration_s:
                         ytdlp.prefetch_stop()
                         say("    限流 / 断网：退回一条一条下")
                 say(f"    失败：{r['reason']}")
+            _progress(out, b, done=i, total=len(queue))
             if gap_s and i < len(queue):
                 sleep(gap_s)
         ytdlp.prefetch_stop()
@@ -405,22 +601,134 @@ def run_sync(*, dry_run: bool = False, limit: int | None = None, max_duration_s:
         out["buckets"] = b
         out["counts"].update(downloaded=len(b["downloaded"]), failed=len(b["failed"]), not_reached=len(b["not_reached"]))
         out["finished_at"] = _now()
-        _persist(out)
+        out["state"] = "stopped" if out["stopped"] else "done"
+        if out["stopped"]:   # 1031：停在第几条（设置页「上次停在第 N 条、为什么」）
+            out["progress"] = {**(out.get("progress") or {}), "done": len(b["downloaded"]) + len(b["failed"]), "total": len(queue)}
+        else:
+            out.pop("progress", None)
         ok = out["stopped"] is None and not b["failed"]
-        code = "" if ok else ("NEEDS_HUMAN" if out["stopped"] and "要人处理" in out["stopped"] else "SYNC_FAILED")
-        msg = (f"同步完：新下 {len(b['downloaded'])} 条、已在库 {len(b['hit'])} 条、失败 {len(b['failed'])} 条；"
-               f"超过 {_hms(max_duration_s)} 的 {len(b['long'])} 条和多 P 的 {len(b['multi_p'])} 条只记了链接，见「{PENDING_NOTE}」")
+        code = "" if ok else (stop_code or "SYNC_FAILED")
+        # 1031 她：超时长 / 失效的不用管，结束提示里不再提；多 P 照旧只记清单
+        msg = (f"同步完：新下 {len(b['downloaded'])} 条、已在库 {len(b['hit'])} 条、失败 {len(b['failed'])} 条"
+               + (f"；多 P 的 {len(b['multi_p'])} 条只记了链接，见「{PENDING_NOTE}」" if b["multi_p"] else ""))
         if out["stopped"]:
-            msg = out["stopped"] + "；" + msg
+            msg = out["stopped"] + "；" + (HINTS[stop_code] + "。" if stop_code in HINTS else "") + msg
         out.update(ok=ok, code=code, message=msg)
+        _persist(out)
         return out
     finally:
-        from . import ytdlp
         ytdlp.prefetch_stop()   # 半路炸了也别留着后台下载拖住进程退出
+        ytdlp.configure(**prev_opts)
         try:
             client.close()
         except Exception:  # noqa: BLE001
             pass
+
+
+# ---- 断点续跑（1031：10-29 那轮 --workers 8 下到 349/849 时被 Windows 关机 / 注销结束，之后没人接着跑）------------------
+# 续跑本来就成立：plan 用索引判「已入库」，再点一次只补没入库的；被打断的那条没发布（manifest 没写）就不算入库，下次重下。
+# 这里补两件：①进程没了的临时下载目录不等 6 小时、开跑就清；②设置页要说清「上次停在第几条、为什么停」（last_summary）。
+
+_TMP_PID_RE = re.compile(r"^dl-\d{8}T\d{6}-(?P<pid>\d+)-[0-9a-f]+$")
+
+
+def _created(pid: int) -> float | None:
+    try:
+        from ... import procs
+        return procs.created_of(int(pid))
+    except Exception:  # noqa: BLE001 - 拿不到创建时间就只认 pid
+        return None
+
+
+def _pid_alive(pid: Any, created: Any = None) -> bool:
+    """判活只认 storage.pid_state（查不清 = 当活着）；记过创建时间就再核一次，pid 被复用算死。"""
+    if not pid or storage.pid_state(pid) == "dead":
+        return False
+    if created is None:
+        return True
+    now = _created(int(pid))
+    return True if now is None else abs(now - float(created)) < 1
+
+
+def sweep_dead_tmp() -> int:
+    """清 `~/.link-brain/bilibili/tmp/dl-<时间>-<pid>-<随机>`：那个 pid 已经不在（不是本进程）的整目录删掉。返回清了几个。"""
+    from . import ytdlp
+    n = 0
+    try:
+        dirs = list(ytdlp.tmp_root().iterdir())
+    except OSError:
+        return 0
+    for p in dirs:
+        m = _TMP_PID_RE.match(p.name)
+        if not p.is_dir() or not m or int(m.group("pid")) == os.getpid():
+            continue
+        if storage.pid_state(int(m.group("pid"))) == "dead":
+            shutil.rmtree(p, ignore_errors=True)
+            n += 0 if p.exists() else 1
+    return n
+
+
+INTERRUPTED_REASON = "进程被结束了（关机 / 注销 / 点了「停止」/ Obsidian 关掉），没来得及收尾"
+
+
+def last_summary() -> dict[str, Any]:
+    """上次同步的摘要（设置页 B 站卡用）。running 但进程已经没了 = 被打断：说停在第几条、为什么，提示再点会接着下。
+    超时长 / 失效的只给数字放在明细里（她不用管）；待处理只算多 P 和失败。"""
+    try:
+        last = storage.read_json(favorites.sync_root() / LAST_SYNC)
+    except (OSError, ValueError):
+        last = None
+    if not isinstance(last, dict) or not last:
+        return {"exists": False, "message": "还没同步过 B 站收藏"}
+    c = last.get("counts") or {}
+    state = last.get("state") or ("done" if last.get("finished_at") else "unknown")
+    running = state == "running" and _pid_alive(last.get("pid"), last.get("pid_created"))
+    if state == "running" and not running:
+        state = "interrupted"
+    prog = last.get("progress") or {}
+    try:
+        pending_note = pending_note_path().relative_to(storage.vault_root()).as_posix()
+    except (ValueError, OSError):
+        pending_note = None
+    out = {"exists": True, "state": state, "running": running, "started_at": last.get("started_at"),
+           "finished_at": last.get("finished_at"), "options": last.get("options") or {},
+           "downloaded": int(c.get("downloaded") or 0), "failed": int(c.get("failed") or 0), "hit": int(c.get("hit") or 0),
+           "multi_p": int(c.get("multi_p") or 0), "not_reached": int(c.get("not_reached") or 0),
+           "details": {"long": int(c.get("long") or 0), "invalid": int(c.get("invalid") or 0),
+                       "non_video": int(c.get("non_video") or 0), "denied": int(c.get("denied") or 0)},
+           "progress": prog or None, "stopped": last.get("stopped"), "code": last.get("code") or "",
+           "pending_note": pending_note}
+    if state == "interrupted":
+        out["stop_reason"] = INTERRUPTED_REASON
+        out["code"] = "INTERRUPTED"
+        out["message"] = (f"上次同步停在第 {prog.get('done', '?')}/{prog.get('total', '?')} 条：{INTERRUPTED_REASON}。"
+                          f"已经下好的都在，再点「立即同步」只补没下的（停下时正在下的那条会重下）")
+    elif running:
+        out["message"] = f"正在同步：第 {prog.get('done', 0)}/{prog.get('total', '?')} 条"
+    elif state == "stopped":
+        out["stop_reason"] = last.get("stopped")
+        out["message"] = last.get("message") or f"上次同步中途停了：{last.get('stopped')}"
+    else:
+        out["message"] = last.get("message") or "上次同步完成"
+    return out
+
+
+def run_last(args) -> int:
+    from ... import read as read_mod
+    from ...cli import EXIT_OK
+    s = last_summary()
+    read_mod.dump_json(read_mod.outcome(s, ok=True, message=s.get("message") or ""))
+    return EXIT_OK
+
+
+def _progress(out: dict[str, Any], b: dict[str, Any], *, done: int, total: int) -> None:
+    """每条做完写一次 last-sync.json（state=running + 进度）：被「停止」杀掉时设置页还能说出已经下了几条。写不上不管。"""
+    out["progress"] = {"done": done, "total": total, "at": _now()}
+    out["counts"].update(downloaded=len(b["downloaded"]), failed=len(b["failed"]))
+    try:
+        storage.write_json(favorites.sync_root() / LAST_SYNC, out)
+    except OSError:
+        pass
 
 
 def _persist(out: dict[str, Any]) -> None:
@@ -460,14 +768,23 @@ def run(args) -> int:
     from ... import read as read_mod
     from ...cli import EXIT_ERROR, EXIT_NEEDS_HUMAN, EXIT_OK
     out = run_sync(dry_run=bool(getattr(args, "dry_run", False)), limit=getattr(args, "limit", None),
-                   max_duration_s=int(getattr(args, "max_duration", MAX_DURATION_S) or MAX_DURATION_S),
+                   max_duration_s=max(0, int(MAX_DURATION_S if getattr(args, "max_duration", None) is None else args.max_duration)),
                    gap_s=float(getattr(args, "gap", GAP_S) or 0), min_free_gb=float(getattr(args, "min_free_gb", MIN_FREE_GB) or 0),
                    folders=getattr(args, "folder", None) or None, allow=getattr(args, "allow", None) or None,
-                   workers=max(1, int(getattr(args, "workers", 1) or 1)))
+                   workers=max(1, int(getattr(args, "workers", 1) or 1)),
+                   quality=getattr(args, "quality", None), danmaku=not bool(getattr(args, "no_danmaku", False)),
+                   tv=not bool(getattr(args, "no_tv", False)))
     payload = {k: v for k, v in out.items() if k != "buckets"}
     payload["pending"] = {k: [{"bvid": r.get("bvid"), "title": r.get("title"), "duration": r.get("duration"), "reason": r.get("reason")}
                               for r in v] for k, v in (out.get("buckets") or {}).items() if k in ("long", "multi_p", "failed", "denied")}
+    try:   # 1031：设置页「待选清单」链接用库内相对路径打开
+        payload["pending_note"] = pending_note_path().relative_to(storage.vault_root()).as_posix()
+    except (ValueError, OSError):
+        payload["pending_note"] = None
     read_mod.dump_json(read_mod.outcome(payload, ok=bool(out.get("ok")), message=out.get("message") or "", code=out.get("code") or ""))
     if out.get("ok"):
         return EXIT_OK
-    return EXIT_NEEDS_HUMAN if out.get("code") in ("NOT_LOGGED_IN", "NEEDS_HUMAN") else EXIT_ERROR
+    return EXIT_NEEDS_HUMAN if out.get("code") in NEEDS_HUMAN_CODES else EXIT_ERROR
+
+
+NEEDS_HUMAN_CODES = ("NOT_LOGGED_IN", "NEEDS_HUMAN", "MISSING_DEPENDENCY", "DISK_LOW")

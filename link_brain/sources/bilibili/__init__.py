@@ -199,6 +199,9 @@ def normalize(fetched: Fetched, parsed: Parsed, *, captured_at: str) -> dict[str
         dv = ytdlp.validate_danmaku(files["danmaku"])
         danmaku = {"status": ("ok" if dv["count"] else "empty_source") if dv["ok"] else "failed", "count": dv["count"],
                    "error": dv["error"], "path": files["danmaku"]}
+    elif res.get("danmaku_wanted") is False:
+        # 1031 她：同步选项「不存弹幕」——没让下载器去拿，不算没拿到
+        danmaku = {"status": "skipped", "count": 0, "error": "这次没存弹幕（同步选项关了）", "path": None}
     else:
         danmaku = {"status": "failed", "count": 0, "error": "下载器没有写出弹幕 XML", "path": None}
 
@@ -224,7 +227,9 @@ def normalize(fetched: Fetched, parsed: Parsed, *, captured_at: str) -> dict[str
         "video": {"video_url": None, "cover_url": info.get("thumbnail"), "duration_sec": probe.get("duration_sec") or _int(info.get("duration")),
                   "downloaded": bool(probe.get("ok")), "width": probe.get("width"), "height": probe.get("height"),
                   "vcodec": probe.get("vcodec"), "acodec": probe.get("acodec"), "has_audio": bool(probe.get("has_audio")),
-                  "quality": info.get("format_note") or info.get("resolution")},
+                  "quality": ((res.get("tv") or {}).get("label") if res.get("stream") == "tv" else None)
+                  or info.get("format_note") or info.get("resolution"),
+                  "stream": res.get("stream") or "web"},
         "subtitles": [{k: v for k, v in s.items() if k != "path"} for s in subs] or ([sub_missing] if sub_missing else []),
         "danmaku": {k: v for k, v in danmaku.items() if k != "path"},
         "attachments": [],
@@ -235,7 +240,10 @@ def normalize(fetched: Fetched, parsed: Parsed, *, captured_at: str) -> dict[str
         "input_kind": parsed["input_kind"],
         "adapter": version,
         "downloader": {"name": "yt-dlp", "version": ytdlp.version(), "exit_code": res["exit_code"],
-                       "cookies_used": bool(res.get("cookies_used")), "seconds": res.get("duration_s")},
+                       "cookies_used": bool(res.get("cookies_used")), "seconds": res.get("duration_s"),
+                       "quality": res.get("quality"),   # 1031：画质档（max / 1080 / 720），预估按档取样
+                       "stream": res.get("stream") or "web",   # 1031：tv = 电视端（多为无水印）片源；web = yt-dlp 网页流
+                       "tv": res.get("tv"), "tv_error": res.get("tv_error")},
         "login": state,
         "comments_complete": "unknown",
         "web_probe": None,
