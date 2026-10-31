@@ -279,14 +279,18 @@ async function inventory(p) {
   assert.deepEqual(env.p.accountOpts, { inCard: true });
   assert.ok(!acc.querySelector('.lb-twin-card.is-soon'), '1031：B 站不再是「以后支持」');
   const bili = acc.querySelector('.lb-twin-card[data-platform="bilibili"]');
-  assert.deepEqual(['画质', '超过多长只记链接', '同时下几路', '保存弹幕', '优先无水印片源'].filter(n => !rowNamed(bili, n)), [], 'B 站同步选项都在卡里');
+  // 1031 她「和小红书统一」：①只放登录；同步选项在②「B 站同步」；无水印默认、不出选项
+  assert.ok(bili.querySelector('.lb-bili-login') && !bili.querySelector('.lb-bili-opts'), '①的 B 站卡只有登录');
+  const bsync = group(root, 'g-sync').querySelector('[data-section="sync-bili"]');
+  assert.deepEqual(['画质', '超过多长先不下', '同时下几路', '保存弹幕'].filter(n => !rowNamed(bsync, n)), [], 'B 站同步选项在②');
+  assert.ok(!rowNamed(bsync, '优先无水印片源'), '无水印不出选项');
   assert.match(bili.textContent, /扫一次以后自动复用/, '登录态复用写成看得见的字');
   assert.ok(!/登错号|指定账号|目标账号/.test(acc.textContent), '没有「登错号」这回事');
   // ② 收藏与同步
   const sy = group(root, 'g-sync');
-  assert.deepEqual(visibleRows(sy), ['收藏同步', '同步', '每天新收', '图片', '视频', '评论'], '同步关着：「同步时间」那一行收起来');
+  assert.deepEqual(visibleRows(sy), ['收藏同步', '同步', '每天新收', '图片', '视频', '评论', '画质', '超过多长先不下', '同时下几路', '保存弹幕'], '同步关着：「同步时间」那一行收起来；1031 下面接 B 站同步四项');
   assert.ok(sy.querySelector('[data-section="sync-time"] .lb-sched'), '唯一的同步时间编辑器在②，落点 sync-time');
-  assert.deepEqual(sy.querySelectorAll('.lb-subhead').map(x => x.textContent), ['同步', '存哪些']);
+  assert.deepEqual(sy.querySelectorAll('.lb-subhead').map(x => x.textContent), ['同步', '存哪些', 'B 站同步']);   // 1031：B 站同步接在小红书后面
   assert.deepEqual(rowNamed(sy, '收藏同步').querySelectorAll('button').map(b => b.textContent), ['立即同步']);
   assert.ok(!sy.querySelector('.lb-sched-save') && !sy.querySelector('.lb-sched-off'), '没有「保存定时」「关闭定时」按钮');
   // ③ 目录与批注：没有全局样式控件（在目录的「编排 → Aa 样式」）

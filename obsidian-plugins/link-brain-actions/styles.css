@@ -892,3 +892,11 @@ button.lb-sched-add { align-self: flex-start; font-size: 12px; }
 
 /* 1031 她：LWA 界面悬停不出提示气泡。no-tooltip.js 在鼠标移进 lb* 元素时给 body 挂 .lb-notip，这里藏掉 Obsidian 的黑气泡 */
 body.lb-notip .tooltip{display:none!important;}
+/* 1031 她：超过时长上限的 B 站收藏清单（设置页②），勾哪些要下 */
+.lb-settings .lb-v7 .lb-bili-long-list { margin: var(--lb-space-2) 0; font-size: var(--lb-fs-small); }
+.lb-settings .lb-v7 .lb-bili-long-list > summary { cursor: pointer; color: var(--lb-ink); }
+.lb-settings .lb-v7 .lb-bili-long-row { display: grid; grid-template-columns: auto 5.5em minmax(0, 1fr); gap: 2px var(--lb-space-2); align-items: baseline; padding: 4px 0; border-bottom: 1px solid var(--lb-line); cursor: pointer; }
+.lb-settings .lb-v7 .lb-bili-long-dur { font-variant-numeric: tabular-nums; color: var(--lb-muted); }
+.lb-settings .lb-v7 .lb-bili-long-title { color: var(--lb-ink); overflow-wrap: anywhere; }
+.lb-settings .lb-v7 .lb-bili-long-meta { grid-column: 3; color: var(--lb-muted); font-size: var(--lb-fs-micro); }
+.lb-settings .lb-v7 .lb-bili-long-list > .lb-btn { margin-top: var(--lb-space-2); }

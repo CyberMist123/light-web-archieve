@@ -713,6 +713,42 @@ def last_summary() -> dict[str, Any]:
     return out
 
 
+def long_list(*, max_duration_s: int = MAX_DURATION_S) -> dict[str, Any]:
+    """1031 她：超过时长上限、还没入库的收藏列成清单，她在设置页自己勾哪些要下。只读本地收藏夹快照，不连 B 站。
+    每条 {bvid, title, upper, duration, folders, url, chosen}；chosen = 已经放行（下次同步就下）。失效 / 多 P 不列。"""
+    snaps = []
+    for sp in sorted((favorites.sync_root() / "folders").glob("*.json")):
+        if sp.name.endswith(".last-complete.json"):
+            continue
+        try:
+            snap = storage.read_json(sp)
+        except (OSError, ValueError):
+            continue
+        if isinstance(snap, dict):
+            snaps.append(snap)
+    ch = load_choices()
+    from ... import index as index_mod
+    conn = index_mod.connect()
+    try:
+        pl = plan(snaps, max_duration_s=max_duration_s, deny=set(ch["deny"]),
+                  in_library=lambda bv: index_mod.find_object(conn, SOURCE, bv) is not None)
+    finally:
+        conn.close()
+    rows = [{"bvid": r["bvid"], "title": r["title"], "upper": r["upper"], "duration": r["duration"], "duration_text": _hms(r["duration"]),
+             "folders": r["folders"], "url": r["url"], "chosen": r["bvid"] in ch["allow"]} for r in pl["buckets"]["long"]]
+    rows.sort(key=lambda r: (r["chosen"], -(r["duration"] or 0)))
+    return {"items": rows, "total": len(rows), "chosen": sum(1 for r in rows if r["chosen"]), "max_duration": max_duration_s}
+
+
+def run_long(args) -> int:
+    from ... import read as read_mod
+    from ...cli import EXIT_OK
+    out = long_list(max_duration_s=int(getattr(args, "max_duration", MAX_DURATION_S) or 0))
+    msg = f"超过 {_hms(out['max_duration'])} 的收藏 {out['total']} 条，已选 {out['chosen']} 条" if out["max_duration"] else "没设时长上限：没有要挑的"
+    read_mod.dump_json(read_mod.outcome(out, ok=True, message=msg))
+    return EXIT_OK
+
+
 def run_last(args) -> int:
     from ... import read as read_mod
     from ...cli import EXIT_OK

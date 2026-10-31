@@ -90,10 +90,10 @@ function makePlugin() {
   const B = V.bili;
 
   // —— 纯逻辑：参数、状态句、预估句、摘要句 ——
-  assert.deepEqual(B.BILI_DEFAULTS, { quality: 'max', maxDuration: 3600, danmaku: true, workers: 2, tv: true }, '默认最高画质、存弹幕');
+  assert.deepEqual(B.BILI_DEFAULTS, { quality: 'max', maxDuration: 3600, danmaku: true, workers: 2 }, '默认最高画质、存弹幕（1031 她：无水印直接默认，不出选项）');
   assert.deepEqual(B.biliSyncArgs(B.BILI_DEFAULTS), ['-m', 'link_brain', 'bilibili', 'sync', '--json', '--quality', 'max', '--max-duration', '3600', '--workers', '2']);
   const a2 = B.biliSyncArgs({ quality: '720', maxDuration: 0, danmaku: false, workers: 9, tv: false }, { dryRun: true });
-  assert.deepEqual(a2.slice(5), ['--quality', '720', '--max-duration', '0', '--workers', '4', '--no-danmaku', '--no-tv', '--dry-run'], '不限 = 0；路数夹到 1–4');
+  assert.deepEqual(a2.slice(5), ['--quality', '720', '--max-duration', '0', '--workers', '4', '--no-danmaku', '--dry-run'], '不限 = 0；路数夹到 1–4；无水印默认（不再有 --no-tv）');
   assert.equal(B.biliSyncArgs({ quality: 'bogus' })[6], 'max');
   assert.deepEqual(B.biliLoginLines(STATUS), ['网页登录：已登录（12***34） · 大会员', '电视端：没登录（可选；不扫也能下，走网页片源，可能带水印）']);
   assert.match(B.biliLoginLines({ state: 'logged_out', tv: { state: 'expired' } }).join('\n'), /没登录（读收藏夹要登录）[\s\S]*登录已失效/);
@@ -108,7 +108,7 @@ function makePlugin() {
   const tab = { stops: [], help() {} };
   const card = doc.createElement('div');
   doc.body.appendChild(card);
-  B.biliCard(card, tab);
+  B.biliCard(card, tab); B.biliSync(card, tab);   // 1031：登录在①、同步在②，这里画在一起测
   await settle();
   const text = () => card.textContent;
   assert.match(text(), /网页登录：已登录（12\*\*\*34） · 大会员/);
@@ -128,7 +128,7 @@ function makePlugin() {
   sel.value = '1080'; await sel.onchange(); await settle();
   assert.equal(plugin.settings.bilibili.quality, '1080');
   plugin.saveFails = 1;
-  const dsel = rowOf('超过多长只记链接').querySelector('select');
+  const dsel = rowOf('超过多长先不下').querySelector('select');
   dsel.value = '0'; await dsel.onchange(); await settle();
   assert.equal(plugin.settings.bilibili.maxDuration, 3600, '没存上：值退回');
   assert.equal(dsel.value, '3600', '下拉拨回');

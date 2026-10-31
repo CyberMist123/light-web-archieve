@@ -256,3 +256,27 @@ def test_run_sync_parallel_prefetches_ahead_and_falls_back_on_rate_limit(vault, 
     # 每条都把后面 workers+1 条的窗口再递一遍（真 prefetch 去重）；第 2 条撞限流后就不再往后排
     assert len(queued) == 8 and set(queued) == {ytdlp.download_url(f"BV1cccccccc{i}") for i in range(5)}
     assert out["counts"]["downloaded"] == 5 and out["counts"]["failed"] == 1
+
+
+def test_long_list_for_picking(monkeypatch):
+    """1031 她：超过时长上限、还没入库的列出来让她勾；已放行的标 chosen；失效 / 多 P / 已入库 / 删掉的不列；只读本地快照。"""
+    from link_brain import index as index_mod
+    root = favorites.sync_root() / "folders"
+    root.mkdir(parents=True, exist_ok=True)
+    storage.write_json(root / "1-10.json", {"title": "学习", "media_id": 10, "items": [
+        _item("BV1long1", "长课", duration=7200), _item("BV1long2", "长剧", duration=5000),
+        _item("BV1short", "短", duration=60), _item("BV1dead", "失效", duration=9000, invalid=True),
+        _item("BV1multi", "多P", duration=9000, page=3), _item("BV1have", "已入库", duration=9000), _item("BV1gone", "删了", duration=9000)]})
+    storage.write_json(root / "1-10.last-complete.json", {"title": "旧的", "items": [_item("BV1old", "不该读", duration=9000)]})
+    storage.write_json(sync.choices_path(), {"allow": {"BV1long2": {}}, "deny": {"BV1gone": {}}})
+
+    class Conn:
+        def close(self):
+            pass
+    monkeypatch.setattr(index_mod, "connect", lambda: Conn())
+    monkeypatch.setattr(index_mod, "find_object", lambda conn, src, bv: {} if bv == "BV1have" else None)
+    out = sync.long_list(max_duration_s=3600)
+    assert [r["bvid"] for r in out["items"]] == ["BV1long1", "BV1long2"]   # 没选的在前、长的在前
+    assert [r["chosen"] for r in out["items"]] == [False, True]
+    assert out["total"] == 2 and out["chosen"] == 1
+    assert out["items"][0]["duration_text"] and out["items"][0]["folders"] == ["学习"]

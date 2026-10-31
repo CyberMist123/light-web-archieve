@@ -277,12 +277,13 @@ module.exports = function (obsidian, plugin) {
   // 一张卡：登录（网页 + 电视端两行状态、扫码弹窗）· 同步选项（存 settings.bilibili）· 「预估」「立即同步」· 上次同步摘要。
   // 后端：`bilibili status|login|logout|sync|last`（CONVENTIONS §1：最后一行 JSON，提示只用 json.message）。
   // 悬停气泡在 LWA 里全局去掉了：说明一律写成卡里看得见的字。
-  const BILI_DEFAULTS = { quality: 'max', maxDuration: 3600, danmaku: true, workers: 2, tv: true };
+  const BILI_DEFAULTS = { quality: 'max', maxDuration: 3600, danmaku: true, workers: 2 };
   const BILI_QUALITY = [['max', '最高'], ['1080', '1080p'], ['720', '720p']];
   const BILI_DURATION = [['1800', '30 分钟'], ['3600', '1 小时'], ['7200', '2 小时'], ['0', '不限']];
   const BILI_WORKERS = [['1', '1 路'], ['2', '2 路'], ['3', '3 路'], ['4', '4 路']];
   const BILI_RUN_LABEL = '下载 B 站收藏';      // 状态栏那一条（别带「同步」两个字：那是小红书同步记录的口径，停止时会去记小红书的同步记录）
   const BILI_EST_LABEL = '预估 B 站收藏';
+  let biliStatus = null;   // ①登录卡读到的状态，②「立即同步」先看一眼
   const biliOpts = () => ({ ...BILI_DEFAULTS, ...((S() || {}).bilibili || {}) });
   function biliSyncArgs(o, { dryRun = false } = {}) {
     const q = BILI_QUALITY.some(([v]) => v === o.quality) ? o.quality : 'max';
@@ -290,7 +291,6 @@ module.exports = function (obsidian, plugin) {
     const d = Math.max(0, parseInt(o.maxDuration, 10) || 0);
     const args = ['-m', 'link_brain', 'bilibili', 'sync', '--json', '--quality', q, '--max-duration', String(d), '--workers', String(w)];
     if (o.danmaku === false) args.push('--no-danmaku');
-    if (o.tv === false) args.push('--no-tv');
     if (dryRun) args.push('--dry-run');
     return args;
   }
@@ -332,7 +332,8 @@ module.exports = function (obsidian, plugin) {
     if (!rel) { plugin.notify('还没有待选清单：同步一次就有'); return; }
     const f = plugin.app.vault.getAbstractFileByPath?.(plugin.lbPath(rel));
     if (!f) { plugin.notify('还没有待选清单：同步一次就有'); return; }
-    plugin.app.workspace.getLeaf(false).openFile(f);
+    try { plugin.app.setting?.close?.(); } catch {}   // 1031 她「待选清单打不开」：原来开在设置窗口后面被挡住了
+    plugin.app.workspace.getLeaf('tab').openFile(f);
   }
   // 扫码弹窗：后端把二维码存成临时 PNG（`--qr-png`），这里每秒看一眼文件、画出来；过期换新码时文件被覆盖，图跟着换。
   // 关掉弹窗 = 取消（killTree 那个登录进程）。登录态存在本机 ~/.link-brain/bilibili/，扫一次以后自动复用。
@@ -383,9 +384,8 @@ module.exports = function (obsidian, plugin) {
     card.createEl('p', { cls: 'setting-item-description lb-bili-note', text: '扫一次以后自动复用：登录态只存在这台电脑（~/.link-brain/bilibili/），不进收藏库。' });
     const btns = loginBox.createDiv({ cls: 'lb-bili-btns' });
     const mk = (text, fn) => { const b = btns.createEl('button', { cls: 'lb-btn', text }); b.onclick = () => fn(b); return b; };
-    let status = null;
     const paintLogin = j => {
-      status = j;
+      biliStatus = j;
       lines.empty();
       for (const t of biliLoginLines(j)) lines.createDiv({ cls: 'lb-bili-line', text: t });
       webIn.textContent = j && j.state === 'logged_in' ? '重新扫码' : '扫码登录';
@@ -417,12 +417,17 @@ module.exports = function (obsidian, plugin) {
     const tvIn = mk('电视端扫码', login(true)), tvOut = mk('退出电视端', logout(true));
     webOut.hidden = tvOut.hidden = true;
 
+    loadStatus();
+  }
+
+  // ② 收藏与同步 · B 站同步（1031 她：和小红书统一——①只放账号登录，同步选项 / 立即同步 / 上次 / 超长清单在②）
+  function biliSync(card, tab) {
     // —— 同步选项 ——
     const opts = card.createDiv({ cls: 'lb-bili-opts', attr: { 'data-section': 'bili-options' } });
     const o = biliOpts();
     select(row(opts, tab, '画质'), BILI_QUALITY, () => biliOpts().quality, v => saveBili('quality', v), { label: 'B 站画质' });
     opts.createDiv({ cls: 'setting-item-description lb-bili-note', text: '最高 = 能拿到的最高清晰度（大会员可到 4K / 8K），不要杜比视界（Obsidian 里放不了）。' });
-    select(row(opts, tab, '超过多长只记链接'), BILI_DURATION, () => String(biliOpts().maxDuration), v => saveBili('maxDuration', parseInt(v, 10) || 0), { label: 'B 站时长上限' });
+    select(row(opts, tab, '超过多长先不下'), BILI_DURATION, () => String(biliOpts().maxDuration), v => saveBili('maxDuration', parseInt(v, 10) || 0).then(() => loadLong()), { label: 'B 站时长上限' });
     select(row(opts, tab, '同时下几路'), BILI_WORKERS, () => String(biliOpts().workers), v => saveBili('workers', parseInt(v, 10) || 1), { label: 'B 站并行路数' });
     const tg = (name, key) => row(opts, tab, name).addToggle(t => {
       let quiet = false;
@@ -433,8 +438,44 @@ module.exports = function (obsidian, plugin) {
       });
     });
     tg('保存弹幕', 'danmaku');
-    tg('优先无水印片源', 'tv');
-    opts.createDiv({ cls: 'setting-item-description lb-bili-note', text: '无水印片源走电视端，要先点上面的「电视端扫码」；拿不到会自动改用网页片源。' });
+
+    // —— 1031 她：超过时长上限的收藏给清单，自己勾哪些要下（后端 `bilibili long` 只读本地快照；选了 = `choose --allow`，取消 = `--undo`）——
+    const longBox = card.createDiv({ cls: 'lb-bili-long', attr: { 'data-section': 'bili-long' } });
+    const loadLong = async () => {
+      longBox.empty();
+      const d = biliOpts().maxDuration;
+      if (!d) return;
+      let j = null;
+      try { j = (await plugin.runPy(['-m', 'link_brain', 'bilibili', 'long', '--json', '--max-duration', String(d)], { label: 'B 站超长收藏', timeoutMs: 60000 })).json; }
+      catch (e) { plugin.failBox ? plugin.failBox(longBox, '超长收藏清单', e, loadLong) : null; return; }
+      const items = (j && j.items) || [];
+      if (!items.length) return;
+      const det = longBox.createEl('details', { cls: 'lb-bili-long-list' });
+      det.createEl('summary', { text: `超过上限的收藏 ${items.length} 条（已选 ${items.filter(x => x.chosen).length} 条）：勾上的下次同步会下` });
+      const picks = new Map();
+      for (const it of items) {
+        const lab = det.createEl('label', { cls: 'lb-bili-long-row' });
+        const cb = lab.createEl('input', { attr: { type: 'checkbox' } }); cb.checked = !!it.chosen;
+        picks.set(it.bvid, { cb, was: !!it.chosen });
+        lab.createSpan({ cls: 'lb-bili-long-dur', text: it.duration_text || '' });
+        lab.createSpan({ cls: 'lb-bili-long-title', text: it.title || it.bvid });
+        lab.createSpan({ cls: 'lb-bili-long-meta', text: [it.upper, (it.folders || []).join('、')].filter(Boolean).join(' · ') });
+      }
+      const go = det.createEl('button', { cls: 'lb-btn', text: '保存选择并下载' });
+      go.onclick = async () => {
+        const allow = [], undo = [];
+        for (const [bv, p] of picks) { if (p.cb.checked && !p.was) allow.push(bv); if (!p.cb.checked && p.was) undo.push(bv); }
+        if (allow.length || undo.length) {
+          const args = ['-m', 'link_brain', 'bilibili', 'choose', '--json'];
+          for (const bv of allow) args.push('--allow', bv);
+          for (const bv of undo) args.push('--undo', bv);
+          try { await plugin.runPy(args, { label: 'B 站选择', timeoutMs: 60000 }); }
+          catch (e) { plugin.notify('选择没保存上：' + errText(e), { kind: 'error' }); return; }
+        }
+        await loadLong();
+        if (picks.size && [...picks.values()].some(p => p.cb.checked)) runBtn.onclick();
+      };
+    };
 
     // —— 预估 / 立即同步 / 停止 ——
     const act = card.createDiv({ cls: 'lb-bili-actions', attr: { 'data-section': 'bili-sync' } });
@@ -489,7 +530,7 @@ module.exports = function (obsidian, plugin) {
     };
     runBtn.onclick = async () => {
       if (plugin.running) { plugin.notify(plugin.busyText(), { kind: 'warn' }); return; }
-      if (status && status.state === 'logged_out') { plugin.notify('B 站还没登录：先点「扫码登录」', { kind: 'warn' }); return; }
+      if (biliStatus && biliStatus.state === 'logged_out') { plugin.notify('B 站还没登录：先点「扫码登录」', { kind: 'warn' }); return; }
       const done = plugin.busyButton(runBtn, '正在同步…');
       const started = Date.now();
       const pending = plugin.run(biliSyncArgs(biliOpts()), BILI_RUN_LABEL, true, { quiet: true });
@@ -508,8 +549,8 @@ module.exports = function (obsidian, plugin) {
     const off = plugin.onTask ? plugin.onTask(paintRunning) : null;
     if (off) (tab.stops || (tab.stops = [])).push(off);   // 设置页关掉时（hide / disposeStops）注销
     paintRunning();
-    loadStatus();
     loadLast();
+    loadLong();
   }
 
   // ———————————————————— ② 收藏与同步 ————————————————————
@@ -557,6 +598,9 @@ module.exports = function (obsidian, plugin) {
     sub(g, '同步');
     safe(tab, g, '收藏同步', () => tab.stops.push(plugin.renderSyncRow(g, { compact: true })));
     syncRows(g, tab);
+    sub(g, 'B 站同步');
+    const bili = g.createDiv({ cls: 'lb-bili lb-bili-sync', attr: { 'data-section': 'sync-bili' } });
+    safe(tab, bili, 'B 站同步', () => biliSync(bili, tab));
     more(g, tab, 'sync-more', b => {
       tab.fieldCollectionFolder(b);
       tab.toggleRow(b, '登录后马上同步', '', () => so.autoAfterLogin, v => { so.autoAfterLogin = v; }, { help: '第一次扫码登录成功后就开始同步。' });
@@ -1331,6 +1375,6 @@ module.exports = function (obsidian, plugin) {
   }
 
   return { renderPage, renderGuide, needsGuide, syncTimeEditor, syncRows, featureRows, focusSection, addKey, replaceKey, pasteKey, keyTrouble, slotsFor,
-    bili: { biliCard, biliSyncArgs, biliLoginLines, estimateText, lastText, BILI_DEFAULTS, BILI_RUN_LABEL },
+    bili: { biliCard, biliSync, biliSyncArgs, biliLoginLines, estimateText, lastText, BILI_DEFAULTS, BILI_RUN_LABEL },
     STEPS, PROV, SYNC_TIME, GROUPS, _values: { asrValue, visionValue, askValue, summaryValue, embedValue }, _parts: { apiConfig, recogRows, askRows } };
 };

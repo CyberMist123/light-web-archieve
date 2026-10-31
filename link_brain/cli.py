@@ -127,6 +127,9 @@ def build_parser() -> argparse.ArgumentParser:
     pb.add_argument("--json", action="store_true")
     pb = bsub.add_parser("last", help="1031：上次收藏同步的摘要（设置页用）：下了几条、失败几条、多 P 待选几条；中途被打断的说停在第几条、为什么")
     pb.add_argument("--json", action="store_true")
+    pb = bsub.add_parser("long", help="1031：超过时长上限、还没入库的收藏清单（只读本地快照，给设置页勾选；选了用 choose --allow）")
+    pb.add_argument("--max-duration", dest="max_duration", type=int, default=3600, help="时长上限秒数（默认 3600）")
+    pb.add_argument("--json", action="store_true")
     pb = bsub.add_parser("sync", help="同步自己全部收藏夹：收藏夹名当专辑，逐条下视频 / 字幕 / 弹幕；超过时长上限和多 P 的只记清单")
     pb.add_argument("--dry-run", dest="dry_run", action="store_true", help="只扫描、列计划，不下载")
     pb.add_argument("--limit", type=int, default=None, help="本轮最多下载几条")
@@ -680,6 +683,9 @@ def _dispatch(args) -> int:
         if cmd == "choose":
             from .sources.bilibili import sync as bili_sync
             return bili_sync.run_choose(args)
+        if cmd == "long":
+            from .sources.bilibili import sync as bili_sync
+            return bili_sync.run_long(args)
         if cmd == "last":
             from .sources.bilibili import sync as bili_sync
             return bili_sync.run_last(args)
