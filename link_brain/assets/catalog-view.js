@@ -586,6 +586,13 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 /* 1028 筛选条拆成的小块：每块一行按钮，靠左；块和块之间的距离由编排的列宽 / 间距定 */
 .lbc-wrap .lbc-ctl.lbc-ctl-piece{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-start;gap:2px 22px;margin:calc(14px * var(--lbc-sp,1)) 0 0;padding:0 0 12px;min-width:0;}
 .lbc-wrap .lbc-ctl-piece.lbc-blk-search .lbc-searchbox{flex:1 1 160px;min-width:0;}
+/* 1031 作者：「问收藏 · Wiki」两个小字跟在搜索框后面；类型只剩「视频 | 附件」，中间一道细竖线 */
+.lbc-wrap .lbc-pagenav{flex:none;display:inline-flex;align-items:center;gap:8px;margin-left:14px;white-space:nowrap;}
+.lbc-wrap .lbc-pagenav button{height:auto!important;padding:0!important;border:0!important;border-radius:0!important;background:transparent!important;box-shadow:none!important;color:var(--c-muted);font:inherit;font-size:14px;cursor:pointer;}
+.lbc-wrap .lbc-pagenav button:hover{color:var(--c-ink);}
+.lbc-wrap .lbc-pagenav .lbc-pnav-dot{color:var(--c-faint);}
+.lbc-wrap .lbc-type-tab.lbc-type-sep{position:relative;margin-left:12px;}
+.lbc-wrap .lbc-type-tab.lbc-type-sep::before{content:"";position:absolute;left:-7px;top:50%;height:1em;margin-top:-.5em;border-left:1px solid var(--c-line);}
 /* 1031 作者「搜索框是否需要扩大点，方便选到」：搜索那一列吃掉这一排剩下的宽度（最窄 150px，挤的时候 120px），整颗胶囊都能点进去 */
 .lbc-row.is-free>.lbc-rcol.is-grow{flex:1 1 150px;width:auto!important;min-width:150px;max-width:340px;margin-left:auto!important;}
 /* 这一排里内容是空的小块（比如没选来源时的「专辑」）不占位，也不多出一道空 */
@@ -1010,14 +1017,8 @@ titleLabel.dataset.text = titleOf();
 const titleEm = t => Math.max(4, [...t].reduce((n, ch) => n + (/[　-鿿＀-￯]/.test(ch) ? 1.05 : /\s/.test(ch) ? 0.35 : 0.8), 0) + 0.9);
 function setTitle() { const t = titleOf(); if (titleLabel.textContent !== t) titleLabel.setText(t); if (titleLabel.dataset.text !== t) titleLabel.dataset.text = t; const em = titleEm(t).toFixed(2); if (titleText.style.getPropertyValue('--lbc-title-em') !== em) titleText.style.setProperty('--lbc-title-em', em); }
 setTitle();
-// 1031 作者「和问收藏对齐」：标题后面紧跟三页切换（和问收藏 / Wiki 页头同一个 .lb-page-nav）；筛选行原来的「问收藏 → | Wiki →」去掉（重复了）
-const pageNav = titleBlock.createEl('nav', { cls: 'lb-page-nav lbc-pagenav' });
+// 1031 作者（二）：标题旁的三页切换去掉——「问收藏 · Wiki」两个小字放到搜索框后面（建在下面搜索那一块里）；星标页多一个「目录」回去
 const openLib = role => { const p = provider(); if (p?.openLibraryPage) p.openLibraryPage(role); else LB.openPage(role); };
-for (const [role, label] of [['catalog', '浏览收藏'], ['chat', '问收藏'], ['wiki', 'Wiki']]) {
-  const cur = role === 'catalog' && !starredPage;
-  const b = pageNav.createEl('button', { text: label, cls: 'lbc-pnav-' + role + (cur ? ' is-current' : '') }); b.type = 'button';
-  if (cur) b.setAttribute('aria-current', 'page'); else b.onclick = () => (role === 'chat' ? LB.openPage('chat') : openLib(role));
-}
 // 「编排 / 管理」（1027：不属于任何模块——标题挪走 / 移除了也还在）：吸顶区第一个子节点，宽屏绝对定位在右上角，窄了 / 编排中退成最上面一行
 const tools = top.createEl('div', { cls: 'lbc-tools' });
 top.insertBefore(tools, head);
@@ -1305,6 +1306,12 @@ const searchBox = blocks.search.createEl('label', { cls: 'lbc-searchbox' }); sea
 const search = searchBox.createEl('input', { cls: 'lbc-search' });
 search.type = 'search'; search.placeholder = '搜索收藏 · #标签';
 const searchX = searchBox.createEl('button', { cls: 'lbc-search-x', text: '×' }); searchX.type = 'button'; searchX.hidden = true;
+const pageNav = blocks.search.createEl('nav', { cls: 'lbc-pagenav' });
+for (const [role, label] of [...(starredPage ? [['catalog', '目录']] : []), ['chat', '问收藏'], ['wiki', 'Wiki']]) {
+  if (pageNav.childNodes.length) pageNav.createEl('span', { cls: 'lbc-pnav-dot', text: '·' });
+  const b = pageNav.createEl('button', { text: label, cls: 'lbc-pnav-' + role }); b.type = 'button';
+  b.onclick = () => (role === 'chat' ? LB.openPage('chat') : openLib(role));
+}
 const paintSearchX = () => { searchX.hidden = !search.value; };
 searchX.onmousedown = e => e.preventDefault();
 searchX.onclick = e => { e.preventDefault(); e.stopPropagation(); search.value = ''; search.dispatchEvent(new Event('input', { bubbles: true })); paintSearchX(); search.focus(); };
@@ -1476,13 +1483,13 @@ function renderScope() {
     ], e, pchip);
     if (activePlat && /^(xhs|xiaohongshu)$/.test(activePlat)) {
       let nv = 0, ni = 0; for (const it of items) if (platOf(it) === activePlat) { if (it.kind === 'video') nv++; else ni++; }
-      for (const [k, n] of [['image', ni], ['video', nv]]) typeTab(k, TYPE_LABEL[k], n, mediaFilter === k, () => pickType(k), ' lbc-type-sub');
+      typeTab('video', TYPE_LABEL.video, nv, mediaFilter === 'video', () => pickType('video'), ' lbc-type-sub');
     }
     // 1031：选了 B 站就不出「附件」（附件只有小红书有，点了也是 0 篇）
-    if (!activePlat || /^(xhs|xiaohongshu)$/.test(activePlat)) typeTab('attachment', TYPE_LABEL.attachment, nAtt, mediaFilter === 'attachment', () => pickType('attachment'));
+    if (!activePlat || /^(xhs|xiaohongshu)$/.test(activePlat)) typeTab('attachment', TYPE_LABEL.attachment, nAtt, mediaFilter === 'attachment', () => pickType('attachment'), typesBox.querySelector('.lbc-type-tab') ? ' lbc-type-sep' : '');
   } else {
-    const nImg = items.length - nVideo;
-    for (const [k, n] of [['image', nImg], ['video', nVideo], ['attachment', nAtt]]) typeTab(k, TYPE_LABEL[k], n, mediaFilter === k, () => pickType(k));
+    typeTab('video', TYPE_LABEL.video, nVideo, mediaFilter === 'video', () => pickType('video'));
+    typeTab('attachment', TYPE_LABEL.attachment, nAtt, mediaFilter === 'attachment', () => pickType('attachment'), ' lbc-type-sep');
   }
   // Tag ▾：当前条件下最多的 40 个标签，选一个再缩小
   if (!starredPage || items.length) {
@@ -1934,7 +1941,7 @@ if (saved.ts) {
   if (typeof saved.album === 'string') activeAlbum = saved.album;   // renderTopicBar 会把已不存在的主题清掉
   if (typeof saved.src === 'string') { activeSrc = saved.src; applySrc(); }   // 已不存在的来源同样由 renderTopicBar 清掉
   todayOnly = !!saved.today; todoOnly = !!saved.todo;
-  if (['image', 'video', 'attachment'].includes(saved.media)) mediaFilter = saved.media;
+  if (['video', 'attachment'].includes(saved.media)) mediaFilter = saved.media;
   if (typeof saved.tag === 'string') activeTag = saved.tag;
   if (typeof saved.plat === 'string') activePlat = saved.plat;
   if (!starredPage) starOnly = !!saved.star;

@@ -35,9 +35,10 @@ const state = () => JSON.parse(globalThis.__lbState['lb:catalog']);
     assert.equal(t.textContent, '我的收藏'); assert.equal(t.dataset.text, '我的收藏', '改标题设置时刻线层一起换');
     assert.equal(P.$('.lb-manage .lbc-manage-dots').textContent, '···', '1031「编排 / 管理」并成「···」');
     assert.ok(P.$('.lbc-tools').contains(P.$('.lb-manage')));
-    assert.ok(P.$('.lbc-head .lb-page-nav'), '1031：「浏览收藏 / 问收藏 / Wiki」三页切换回来了（和问收藏、Wiki 页头一样）');
+    assert.equal(P.$('.lbc-head .lb-page-nav'), null, '1031 作者（二）：标题旁不再有三页切换');
     // 1031 作者「和问收藏对齐」：标题后面三页切换，当前页「浏览收藏」；筛选行不再有「问收藏 →」
-    assert.deepEqual(P.$$('.lbc-pagenav button').map(b => [b.textContent, b.classList.contains('is-current')]), [['浏览收藏', true], ['问收藏', false], ['Wiki', false]]);
+    assert.deepEqual(P.$$('.lbc-pagenav button').map(b => [b.textContent, b.classList.contains('is-current')]), [['问收藏', false], ['Wiki', false]]);   // 1031 作者：标题旁的三页切换去掉，「问收藏 · Wiki」在搜索框后面
+    assert.ok(P.$('.lbc-m-search').contains(P.$('.lbc-pagenav')));
     assert.equal(P.$('.lbc-askbtn'), null); assert.equal(P.$('.lbc-m-ask'), null);
     assert.equal(P.$('.lbc-search').placeholder, '搜索收藏 · #标签');
     assert.ok(P.$('.lbc-searchbox').contains(P.$('.lbc-search')), '搜索框在胶囊里');
@@ -48,7 +49,8 @@ const state = () => JSON.parse(globalThis.__lbState['lb:catalog']);
     assert.deepEqual(P.$$('.lbc-scope-tab').map(b => [b.textContent, b.dataset.n]),
       [['全部', '4'], ['今日新增', '2'], ['已收藏', '2'], ['★咖啡', '2'], ['★做饭', '2']], '范围标签 + 前两个星标主题，篇数在 data-n');
     // 1026：类型单独一组（图文 / 视频 / 附件），和范围叠加
-    assert.deepEqual(P.$$('.lbc-type-tab').map(b => [b.textContent, b.dataset.n]), [['图文', '3'], ['视频', '1'], ['附件', '1']]);
+    assert.deepEqual(P.$$('.lbc-type-tab').map(b => [b.textContent, b.dataset.n]), [['视频', '1'], ['附件', '1']]);   // 1031 作者：图文删掉，只剩「视频 | 附件」
+    assert.ok(P.$('.lbc-type-tab[data-type="attachment"]').classList.contains('lbc-type-sep'));
     assert.ok(P.$('.lbc-tagpick'), 'Tag ▾'); assert.equal(P.$('.lbc-platpick'), null, '只有一个平台时不出平台选择');
     assert.equal(P.$('.lbc-time').textContent, '最新在前');
     // 字体：@font-face 用资源路径（过 lbPath），不连 Google Fonts
@@ -81,11 +83,9 @@ const state = () => JSON.parse(globalThis.__lbState['lb:catalog']);
     assert.deepEqual(P.ids(), [], '今日新增 ∩ 视频');
     assert.deepEqual(activeScopes(P), ['today']);
     assert.deepEqual([state().today, state().media, state().star], [true, 'video', false]);
-    P.cat('图文').onclick();
-    assert.deepEqual(P.ids().sort(), ['a', 'd'], '组内单选：换成图文');
+    P.cat('视频').onclick();
+    assert.deepEqual(P.ids().sort(), ['a', 'd'], '再点当前类型取消');
     P.cat('今日新增').onclick();
-    assert.deepEqual(P.ids().sort(), ['a', 'c', 'd'], '范围回全部，类型还在');
-    P.cat('图文').onclick();
     assert.equal(P.ids().length, 4, '再点当前项回全部'); assert.deepEqual(activeScopes(P), ['']);
     // 范围和分类各管各的：分类「全部」不清范围
     P.cat('已收藏').onclick(); P.cat('吃的').onclick();
