@@ -490,6 +490,10 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-wrap .lbc-attach-hint{color:var(--c-muted);border-color:var(--c-line);}
 .lbc-wrap .lbc-badges .lbc-prob{pointer-events:auto;cursor:help;color:var(--c-muted);border-color:var(--c-line);}
 .lbc-wrap .lbc-badges svg{display:block;width:14px;height:14px;flex:none;stroke:currentColor;stroke-width:1.6;fill:none;}
+/* 1031 作者：瀑布流封面上的角标和左边的选中圈 / 右边的 ☆ 一样高（30px，同一条线）；列表视图照旧 */
+.lbc-wrap:not(.lbc-simple) .lbc-badges .lbc-attach{height:30px;padding:0 12px;font-size:12px;}
+.lbc-wrap:not(.lbc-simple) .lbc-badges .lbc-attach.lbc-video{padding:0 9px;}
+.lbc-wrap:not(.lbc-simple) .lbc-badges .lbc-attach.lbc-video svg{width:16px;height:16px;}
 /* ☆ / 选中圈（1021 设计稿）：同款 30px 圆，白底黑字细线；没收藏的平时不显示、悬停才出现（1008 作者定），已收藏 = 黑底白星并常显 */
 .lbc-wrap .lbc-star{position:absolute;top:10px;right:10px;z-index:1;box-sizing:border-box;width:30px;height:30px;padding:0!important;border-radius:50%!important;border:1px solid var(--c-ink)!important;background:var(--c-bg)!important;box-shadow:none!important;color:var(--c-ink);display:grid;place-items:center;cursor:pointer;opacity:0;visibility:hidden;pointer-events:none;}
 .lbc-wrap .lbc-star[hidden]{display:none!important;}
