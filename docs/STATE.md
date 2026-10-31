@@ -1,5 +1,7 @@
 # Current State
 
+- 2026-10-31 21:08 **已部署** main 0fd31c5 个人 Wiki「让 AI 改」重做第一块（她：「ai 是对 wiki 整体改，不是单行。还有选中段落不方便」）：范围 = 光标所在那一节 / 拖选的几段 / 整页，范围锁住；`<replacement>` 外框协议 + 中文开场白兜底；按字 / 词比、逐处勾选、「用选中的 N 处」一次存（kind=ai），Ctrl+Z 一步撤；别处改行会重新定位，原文变了作废。catalog 已重建（插件没变）；走查台真调文本 AI 通过，没在她 Obsidian 里点过（待她）。第二块（按思路出计划 → 每节检索 → 只引编号 + 原话核对）未开工。
+
 - 2026-10-31 20:28 **已部署** main 6dae7fb（`claude/wiki-fix-1031-3de85e`；插件 main.js 拷进 vault、catalog 已重建 wiki-page.js；真库 pwiki 轻入口 0.26 秒）个人 Wiki 整理（她：「程序不通……完全的半成品」「编辑不要巨大的黑框」「让 ai 改接上」「拖动会跑到下面」「目录不方便隐藏」）：编辑改成原地改（列表按条、记号不显示、Enter 下一条 / 空条结束列表 / 段首打记号换样子 / 段间 ＋ / Ctrl+Z；修 Ctrl+Enter 把字插错位置）；普通保存不锁页、`pwiki` 轻入口 1.5→0.25 秒；让 AI 改一段 / 整页 / 搭框架（`wiki_ai.py`，用设置里的文本 AI，只回建议，真调 opencode 走查通过）；目录只展开当前文件夹、整栏收起、读到哪高亮、拖到别的文件夹 = 换文件夹、新页排进 order；Ctrl+F 搜正文、回车开页；删除可撤销 / 最近删除找回；问收藏和 MCP（`pwiki` 工具）能读 Wiki（`personal_wiki_search.py`，纯解析拆到 `wiki_page.py` 不扩 import 环）。规格见 docs/WIKI-SPEC.md。浏览器测试台 + 真 pwiki 走查过；没在她的 Obsidian 里点过（待她：重新加载应用后点一遍）。
 
 - 2026-10-31（`worktree-agent-a5ede062e58b937bb`，未部署）她：目录页侧栏分平台看。SYNC / OVERVIEW 小标题行右边各一个「小红书 / B 站」（同一个 `sidePlat`，存 LB.state，默认小红书；库里只有一个平台不出）。B 站那一面只读 `_archive/bilibili-sync/last-sync.json`（文件监听 300ms 防抖）：上次同步、这次新下 / 失败 / 多 P、同步中 n/m、进程没了 = 停在第几条 + 原因，「手动同步 · 不定时 · 去同步 →」（插件新 `openBiliSync` = `openSetupPage('sync-bili')`，focusSection 落点在藏着的平台页里先切过去），没有下次同步；OVERVIEW 只数当前平台；Token 选 B 站时藏（编排时照常显示）。最近导入三列定宽（时间 44px · 标题占满 · 分类 5em 左对齐省略），折起来那一行 = 列表第一行同一套。测试新 `test_catalog_side_plat_1031.cjs`；Obsidian 真机待她。
