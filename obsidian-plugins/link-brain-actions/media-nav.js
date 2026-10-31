@@ -588,6 +588,15 @@ class MediaNav {
     if(video){
       this.hoverControls(media,video);
       this.clickToggle(video);
+      // 1031 她：播放中这一行（倍速 / 循环 / 全屏 / 连播）不挡画面——鼠标在画面上动才露 2 秒；点了里面的按钮立刻收起；暂停时照旧悬停就出
+      let awakeTimer=null;
+      const sleep=()=>{clearTimeout(awakeTimer);awakeTimer=null;media.classList.remove('lb-tools-awake');};
+      media.addEventListener('pointermove',e=>{if(e.pointerType==='touch'||video.paused)return;media.classList.add('lb-tools-awake');clearTimeout(awakeTimer);awakeTimer=setTimeout(sleep,2000);});
+      media.addEventListener('mouseleave',sleep);
+      video.addEventListener('play',()=>media.classList.add('lb-playing'));
+      video.addEventListener('pause',()=>{media.classList.remove('lb-playing');sleep();});
+      if(!video.paused)media.classList.add('lb-playing');
+      bar.addEventListener('click',()=>{if(!video.paused){sleep();try{media.ownerDocument.activeElement?.blur?.();}catch{}}});
       // 1026：视频「全屏」= 整块（画面 + 倍速 / 循环 / 连播）铺满屏幕；原生全屏键（只全屏 <video>、控件全丢）换成这个，双击画面也是它
       try{video.setAttribute('controlslist','nofullscreen');}catch{}
       const keepScroll=[...note.querySelectorAll('.lb-scroll')];

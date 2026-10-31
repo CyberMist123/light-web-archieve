@@ -507,7 +507,7 @@ function renderStar() {
   const off = starOffText();
   star.classList.toggle('is-disabled', !!off);
   if (typeof star.setAttribute === 'function') star.setAttribute('title', off);
-  if (!starBusy && !starHintTimer) starHint.setText(data.starred ? '已收藏' : '');
+  if (!starBusy && !starHintTimer) starHint.setText('');   // 1031 她：正文页不常写「已收藏」（星本身是亮的）；正在收藏 / 没收藏上这类过程字照旧
 }
 star.onclick = async () => {
   if (starBusy) return;

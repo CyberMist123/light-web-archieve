@@ -735,7 +735,9 @@ body.lb-actions-on .xhs-note .lb-tags .lb-tag:hover { text-decoration: underline
 .xhs-note .lb-media.is-lb-fullscreen .lb-carousel { flex: 1 1 auto; min-height: 0; height: auto !important; max-height: none !important; }
 .xhs-note .lb-media.is-lb-fullscreen .lb-slide { height: 100% !important; max-height: none !important; display: flex; align-items: center; justify-content: center; background: #000; }
 .xhs-note .lb-media.is-lb-fullscreen .lb-slide video, .xhs-note .lb-media.is-lb-fullscreen .lb-slide img { width: 100% !important; height: 100% !important; max-width: none !important; max-height: none !important; object-fit: contain; border-radius: 0; }
-.xhs-note .lb-media.is-lb-fullscreen .lb-media-tools { position: static !important; opacity: 1 !important; margin: 0; padding: 6px 0; border-radius: 0; background: rgb(0 0 0 / .6); }
+.xhs-note .lb-media.is-lb-fullscreen .lb-media-tools { display: none !important; }   /* 1031 她：全屏不显示这一行（Esc / 双击画面退出） */
+/* 1031 她：播放中这一行收起，鼠标在画面上动才露 2 秒（media-nav 挂 .lb-playing / .lb-tools-awake）；盖过悬停 / focus-within 常显 */
+.xhs-note .lb-media.lb-playing:not(.lb-tools-awake) .lb-media-tools { opacity: 0 !important; pointer-events: none; }
 .xhs-note .lb-media.is-lb-fullscreen .lb-media-tools button { color: #fff; }
 .xhs-note .lb-media.is-lb-fullscreen .lb-media-pin { display: none; }
 .xhs-note .lb-media-tools .lb-video-full { font-size: 13px !important; }
