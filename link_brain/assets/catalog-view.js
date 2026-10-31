@@ -249,7 +249,6 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-wrap .lbc-plat-sw button:hover{color:var(--c-ink);}
 .lbc-wrap .lbc-plat-sw button.is-on{color:var(--c-ink);font-weight:600;border-bottom-color:var(--c-ink)!important;}
 .lbc-plat-sep{opacity:.6;}
-@container (max-width:300px){.lbc-lab:has(.lbc-plat-sw:not([hidden])) small{display:none;}}
 .lbc-wrap:not(.is-arranging) .lbc-mod.is-plat-off{display:none!important;}
 .lbc-sy-freq.is-first{margin-top:16px!important;}
 .lbc-sy-bar.is-cut i{background:var(--c-muted);}
@@ -291,6 +290,12 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-days span:nth-child(odd):not(:last-child){visibility:hidden;}
 .lbc-side{container-type:inline-size;}
 @container (max-width:340px){.lbc-figs{grid-template-columns:repeat(2,minmax(0,1fr));}.lbc-fig-n{font-size:clamp(20px,calc(20cqi - 10px),48px);}}
+/* 1031 编排里边栏只给 3/12（窄窗时不到 200px）：小标题行先去掉中文副标题，再窄把「小红书 / B 站」挪到下一行；上次 / 下次同步上下叠，折起来那一句可以换行——不截断、不出界 */
+@container (max-width:280px){.lbc-sy-top{grid-template-columns:minmax(0,1fr);row-gap:14px;}}
+@container (max-width:300px){.lbc-lab{gap:10px;}.lbc-lab small{display:none;}.lbc-lab-line{min-width:8px;}}
+@container (max-width:240px){.lbc-lab{flex-wrap:wrap;row-gap:10px;}.lbc-lab-line{order:1;}.lbc-chev{order:2;}.lbc-plat-sw{order:3;flex-basis:100%;}
+  .lbc-fold-sum{white-space:normal;}
+  .lbc-rec li,.lbc-fold-sum.lbc-rec-sum{grid-template-columns:40px minmax(0,1fr);gap:10px;}.lbc-rec-c{display:none;}}
 /* 10-11「索引」视图：左边可折叠的树（带篇数），右边就是卡片网格（点哪个节点右边就是哪些）；窄了（<700px 或手机）树叠在上面。
    她的口味：不要灰框、不要看得见的滚动条——选中用正文色 + 左侧细线，空分类变淡，按钮都是字链 */
 .lbi-bar{display:flex;flex-direction:column;gap:8px;margin:6px 5px 14px;}
