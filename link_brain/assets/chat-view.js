@@ -1120,6 +1120,20 @@ button.lbchat-toc-h{max-width:100%;white-space:nowrap;overflow:hidden;text-overf
 .lbchat-ctlrow{width:calc(100% - 28px);max-width:822px;margin:14px auto -14px;padding:8px 18px 22px;border-radius:16px 16px 0 0;background:var(--lb-soft);border:1px solid var(--lb-line);border-bottom:0;font-size:12.5px;}
 .lbchat-ctlrow:not(:has(> :not([hidden]))){display:none;}
 .lbchat-ctlrow + .lbchat-composer{margin-top:0;}
+/* 1101 作者「屏幕小，这个对话框就很臃肿」：窗口矮（≤ 860px）或窄（≤ 1000px）时压成一行——输入框和「回答 · 报告 / 模型 / 发送」同一排，
+   上面那条「追问 · 新问题 / 收起来源」薄一点；打字超过一行（.is-multi）照旧上下两排。很窄（≤ 560px）时只压边距，不并成一行 */
+@media (max-height: 860px), (max-width: 1000px) {
+  .lbchat .lbchat-ctlrow{margin-top:8px;margin-bottom:-12px;padding:5px 16px 17px;font-size:12px;}
+  .lbchat .lbchat-composer{padding:6px 8px 6px 16px;border-radius:20px;margin-bottom:10px;}
+  .lbchat .lbchat-composer:not(.is-multi){flex-direction:row;align-items:center;gap:8px;}
+  .lbchat .lbchat-composer:not(.is-multi) .lbchat-search{flex:1 1 auto;min-width:0;width:auto;height:36px;min-height:36px;}
+  .lbchat .lbchat-composer:not(.is-multi) .lbchat-cbar{flex:none;}
+  .lbchat .lbchat-composer .lbchat-send{height:32px;}
+}
+@media (max-width: 560px) {
+  .lbchat .lbchat-composer:not(.is-multi){flex-direction:column;align-items:stretch;}
+  .lbchat .lbchat-composer:not(.is-multi) .lbchat-search{width:100%;}
+}
 .lbchat-tocfab{position:absolute;left:0;top:14px;z-index:6;writing-mode:vertical-rl;letter-spacing:.2em;padding:12px 5px!important;height:auto!important;font-size:var(--lb-fs-small)!important;border-radius:0 10px 10px 0!important;border:1px solid var(--lb-line)!important;border-left:0!important;background:var(--lb-soft)!important;color:var(--lb-muted)!important;box-shadow:none!important;cursor:pointer;}
 .lbchat-tocfab:hover{color:var(--lb-ink)!important;}
 .lbchat-tocfab[hidden]{display:none!important;}
