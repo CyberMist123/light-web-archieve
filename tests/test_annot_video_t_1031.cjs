@@ -59,12 +59,8 @@ async function openView(itemId, notePath) {
   const NOTE = '_archive/bilibili/BV1vt0001/notes.json';
   const onDisk = () => JSON.parse(disk.get(NOTE));
   const A = await openView('bili-BV1vt0001', NOTE);
-  const row = A.dv.container.querySelector('.lba-vt-row');
-  assert.ok(row, 'B 站视频笔记：批注框下面有「弹幕时间」');
-  assert.equal(row.children.find(c => c.tag === 'input'), undefined, '1031 她「改成发弹幕」：没有勾，一律带当前时间');
+  assert.equal(A.dv.container.querySelector('.lba-vt-row'), null, '1031 她：不要「弹幕时间」那一行，也没有勾');
   assert.equal(A.ta.placeholder, '发弹幕…');
-  const pd = { prevented: 0, target: row, preventDefault() { this.prevented++; } };
-  row.onmousedown(pd); assert.equal(pd.prevented, 1, '按下这一行不让输入框失焦（失焦即定稿）');
   assert.ok(events.some(e => e[0] === 'link-brain:annotations' && e[1] === 'bili-BV1vt0001'), '打开时也发一次（弹幕层对齐）');
 
   // ① 视频还没开始播：不带时间
@@ -124,6 +120,6 @@ async function openView(itemId, notePath) {
   await X.write('普通批注');
   assert.equal(JSON.parse(disk.get('_archive/xiaohongshu/n1/notes.json')).annotations[0].video_t, undefined);
   assert.equal(events.length, n0, '小红书笔记不发弹幕事件');
-  console.log('PASS annot video_t 1031: B 站视频笔记 = 发弹幕（没有勾、开始写那一刻、没开始播不带、按下不失焦）；走原来的 persist（合并 / 墓碑 / 改字保留 video_t）；时间标点了跳过去播；存完发 link-brain:annotations、danmaku 认得出；小红书不变');
+  console.log('PASS annot video_t 1031: B 站视频笔记 = 发弹幕（没有勾、没有时间行、开始写那一刻、没开始播不带）；走原来的 persist（合并 / 墓碑 / 改字保留 video_t）；时间标点了跳过去播；存完发 link-brain:annotations、danmaku 认得出；小红书不变');
   process.exit(0);
 })().catch(e => { console.error(e); process.exit(1); });

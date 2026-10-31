@@ -305,6 +305,21 @@ module.exports = (obsidian, plugin, deps = {}) => {
     try { leaves = app().workspace.getLeavesOfType('markdown') || []; } catch {}
     return leaves.find(l => { const c = l && l.view && l.view.containerEl; return c && typeof c.contains === 'function' && c.contains(el); }) || null;
   }
+  // 1031 她：B 站笔记顶上那行「← 目录」删了——归档笔记（小红书 / B 站都算）阅读视图里按 Esc 回目录。
+  // 打字时（输入框 / 批注框）、弹窗 / 菜单 / 看大图 / 全屏时、带修饰键时不管，留给它们自己的 Esc。
+  function escToCatalog(e) {
+    if (!e || (e.key !== 'Escape' && e.key !== 'Esc') || e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
+    const D = doc(), t = e.target;
+    if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName || ''))) return;
+    if (D && (D.fullscreenElement || D.querySelector('.modal-container, .menu, .lb-lightbox, .suggestion-container'))) return;
+    const ws = app().workspace;
+    const view = ws.activeLeaf && ws.activeLeaf.view;
+    if (!view || !view.file || (typeof view.getMode === 'function' && view.getMode() !== 'preview')) return;
+    if (!itemOf(view.file)) return;
+    try { e.preventDefault(); } catch {}
+    plugin.openLibraryPage('catalog', ws.activeLeaf).catch?.(err => plugin.notify('目录没打开：' + ((err && err.message) || err), { kind: 'error' }));
+  }
+
   async function backToCatalog(el, evt) {
     const ws = app().workspace;
     const leaf = evt && (evt.ctrlKey || evt.metaKey) && typeof ws.getLeaf === 'function' ? ws.getLeaf('tab') : leafOfEl(el);
@@ -341,6 +356,43 @@ module.exports = (obsidian, plugin, deps = {}) => {
       row.insertBefore(a, row.firstChild);
     }
     paintParts(el, ctx);
+    addSideResize(el);
+  }
+
+  // 1031 她「视频做成可以在页面拖拽大小」：B 站笔记左栏（视频）右下角一个拖柄，拖着改左栏宽度（占整篇的 30%–80%），
+  // 记在本机（localStorage，所有 B 站笔记共用一个宽度）；双击拖柄回到默认 60%
+  const SIDE_W_KEY = 'lb:bili-side-w';
+  function savedSideW() { try { const v = Number(localStorage.getItem(SIDE_W_KEY)); return v >= 30 && v <= 80 ? v : 0; } catch { return 0; } }
+  function addSideResize(el) {
+    const notes = [...(el.matches && el.matches('.lb-note[data-lb-item^="bili-"]') ? [el] : []), ...(el.querySelectorAll ? el.querySelectorAll('.lb-note[data-lb-item^="bili-"]') : [])];
+    for (const note of notes) {
+      const media = note.querySelector('.lb-side > .lb-media');
+      if (!media || media.querySelector('.lb-side-resize')) continue;
+      const w0 = savedSideW(); if (w0) note.style.setProperty('--lb-side-w', w0 + '%');
+      const D = note.ownerDocument || doc();
+      const h = D.createElement('div');
+      h.className = 'lb-side-resize';
+      h.setAttribute('role', 'separator'); h.setAttribute('aria-label', '拖着改视频大小（双击还原）');
+      h.addEventListener('pointerdown', e => {
+        try { e.preventDefault(); e.stopPropagation(); h.setPointerCapture?.(e.pointerId); } catch {}
+        h.classList.add('is-dragging');
+        const move = ev => {
+          const r = note.getBoundingClientRect();
+          if (!r.width) return;
+          const pct = Math.max(30, Math.min(80, Math.round((ev.clientX - r.left) / r.width * 1000) / 10));
+          note.style.setProperty('--lb-side-w', pct + '%');
+        };
+        const up = () => {
+          h.classList.remove('is-dragging');
+          h.removeEventListener('pointermove', move); h.removeEventListener('pointerup', up); h.removeEventListener('pointercancel', up);
+          const v = parseFloat(note.style.getPropertyValue('--lb-side-w'));
+          try { if (v) localStorage.setItem(SIDE_W_KEY, String(v)); } catch {}
+        };
+        h.addEventListener('pointermove', move); h.addEventListener('pointerup', up); h.addEventListener('pointercancel', up);
+      });
+      h.addEventListener('dblclick', e => { try { e.preventDefault(); } catch {} note.style.removeProperty('--lb-side-w'); try { localStorage.removeItem(SIDE_W_KEY); } catch {} });
+      media.appendChild(h);
+    }
   }
 
   // 1031 她「没看到 2P 在哪里点」：B 站多 P 拆成每 P 一篇（bili-BV…、bili-BV…_pN），标题下面一行「分 P　P1 P2 …」，
@@ -413,6 +465,7 @@ module.exports = (obsidian, plugin, deps = {}) => {
   const inst = {
     attach() {
       plugin.registerMarkdownPostProcessor?.((el, ctx) => postProcess(el, ctx));
+      if (doc() && plugin.registerDomEvent) plugin.registerDomEvent(doc(), 'keydown', escToCatalog);
       const ws = app().workspace;
       if (ws && ws.on) {
         plugin.registerEvent(ws.on('file-menu', (menu, file, source) => fileMenu(menu, file, source)));
@@ -433,7 +486,7 @@ module.exports = (obsidian, plugin, deps = {}) => {
       cmd('export-note-pdf', '导出当前笔记为 PDF', f => exportPdf(f), i => !!i.itemId);
       cmd('export-note-zip', '导出当前笔记为压缩包', f => exportZip(f), i => !!i.itemId);
     },
-    restore, undo, recover, pickSnapshot, exportPdf, exportZip, checkDamage, noteDamage, itemOf, backToCatalog,
+    restore, undo, recover, pickSnapshot, exportPdf, exportZip, checkDamage, noteDamage, itemOf, backToCatalog, escToCatalog,
     _internals: { postProcess, fileMenu, addExportItems, hasSnapshots, videoBytes, snapLabel, reasonText, warned, restoring, exporting },
   };
   return inst;

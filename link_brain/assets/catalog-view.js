@@ -123,7 +123,11 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-wrap .lbc-ctl button.lbc-cat:hover,.lbc-wrap .lbc-ctl button.lbc-pick:hover{color:var(--c-ink);}
 .lbc-wrap .lbc-ctl button.lbc-cat.is-active,.lbc-wrap .lbc-ctl button.lbc-pick.is-active{color:var(--c-ink);font-weight:600;}
 .lbc-wrap .lbc-ctl button.lbc-cat.is-active::before{content:"";position:absolute;left:0;right:0;bottom:2px;height:2px;background:var(--c-ink);}
-.lbc-wrap .lbc-ctl button.lbc-cat[data-n]::after{content:attr(data-n);font:italic 13px/1 var(--f-latin);font-variant-numeric:lining-nums;margin-left:5px;color:var(--c-muted);font-weight:400;}
+/* 1031 她「这里的数字都不要了」：篇数照旧放 data-n（读屏 / 测试用），控制行上不再画出来 */
+.lbc-wrap .lbc-ctl button.lbc-cat[data-n]::after{content:none;}
+/* 1031 她「该间隔间隔」：来源 / 专辑下拉、摆出来的专辑、图文 / 视频 / 附件三组之间多空一截 */
+.lbc-wrap .lbc-ctl button.lbc-pick+button.lbc-type-tab,.lbc-wrap .lbc-ctl button.lbc-album-tab+button.lbc-type-tab,.lbc-wrap .lbc-ctl button.lbc-albpick+button.lbc-album-tab{margin-left:14px;}
+.lbc-wrap .lbc-ctl button.lbc-album-tab{color:var(--c-muted);}
 .lbc-wrap .lbc-ctl .lbc-topic-star{font-size:11px;margin-right:3px;color:inherit;}
 .lbc-wrap .lbc-ctl button.lbc-topic-new-tab{color:var(--c-faint);}
 .lbc-wrap .lbc-ctl button.lbc-sidetoggle{width:var(--ctl-h)!important;height:var(--ctl-h)!important;padding:0!important;margin-right:-8px;border:0!important;background:transparent!important;box-shadow:none!important;color:var(--c-muted);display:inline-grid;place-items:center;cursor:pointer;border-radius:999px!important;}
@@ -455,6 +459,12 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-tile-foot{display:flex;justify-content:space-between;align-items:center;gap:8px;min-height:1.6em;font:italic 500 clamp(12px,5.4cqi,15px)/1 var(--f-latin);font-variant-numeric:lining-nums;opacity:.75;}
 .lbc-tile-ty{font:600 clamp(9px,4cqi,11px)/1 var(--f-sans);font-style:normal;letter-spacing:.1em;border:1px solid currentColor;border-radius:999px;padding:.35em .7em;white-space:nowrap;}
 .lbc-body{padding:13px 2px 0;}
+/* 1031 她：B 站卡片不做瀑布流——封面一律 16:9、标题固定两行高（每张一样高，排出来就是整齐的一行行）；边距 / 字参考 B 站首页 */
+.lbc-card.is-bili{margin-bottom:30px;}
+.lbc-card.is-bili .lbc-cover{aspect-ratio:16/9;height:auto;max-height:none;object-fit:cover;object-position:center;border-radius:10px;}
+.lbc-card.is-bili .lbc-nocover{aspect-ratio:16/9;border-radius:10px;}
+.lbc-card.is-bili .lbc-body{padding:11px 2px 0;}
+.lbc-card.is-bili .lbc-ctitle{font:500 15px/1.55 var(--f-sans);letter-spacing:.01em;min-height:3.1em;}
 .lbc-ctitle{font:600 15.5px/1.6 var(--f-serif);color:var(--c-ink);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
 /* 卡片属于某个星标主题：标题下一排细线小胶囊（最多 2 个） */
 .lbc-ctopics{display:flex;flex-wrap:wrap;gap:4px;margin:6px 0 0;overflow:hidden;max-height:40px;}
@@ -1281,6 +1291,7 @@ if (sideBtn) {
 const scopeBox = blocks.scope.createEl('div', { cls: 'lbc-scope' });
 const topicsBox = blocks.topics.createEl('div', { cls: 'lbc-scope lbc-scope-topics' });
 const typesBox = blocks.types.createEl('div', { cls: 'lbc-scope lbc-scope-types' });
+let pinAlbums = {};   // 1031 她：每个来源自己挑摆在控制行上的专辑 { plat: [名字…] }；空 = 篇数最多的 5 个
 const albumsBox = blocks.albums.createEl('div', { cls: 'lbc-scope lbc-scope-albums' });   // 1028 作者：专辑放在类型后面，直接点得到
 const picksBox = blocks.picks.createEl('div', { cls: 'lbc-scope lbc-scope-picks' });
 const timeTab = blocks.sort.createEl('button', { cls: 'lbc-time lbc-pill' }); timeTab.type = 'button';
@@ -1510,10 +1521,30 @@ function renderScope() {
     const plat = activePlat || platsTab[0]?.[0] || '';
     const none = /^(xhs|xiaohongshu)$/.test(plat) ? '还没读过小红书专辑（夜跑「读专辑」没开）'
       : /^(bili|bilibili|bv)$/.test(plat) ? '还没读到 B 站收藏夹（同步一次就有）' : '这个来源没有专辑';
+    // 1031 她「收藏的 tag 拎出来 / diy 就拎出来」：常用的专辑直接摆在下拉后面（默认篇数最多的 5 个；下拉最后「挑摆出来的…」自己定，存本机）
+    const pinned = (pinAlbums[plat] || []).filter(n => albums.some(([a]) => a === n));
+    const shown = pinned.length ? pinned : albums.slice(0, 5).map(([n]) => n);
+    let at = chip.nextSibling;
+    for (const name of shown) {
+      const t = albumHost.createEl('button', { cls: 'lbc-cat lbc-album-tab' + (activeAlbum === name ? ' is-active' : ''), text: name });
+      t.type = 'button'; t.dataset.scope = 'album:' + name; t.setAttribute('aria-pressed', String(activeAlbum === name));
+      t.onclick = () => pickAlbum(activeAlbum === name ? '' : name);
+      albumHost.insertBefore(t, at);
+    }
+    const pinMenu = e => popMenu([
+      { title: '摆在栏上的专辑（勾几个都行；都不勾 = 篇数最多的 5 个）', disabled: true, onClick: () => {} },
+      { separator: true },
+      ...albums.map(([n, c]) => ({ title: `${n}（${c}）`, checked: pinned.includes(n), onClick: () => {
+        const cur = new Set(pinAlbums[plat] || []); if (cur.has(n)) cur.delete(n); else cur.add(n);
+        pinAlbums = { ...pinAlbums, [plat]: albums.map(([a]) => a).filter(a => cur.has(a)) }; saveState(); renderCatBar();
+      } })),
+    ], e, chip);
     chip.onclick = e => popMenu(albums.length ? [
       { title: '全部专辑', checked: !activeAlbum, onClick: () => pickAlbum('') },
       { separator: true },
       ...albums.map(([n, c]) => ({ title: `${n}（${c}）`, checked: n === activeAlbum, onClick: () => pickAlbum(n === activeAlbum ? '' : n) })),
+      { separator: true },
+      { title: '挑摆在栏上的专辑…', onClick: () => pinMenu(e) },
     ] : [{ title: none, disabled: true, onClick: () => {} }], e, chip);
   }
   if (focusedKey != null) { const again = scopeBoxes.flatMap(x => [...x.querySelectorAll('button')]).find(b => (b.dataset?.scope ?? b.dataset?.type) === focusedKey); try { again?.focus({ preventScroll: true }); } catch { again?.focus?.(); } }
@@ -1919,6 +1950,7 @@ if (saved.ts) {
   if (saved.sideFold && typeof saved.sideFold === 'object') for (const k of Object.keys(sideFold)) if (typeof saved.sideFold[k] === 'boolean') sideFold[k] = saved.sideFold[k];
   if (saved.sideFoldRev !== 2) sideFold.recent = true;
   if (saved.sidePlat === 'bili' || saved.sidePlat === 'xhs') sidePlat = saved.sidePlat;
+  if (saved.pinAlbums && typeof saved.pinAlbums === 'object') pinAlbums = saved.pinAlbums;
 }
 setScope(scopeOf());   // 1021 范围单选：旧版本存下的叠加状态只留一个（顺序同 scopeOf）
 if (!sideOpen) wrap.classList.add('is-side-collapsed');
@@ -1927,7 +1959,7 @@ let scrollTop = savedScroll;
 function saveState() {
   LB.state.save({ q: committed, raw: lastRaw, input: search.value, cat: activeCat, topic: activeTopic, album: activeAlbum, src: activeSrc, today: todayOnly, todo: todoOnly, media: mediaFilter, tag: activeTag, plat: activePlat, star: starOnly,
     selectMode, select: [...selected], scrollTop, cols, timeSort, timeRange, timeFrom, timeTo, exportImages,
-    iview: indexView, fold: [...foldOverride].slice(-200), view: viewMode, recentPage, side: sideOpen, sideFold: { ...sideFold }, sideFoldRev: 2, sidePlat });
+    iview: indexView, fold: [...foldOverride].slice(-200), view: viewMode, recentPage, side: sideOpen, sideFold: { ...sideFold }, sideFoldRev: 2, sidePlat, pinAlbums });
 }
 
 // ── 多选栏（C1 放进吸顶区、C15 常用的留在栏上） ──
@@ -2681,7 +2713,8 @@ const DENSITY_DELTA = { s: 1, m: 0, l: -1 };
 function colCount() {
   if (simplePage) return 1;
   if (cols) return lbcColumns(gridWidth(), { cols, narrow: narrow() });
-  const auto = lbcColumns(gridWidth(), { narrow: narrow() });
+  // 1031 她「B 站的视频可以适当放大」：只看 B 站时自动列数少一列
+  const auto = lbcColumns(gridWidth(), { narrow: narrow() }) - (activePlat && /^(bili|bilibili|bv)$/.test(activePlat) ? 1 : 0);
   const d = DENSITY_DELTA[wallDensity()] || 0;
   return Math.max(1, Math.min(COLS_MAX, auto + d));
 }
@@ -3143,7 +3176,7 @@ function buildCard(it, fuzzy, low) {
   perfCounts.build++;
   // 不设 aria-label：Obsidian 会把 aria-label 渲染成 hover 浮框（用户不要那个「悬浮的点的字」）。
   const card = document.createElement('article');
-  card.className = 'lbc-card' + (fuzzy ? ' is-possible' : '');
+  card.className = 'lbc-card' + (fuzzy ? ' is-possible' : '') + (isBili(it) ? ' is-bili' : '');
   card.tabIndex = 0; card.setAttribute('role', 'link');
   // 卡片上的事件一律取 card._lbItem（数据刷新后复用的卡片换成新对象）
   card._lbItem = it; const cur = () => card._lbItem;

@@ -596,7 +596,8 @@ def _media_html(note: dict[str, Any], manifest: dict[str, Any], object_rel: str)
         src = '../../' + _img_srcs(object_rel, video['file'])[0] if video else remote
         poster = '../../' + _img_srcs(object_rel, entries[0]['file'])[0] if entries else ''
         # 批次 D · N6：视频一出来就按自己的比例占位（没有就按封面），不再是灰色横条
-        dims = _dims(video) or (_dims(entries[0]) if entries else None)
+        # 1031 她「灰边不要」：B 站视频按 ffprobe 量的真实画面比例（note.video.width/height）占位，不拿封面比例凑
+        dims = _dims(video) or _dims(note.get('video')) or (_dims(entries[0]) if entries else None)
         style = f"width:100%;height:auto;max-height:75vh;aspect-ratio:{dims[0]} / {dims[1]}" if dims else "width:100%;max-height:75vh"
         parts.append(f'<figure class="lb-slide"><video controls preload="metadata" playsinline poster="{_safe(poster)}" src="{_safe(src)}" style="{style}">视频无法播放，请打开原文</video></figure>')
     for i, entry in enumerate(entries, 1):
@@ -899,6 +900,10 @@ def _comments_html(
     return "".join(parts)
 
 
+def _is_bili(meta: dict[str, Any]) -> bool:
+    return (meta.get("source") or "") == "bilibili"
+
+
 def source_open_url(note: dict[str, Any], meta: dict[str, Any]) -> str | None:
     return sources.get(meta.get("source") or sources.names()[0]).source_open_url(note, meta)
 
@@ -930,7 +935,14 @@ def render_content_block(
     # 左右容器就散了（这正是 09-05 float 版的根因）。所以正文改成 `_body_html`。
     # 顶上灰字（原文/机读版/附件）仍是 Markdown、放在 HTML 块**外面**（内部链接要 Obsidian 解析）。
     author = _author_html(note)
-    title = f'<h2 class="lb-note-title">{_safe(note.get("title") or meta.get("title") or "")}</h2>'
+    title_text = _safe(note.get("title") or meta.get("title") or "")
+    title = f'<h2 class="lb-note-title">{title_text}</h2>'
+    if _is_bili(meta):
+        # 1031 她：B 站笔记不要顶上「← 目录 原文 机读版」那行——原文做成标题的链接，标题旁一个外链小图标
+        url = source_open_url(note, meta)
+        if url:
+            title = (f'<h2 class="lb-note-title"><a class="external-link lb-title-link" href="{_safe(url)}" target="_blank" rel="noopener">'
+                     f'{title_text}</a></h2>')
     body = _body_html(note.get("body") or "")
     if note.get('transcript'):
         body += '<details class="lb-transcript"><summary>视频文字稿</summary>' + _body_html(note['transcript']) + '</details>'
@@ -1153,7 +1165,7 @@ def render_visible_md(
     # 原文 · 机读版 放**正文之上**（Owner 2026-09-17：这条入口该在顶上，不该沉到底）。
     # 包一层无框 callout [!lb-topbar] 只为能上样式（内部链接在 callout 里照样解析）——
     # 否则纯 markdown 链接吃主题默认色，Owner 反馈"发灰"。
-    topbar = " · ".join(x for x in [f"[原文]({source_open_url(note, meta)})" if source_open_url(note, meta) else "", f"[[{object_rel}/derived/agent.md|机读版]]"] if x)
+    topbar = "" if _is_bili(meta) else " · ".join(x for x in [f"[原文]({source_open_url(note, meta)})" if source_open_url(note, meta) else "", f"[[{object_rel}/derived/agent.md|机读版]]"] if x)
     parts = ["\n".join(fm)]
     if topbar:
         parts.append("> [!lb-topbar]\n> " + topbar)

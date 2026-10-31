@@ -114,14 +114,7 @@ ta.placeholder = '写批注…';  // 真正的提示由 setPlaceholder() 按有�
 // 视频还没开始播（只有封面）不带时间。存完发 link-brain:annotations（itemId, {annotations, deleted}），弹幕层立刻换上。
 const isBili = /^bili-/.test(String(itemId || ''));
 let vtStamp = null, vtTimer = null, vtNow = null;
-if (isBili) {
-  // 1031 她「改成发弹幕」：B 站视频笔记里这个框就是发弹幕——不再给「记在当前时间」的勾，一律带当前时间（没开始播的照旧不带）
-  const vtRow = box.createEl('div', { cls: 'lba-vt-row' });
-  vtRow.createEl('span', { text: '弹幕时间' });
-  vtNow = vtRow.createEl('span', { cls: 'lba-vt-now' });
-  // 按下这一行不让输入框失焦（失焦即定稿）
-  vtRow.onmousedown = (e) => { if (e && e.preventDefault) e.preventDefault(); };
-}
+// 1031 她「改成发弹幕」「弹幕时间不需要」：B 站视频笔记里这个框就是发弹幕——没有勾、也不显示时间那一行，一律带当前播放时间（没开始播的照旧不带）
 // 这篇的视频（左栏那一个）。批注框挪进左栏前后都找得到：从框往上找到这篇的视图再往下找
 function findVideo() {
   let view = null;

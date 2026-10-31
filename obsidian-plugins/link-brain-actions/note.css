@@ -148,6 +148,16 @@ body,.lb-page-host,.lb-scope{--lb-ink:var(--text-normal);--lb-muted:var(--text-m
 .xhs-note .lb-part { padding: 1px 10px; border-radius: 999px; border: 1px solid var(--background-modifier-border); color: var(--text-normal); text-decoration: none; cursor: pointer; font-variant-numeric: tabular-nums; }
 .xhs-note .lb-part:hover { border-color: var(--interactive-accent); color: var(--text-accent); }
 .xhs-note .lb-part.is-current { background: var(--interactive-accent); border-color: var(--interactive-accent); color: var(--text-on-accent); cursor: default; }
+/* 1031 她：B 站笔记——标题就是原文链接；视频左栏默认放大到 60%，右下角拖着改宽（note-tools.js 存本机）；视频外面不要灰底 */
+.xhs-note .lb-title-link { color: inherit; text-decoration: none; }
+.xhs-note .lb-title-link:hover { color: var(--text-accent); }
+.xhs-note .lb-note[data-lb-item^="bili-"] { grid-template-columns: var(--lb-side-w, 60%) 1fr; }
+.xhs-note .lb-note[data-lb-item^="bili-"] .lb-media { position: relative; }
+.xhs-note .lb-note[data-lb-item^="bili-"] .lb-carousel { background: transparent; }
+.xhs-note .lb-note[data-lb-item^="bili-"] .lb-slide video { display: block; background: #000; border-radius: var(--lbn-radius); }
+.xhs-note .lb-side-resize { position: absolute; right: -6px; bottom: -6px; width: 18px; height: 18px; cursor: nwse-resize; z-index: 7; opacity: .35; transition: opacity .15s; touch-action: none; }
+.xhs-note .lb-side-resize::before { content: ""; position: absolute; right: 5px; bottom: 5px; width: 8px; height: 8px; border-right: 2px solid var(--text-muted); border-bottom: 2px solid var(--text-muted); }
+.xhs-note .lb-media:hover .lb-side-resize, .xhs-note .lb-side-resize.is-dragging { opacity: 1; }
 .lb-inbox .metadata-container,.lb-catalog .metadata-container { display: none!important; }
 .lb-catalog .inline-title { display: none!important; }
 

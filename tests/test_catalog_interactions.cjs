@@ -157,7 +157,11 @@ async function runCatalogPage(data,{view=fs.readFileSync('link_brain/assets/cata
     const pg=await runCatalogPage(alb);
     const chip=()=>pg.root.querySelector('.lbc-albpick');
     const item=t=>pg.dom.document.body.querySelectorAll('.lbc-menu-item').find(e=>e.textContent.replace(/^✓ /,'')===t);
-    assert.equal(pg.root.querySelectorAll('.lbc-album-tab').length,0,'不再平铺专辑标签');
+    // 1031 她「收藏的 tag 拎出来」：下拉后面再摆篇数最多的几个专辑，点一下筛、再点取消
+    assert.deepEqual(pg.root.querySelectorAll('.lbc-album-tab').map(b=>b.textContent),['做饭','睡前'],'常用专辑摆在下拉后面');
+    pg.root.querySelectorAll('.lbc-album-tab')[1].onclick();assert.deepEqual(pg.cards(),['睡前记忆整理']);
+    assert.ok(pg.root.querySelectorAll('.lbc-album-tab')[1].classList.contains('is-active'));
+    pg.root.querySelectorAll('.lbc-album-tab')[1].onclick();assert.equal(pg.cards().length,3,'再点取消');
     assert.ok(pg.root.querySelector('.lbc-m-albums').contains(chip()),'在「专辑」那一块里');
     assert.equal(chip().textContent,'专辑');assert.ok(chip().classList.contains('lbc-album'));
     chip().onclick(ev);

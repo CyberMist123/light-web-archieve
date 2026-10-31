@@ -299,5 +299,20 @@ function setup({ runPy, files = {}, root = '' } = {}) {
     assert.equal(one.querySelector('.lb-parts'), null, '只有一 P 不出');
     assert.equal(x.querySelector('.lb-parts'), null, '小红书不出');
   }
+  // ── 1031 她：归档笔记阅读视图里按 Esc 回目录；打字时 / 编辑模式 / 普通笔记 / 带修饰键不管 ──
+  {
+    const S = setup();
+    const opened = []; S.plugin.openLibraryPage = async (page, leaf) => { opened.push([page, leaf]); };
+    const leaf = { view: { file: S.note, getMode: () => 'preview' } };
+    S.ws.activeLeaf = leaf;
+    const press = (o = {}) => { const ev = { type: 'keydown', key: 'Escape', target: S.D.body, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; }, ...o }; S.inst.escToCatalog(ev); return ev; };
+    const ev = press();
+    assert.deepEqual(opened, [['catalog', leaf]], 'Esc 回目录（就在这一格）'); assert.ok(ev.defaultPrevented);
+    const ta = S.D.createElement('textarea'); press({ target: ta });
+    press({ ctrlKey: true });
+    leaf.view.getMode = () => 'source'; press(); leaf.view.getMode = () => 'preview';
+    leaf.view.file = S.other; press();
+    assert.equal(opened.length, 1, '打字时 / 带修饰键 / 编辑模式 / 普通笔记都不回目录');
+  }
   console.log('PASS note-tools');
 })().catch(e => { console.error(e); process.exit(1); });
