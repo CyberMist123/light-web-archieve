@@ -879,3 +879,6 @@ button.lb-sched-add { align-self: flex-start; font-size: 12px; }
 .lb-settings .lb-v7 .lb-key-first { margin: 0 0 var(--lb-space-4); padding: var(--lb-space-4) var(--lb-space-5); border: 1px solid var(--lb-ink); border-radius: var(--lb-radius); }
 .lb-settings .lb-v7 .lb-key-first-lead { margin: 0 0 var(--lb-space-2); color: var(--lb-muted); font-size: var(--lb-fs-small); }
 .lb-settings .lb-v7 .lb-key-first .setting-item { border-top: 0; }
+
+/* 1031 她：LWA 界面悬停不出提示气泡。no-tooltip.js 在鼠标移进 lb* 元素时给 body 挂 .lb-notip，这里藏掉 Obsidian 的黑气泡 */
+body.lb-notip .tooltip{display:none!important;}

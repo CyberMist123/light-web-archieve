@@ -761,6 +761,7 @@ class LinkBrainActions extends Plugin {
     this.importing = false;
     this.taskListeners = new Set();
     this.taskStatusEl = this.addStatusBarItem();
+    this.taskStatusEl.addClass?.('lb-task-status');   // 1031：类名带 lb，no-tooltip.js 认得它
     this.taskStatusEl.hidden = true;
     this.taskStatusEl.onclick = () => this.openSyncLog();
     const refreshTask = async () => {
@@ -783,6 +784,8 @@ class LinkBrainActions extends Plugin {
     try { this.remoteUI = require(path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir, 'remote-ui.js'))(obsidian, this); await this.remoteUI.attach(); } catch (e) { console.error('[lb] 远程阅读设置没加载上', e); }   // 第 6 批：远程阅读（MCP）
     // 第 5 批 B2：原「Link Brain Native Media Nav」插件并进来（图片 ←/→、滚轮翻页、点图放大、钉住媒体、视频倍速）
     try { this.mediaNav = require(path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir, 'media-nav.js'))(obsidian, this); this.mediaNav.attach(); } catch (e) { console.error('[lb] 图片导航没加载上', e); }
+    // 1031 她：LWA 自己的界面悬停不出提示气泡（title 白框 / Obsidian 黑气泡都不要），见 no-tooltip.js
+    try { this.noTooltip = require(path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir, 'no-tooltip.js'))(obsidian, this); this.noTooltip.attach(); } catch (e) { console.error('[lb] 去提示气泡没加载上', e); }
     // 批次 D 地基：笔记页动作 / 笔记工具 / 图片动作 / 连播 各一个文件，挂到 this.noteActions / noteTools / imageActions / playerUI。
     // 各线只改自己那个文件（工厂 (obsidian, plugin) => ({attach(){}, detach?(){}})），onload 这里不再动；卸载清理各自用 plugin.register / registerEvent，
     // 或给实例一个 detach()（onunload 会调）。先删 require 缓存再加载：只重载插件（LB.ensure 关了再开）也拿到新部署的文件，不用重启 Obsidian。
