@@ -1381,6 +1381,7 @@ vault/
    │     ├─ cover-001.jpg                                ← 封面（role video_cover）
    │     ├─ subtitle.<lang>.srt                          ← 站点字幕，一种语言一个文件（role subtitle，index 从 1 起）
    │     └─ danmaku.xml                                  ← 弹幕原始 XML（role danmaku）
+   ├─ danmaku-mine.json                                 ← 她在笔记页本地发的弹幕（用户数据，可变；只存本机，见下「B 站弹幕」）
    └─ derived/
       ├─ transcript.json                                 ← 站点字幕的纯文字：{status: ok|no_subtitle, engine: "bilibili-cc", text, lang, file}
       └─ agent.md                                        ← 现有渲染；字幕文字进「## 视频文字稿」，目录检索走 search_fields.transcript
@@ -1397,6 +1398,36 @@ manifest 的 B 站条目（§4 字段之外）：`video` 带 `duration_sec / wid
 视频本体没拿到或 ffprobe 认不出 → **不发布版本**（`SourceError`，重导可重试），不写半截 RAW。
 
 `derived/transcript.json` 的 `status` 多一个值 `no_subtitle`（`videos.DONE_STATUSES`）：B 站来源无站点字幕，本轮不对它起 ASR；画面文字（本地 OCR）照现有规则。
+
+### 2026-10-31 B 站弹幕：本地发的弹幕 `_archive/bilibili/<BV号>/danmaku-mine.json`（对象级，可变；用户数据）
+
+笔记页 B 站视频的弹幕层（插件 `danmaku.js`，media-nav 挂）播「当前版本 manifest 里 role `danmaku` 的 XML」+ 这个文件。这里是她在视频下面那条输入框里发的弹幕，
+**只存本机、绝不发到 B 站**；不进 RAW（不建新版本）、不进 `derived/`（不是派生，删不得、重建不了），后端不读不写。插件经 `app.vault.adapter` 读写：
+先写 `danmaku-mine.json.tmp` 再换名（目标已在：旧的先挪成 `.bak`，换名成功再删；读的时候主文件不在就读 `.bak`）；同一个文件的写排队，每次先读磁盘最新再追加；
+读不懂（坏 JSON / 没有 `items` 数组）就不播、也不覆盖它，发送报「没保存上，内容还在，可重试：…」。没发过就没有这个文件。
+
+```jsonc
+{
+  "schema_version": 1,
+  "item_id": "bili-BV1xxxxxxxxx",          // 同 meta.json
+  "source_id": "BV1xxxxxxxxx",
+  "updated_at": "2026-10-31T17:05:12+11:00", // 最后一条的发送时间
+  "items": [                                // 按发送先后追加
+    {
+      "id": "mmhk2f0a9x3",                  // 本地生成，不重复即可
+      "time": 12.346,                       // 出现在视频第几秒（发送那一刻的播放位置，保留 3 位小数）
+      "text": "弹幕文字",                    // 去掉换行、≤100 字
+      "mode": 1,                            // 照 B 站编码：1 滚动 / 4 底部 / 5 顶部（现在只发滚动）
+      "color": 16777215,                    // 十进制 RGB，同 XML 第 4 个字段
+      "size": 25,                           // 字号，同 XML 第 3 个字段
+      "created_at": "2026-10-31T17:05:12+11:00"
+    }
+  ]
+}
+```
+
+显示设置在插件设置 `media.danmaku = {on, opacity, scale, area, speed, block: {scroll, top, bottom}}`（所有视频共用；`area` 取 0.25 / 0.5 / 1，`speed` 取 0.7 / 1 / 1.35 / 1.7，
+`opacity` 0.1–1，`scale` 0.5–2，缺的按默认 开 / 0.9 / 1 / 0.5 / 1 / 都不屏蔽），后端不读。
 
 ## 2026-10-29 个人 Wiki `vault/PersonalWiki/`（第一批后端，`link_brain/personal_wiki.py`）
 
