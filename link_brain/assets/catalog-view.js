@@ -72,9 +72,9 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-wrap .lbc-title button.lbc-import:hover{transform:rotate(90deg);}
 .lbc-wrap .lbc-title button.lbc-import[aria-busy="true"]{opacity:.5;cursor:progress;}
 .lbc-tools{position:absolute;top:0;right:0;z-index:1;display:flex;align-items:center;gap:8px;}
-.lbc-wrap .lbc-tools button.lb-manage,.lbc-wrap .lbc-tools button.lb-arrange{width:auto!important;height:40px!important;min-width:40px;padding:0 13px!important;border:1px solid var(--lb-line)!important;border-radius:10px!important;background:var(--lb-surface)!important;color:var(--lb-ink)!important;box-shadow:0 1px 4px #0000000c!important;font:500 var(--lb-fs-body)/1 var(--lb-font-body)!important;display:inline-flex;align-items:center;justify-content:center;gap:7px;cursor:pointer;white-space:nowrap;}
-.lbc-wrap .lbc-tools button.lb-manage:hover,.lbc-wrap .lbc-tools button.lb-arrange:hover,.lbc-wrap.is-arranging .lbc-tools button.lb-arrange{background:var(--lb-soft)!important;color:var(--lb-ink)!important;}
-.lbc-wrap .lbc-tools button.lb-manage svg{width:14px;height:14px;flex:none;}
+.lbc-wrap .lbc-tools button.lb-manage{width:auto!important;height:40px!important;min-width:40px;padding:0 13px!important;border:1px solid var(--lb-line)!important;border-radius:10px!important;background:var(--lb-surface)!important;color:var(--lb-ink)!important;box-shadow:0 1px 4px #0000000c!important;font:500 var(--lb-fs-body)/1 var(--lb-font-body)!important;display:inline-flex;align-items:center;justify-content:center;gap:7px;cursor:pointer;white-space:nowrap;}
+.lbc-wrap .lbc-tools button.lb-manage:hover{background:var(--lb-soft)!important;color:var(--lb-ink)!important;}
+.lbc-wrap .lbc-tools .lbc-manage-dots{font-size:20px;letter-spacing:-.06em;line-height:1;transform:translateY(-3px);}
 .lbc-subline{display:flex;gap:2px 8px;align-items:baseline;justify-content:flex-start;flex-wrap:wrap;min-width:0;padding-bottom:14px;font:16px/1.3 var(--f-latin);color:var(--c-muted);letter-spacing:.02em;font-variant-numeric:lining-nums tabular-nums;}
 .lbc-sub{font:inherit;color:var(--c-muted);white-space:nowrap;}
 /* 1027b 计数行不写 italic：随包的 Cormorant 只有斜体那一面，数字照样是斜的；中文（篇 / 全部 / 更新）落到衬线中文就是直立的，不被硬斜 */
@@ -225,8 +225,6 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-wrap .lbc-lab button.lbc-gear:hover{color:var(--c-ink);transform:rotate(60deg);}
 /* 1027 编排（design-1027 §2）：右上角「编排」→ 每个模块头上一条黑色操作条（⠿ 拖到任何位置 · 名字 · 调整 · ×），列与列之间一道可拖的边（调宽，12 格吸附），
    收藏墙上面一条托盘（＋ 模块 · Aa 样式 · 保存状态 · 恢复默认 · 结束编排）。「调整」在模块里面展开（不弹窗） */
-.lbc-wrap .lbc-tools button.lb-arrange svg{width:14px;height:14px;flex:none;}
-.lbc-wrap.is-indexview .lbc-tools button.lb-arrange,.lbc-wrap.is-side-narrow .lbc-tools button.lb-arrange{display:none!important;}
 .lbc-mod-bar,.lbc-arrange-tray,.lbc-col-edge{display:none;}
 .lbc-wrap .lbc-lab button.lbc-gear svg{width:15px;height:15px;}
 .lbc-fold-sum{font:var(--fs-body)/1.45 var(--f-serif);color:var(--c-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:10px 0;cursor:pointer;}   /* 1027b 作者：折起来那一行和展开的列表一行一样大、一样远 */
@@ -1204,9 +1202,12 @@ if (app.vault.on && dv.component?.registerEvent) {
 }
 
 // 1021 右上角「管理」细线胶囊（老的「…」菜单 openManageMenu 1027 删了）
-const MANAGE_SVG = '<svg viewBox="0 0 14 14" aria-hidden="true"><rect x="1" y="1" width="5" height="5" fill="none" stroke="currentColor" stroke-width="1.4"/><rect x="8" y="1" width="5" height="5" fill="currentColor"/><rect x="1" y="8" width="12" height="5" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>';
+// 1031 作者：「编排」和「管理」并成一颗「···」——菜单里 编排 · 每行几列 · 管理那几样
 const manage = mobile ? null : tools.createEl('button', { cls: 'lb-manage lbc-manage' });
-if (manage) { manage.type = 'button'; manage.innerHTML = MANAGE_SVG; manage.createEl('span', { text: '管理' }); }
+if (manage) {
+  manage.type = 'button'; manage.createEl('span', { cls: 'lbc-manage-dots', text: '···' });
+  manage.createEl('span', { cls: 'lb-visually-hidden', text: '编排和管理' });   // 不设 aria-label / title：Obsidian 会渲染成悬浮框
+}
 // 1026 作者（16:55「它甚至没有回收站」；分类删了内容去哪不清楚）：「管理」按用途分组——
 //   整理分类：索引编辑（分类树）/ 在 索引.md 里改 / 删除一个分类（只删分类，内容不删）
 //   回收站与删除：回收站（N 篇，可恢复）/ 彻底删除（在回收站里做，不能恢复）/ 怎么删一篇收藏
@@ -1223,7 +1224,12 @@ async function callPlugin(method, ...args) { const p = await want(method); if (!
 function manageItems() {
   // 1027b 作者：「管理就留索引编辑、刷新目录（手动）、导出资料、设置、回收站就行。设置放最上面」
   //   （删分类在索引树里右键 / 「改名」那一排；彻底删除在回收站里；在 索引.md 里改 = 索引条上的「编辑 索引.md」）
+  // 编排在索引编辑 / 边栏太窄时不出（和以前那颗「编排」钮藏起来的条件一样）
+  const arrangeOk = canArrange && !wrap.classList.contains('is-indexview') && !wrap.classList.contains('is-side-narrow');
   return [
+    arrangeOk && { title: '编排', icon: 'grip-vertical', onClick: () => setArranging(true) },
+    { title: '每行几列', icon: 'columns-3', children: COL_CHOICES.map(([n, label]) => ({ title: label, checked: (cols || 0) === n, onClick: () => setCols(n) })) },
+    { separator: true },
     { title: '设置', icon: 'settings-2', onClick: () => callPlugin('openSetupPage') },
     { separator: true },
     { title: '索引编辑', icon: 'list-tree', onClick: () => openIndexEditor() },
@@ -1251,16 +1257,10 @@ async function deleteCategoryFlow(path = '') {
   const to = await pickNode(`把「${n.name}」并进…（${n.count} 篇跟过去，帖子不删）`, { here: n.path });
   if (to) await treeEdit('merge', n, { to });
 }
-// 1022 第 5 段「编排」胶囊（只桌面目录页：手机 / 星标页没有边栏）：点了进编排，再点或「结束编排」/ Esc 退出
-// 1027：插件没开就没有「编排」（只读：布局存不下来，不让用户白排一通）
+// 1022 第 5 段「编排」（只桌面目录页：手机 / 星标页没有边栏）：进编排，「结束编排」/ Esc 退出
+// 1027：插件没开就没有「编排」（只读：布局存不下来，不让用户白排一通）；1031 起在「···」菜单里
 const GRIP_SVG = '<svg viewBox="0 0 10 14" aria-hidden="true"><g fill="currentColor"><circle cx="2.5" cy="2.5" r="1.4"/><circle cx="7.5" cy="2.5" r="1.4"/><circle cx="2.5" cy="7" r="1.4"/><circle cx="7.5" cy="7" r="1.4"/><circle cx="2.5" cy="11.5" r="1.4"/><circle cx="7.5" cy="11.5" r="1.4"/></g></svg>';
-const arrangeBtn = mobile || simplePage || !provider()?.settings ? null : tools.createEl('button', { cls: 'lb-arrange lbc-arrange' });
-if (arrangeBtn) {
-  arrangeBtn.type = 'button'; arrangeBtn.innerHTML = GRIP_SVG; arrangeBtn.createEl('span', { text: '编排' });
-  arrangeBtn.setAttribute('aria-pressed', 'false');
-  if (manage) tools.insertBefore(arrangeBtn, manage);
-  arrangeBtn.onclick = () => setArranging(!arranging);
-}
+const canArrange = !(mobile || simplePage || !provider()?.settings);
 if (importButton) importButton.type = 'button';
 if (importButton) importButton.onclick = async e => {
   e.preventDefault(); e.stopPropagation();
@@ -2702,6 +2702,13 @@ const COLS_MIN = 2, COLS_MAX = 6;
 let cols = 0, colsTimer = null, hover = false, wheelAcc = 0, wheelAt = 0, roWidth = 0;
 const colsOf = v => { v = Number(v) || 0; return v >= COLS_MIN && v <= COLS_MAX ? Math.round(v) : 0; };
 function savedCols() { const p = provider(); return colsOf(p?.settings?.catalogColumns) || (p?.settings ? 0 : colsOf(saved.cols)); }
+// 每行几列：「···」菜单和收藏墙模块的「调整」是同一个设置
+const COL_CHOICES = [[0, '自动'], [2, '2 列'], [3, '3 列'], [4, '4 列'], [5, '5 列'], [6, '6 列']];
+function setCols(v) {
+  const n = colsOf(v); cols = n; applyCols(); saveState();
+  const q = provider(); if (q?.settings) { q.settings.catalogColumns = n; saveSettingSoon('catalogColumns'); }
+  laidN = 0; relayoutIfNeeded();
+}
 function applyCols() {
   grid.classList.toggle('lbc-has-cols', !!cols);
   if (cols) grid.style.setProperty('--lbc-cols', String(cols)); else grid.style.removeProperty('--lbc-cols');
@@ -4051,7 +4058,7 @@ let fadeRaf = 0;
 function sideFadeSoon() { if (fadeRaf) return; const raf = typeof requestAnimationFrame === 'function' ? requestAnimationFrame : f => setTimeout(f, 16); fadeRaf = raf(() => { fadeRaf = 0; sideFade(); }) || 1; }
 const mods = {};
 // 1027：托盘在所有模块上面（页面最前，编排时吸顶、滚动也在）——模块怎么挪都不会把它挤到中间去
-const arrangeTray = arrangeBtn ? wrap.createEl('div', { cls: 'lbc-arrange-tray' }) : null;
+const arrangeTray = canArrange ? wrap.createEl('div', { cls: 'lbc-arrange-tray' }) : null;
 if (arrangeTray) wrap.insertBefore(arrangeTray, top);
 // 墙下面的几排（模块被拖到收藏墙那一排的下面时）
 const afterEl = wrap.createEl('div', { cls: 'lbc-after' }); afterEl.hidden = true;
@@ -5158,11 +5165,7 @@ const panelBody = {
   },
   wall(body, g, p) {
     const r = mkRow(body, '每行');
-    mkSelect(r, [[0, '自动'], [2, '2 列'], [3, '3 列'], [4, '4 列'], [5, '5 列'], [6, '6 列']], cols || 0, v => {
-      const n = colsOf(v); cols = n; applyCols(); saveState();
-      const q = provider(); if (q?.settings) { q.settings.catalogColumns = n; saveSettingSoon('catalogColumns'); }
-      laidN = 0; relayoutIfNeeded();
-    }, '收藏墙每行几列').dataset.k = 'cols';
+    mkSelect(r, COL_CHOICES, cols || 0, setCols, '收藏墙每行几列').dataset.k = 'cols';
     r.createEl('span', { cls: 'lbc-mp-k', text: '密度' });
     mkSelect(r, [['s', '紧凑（多一列）'], ['m', '标准'], ['l', '宽松（少一列）']], g.opt.density, v => { g.opt.density = v; saveLayout(); laidN = 0; relayoutIfNeeded(); }, '卡片密度').dataset.k = 'density';
     body.createEl('p', { cls: 'lbc-mp-note', text: '在目录页上按 Ctrl + 加号 / 减号、Ctrl + 滚轮也能调列数（同一个设置）。密度只在「自动」时起作用。' });
@@ -5402,12 +5405,11 @@ function onArrangeKey(e) {
 }
 let arranging = false;
 function setArranging(on) {
-  if (!arrangeBtn || arranging === !!on) return;
+  if (!canArrange || arranging === !!on) return;
   arranging = !!on;
   if (arranging) { LB.style('lbc-arrange-style', ARRANGE_CSS); for (const id of MOD_IDS) ensureBar(id); if (!sideOpen) setSideOpen(true); }
   else { closePanel(); endModDrag(true); endEdgeDrag(); selectMod(''); if (saveTimer) flushSave(); }
   wrap.classList.toggle('is-arranging', arranging);
-  arrangeBtn.setAttribute('aria-pressed', String(arranging));
   if (typeof document !== 'undefined') { if (arranging) document.addEventListener('keydown', onArrangeKey, true); else document.removeEventListener('keydown', onArrangeKey, true); }
   paintTray(); for (const id of MOD_IDS) paintBar(id);
   paintStickyTop();

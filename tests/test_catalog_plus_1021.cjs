@@ -33,7 +33,7 @@ const state = () => JSON.parse(globalThis.__lbState['lb:catalog']);
     plugin.settings.catalogTitle = '我的收藏';
     P.app.workspace.trigger('link-brain:catalog-prefs');
     assert.equal(t.textContent, '我的收藏'); assert.equal(t.dataset.text, '我的收藏', '改标题设置时刻线层一起换');
-    assert.equal(P.$('.lb-manage').textContent, '管理', '「…」换成「管理」胶囊');
+    assert.equal(P.$('.lb-manage .lbc-manage-dots').textContent, '···', '1031「编排 / 管理」并成「···」');
     assert.ok(P.$('.lbc-tools').contains(P.$('.lb-manage')));
     assert.ok(P.$('.lbc-head .lb-page-nav'), '1031：「浏览收藏 / 问收藏 / Wiki」三页切换回来了（和问收藏、Wiki 页头一样）');
     // 1031 作者「和问收藏对齐」：标题后面三页切换，当前页「浏览收藏」；筛选行不再有「问收藏 →」

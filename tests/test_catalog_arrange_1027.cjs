@@ -18,6 +18,9 @@ const { tick, item, catalogData, openCatalog, ev } = require('./_fake_l1.cjs');
 const iso = (d, k) => new Date(Date.UTC(2026, 9, d, k)).toISOString();
 const base = () => Array.from({ length: 10 }, (_, i) => item('x' + i, '第 ' + i + ' 篇', { ts: iso(10 + i, 1), date: `2026-10-${10 + i}` }));
 const notes = [];
+// 1031 作者：「编排」并进「···」菜单
+async function arrange(P) { P.$('.lb-manage').onclick(ev()); await tick(5); const b = P.menuItems().find(x => x.textContent === '编排'); assert.ok(b, '「···」里有编排'); b.onclick(ev()); }
+const menuHas = async (P, t) => { P.$('.lb-manage').onclick(ev()); await tick(5); const on = P.menuItems().some(x => x.textContent === t); P.dom.document.body.click?.(); return on; };
 function mkPlugin(more = {}) {
   const calls = [];
   const p = {
@@ -93,7 +96,7 @@ const menuItem = (P, re) => P.dom.document.body.querySelectorAll('.lbc-menu-item
   {
     const p = mkPlugin();
     const P = await openCatalog({ data: catalogData(base()), plugin: p });
-    P.$('.lb-arrange').onclick();
+    await arrange(P);
     assert.ok(P.$('.lbc-wrap').classList.contains('is-arranging'));
     assert.equal(P.$$('.lbc-mod-bar').length, 15, '十五块都有工具条（1028 加了专辑，1031 去掉视图、问收藏）');
     for (const id of ['title', 'meta', 'scope', 'search', 'recent', 'wall']) assert.ok(bar(P, id, 'drag') && bar(P, id, 'adjust') && bar(P, id, 'remove'), id + '：⠿ / 调整 / ×');
@@ -166,7 +169,7 @@ const menuItem = (P, re) => P.dom.document.body.querySelectorAll('.lbc-menu-item
     notes.length = 0;
     const p = mkPlugin();
     const P = await openCatalog({ data: catalogData(base()), plugin: p });
-    P.$('.lb-arrange').onclick();
+    await arrange(P);
     assert.match(P.$('.lbc-at-shelf').textContent, /备选空/, '备选一开始是空的');
     bar(P, 'overview', 'remove').onclick(ev());
     assert.ok(mod(P, 'overview').classList.contains('is-gone'));
@@ -197,7 +200,7 @@ const menuItem = (P, re) => P.dom.document.body.querySelectorAll('.lbc-menu-item
   {
     const p = mkPlugin();
     const P = await openCatalog({ data: catalogData(base()), plugin: p });
-    P.$('.lb-arrange').onclick();
+    await arrange(P);
     const edge = () => P.$$('.lbc-col-edge').find(e => e.parentNode === P.$('.lbc-board'));
     assert.ok(edge(), '边栏和墙之间有一道可拖的边');
     edge().onkeydown({ key: 'ArrowRight', preventDefault() {} });
@@ -247,7 +250,7 @@ const menuItem = (P, re) => P.dom.document.body.querySelectorAll('.lbc-menu-item
       unclassified: { count: 4, items: ['x6', 'x7', 'x8', 'x9'] } };
     const P = await openCatalog({ data: catalogData(base(), { usage_month: { month: '2026-10', cost_cny: 1.5 } }), plugin: p, files: { '_archive/index-data.json': JSON.stringify(index), '索引.md': '- 咖啡\n- 旅行\n' } });
     await tick(5);
-    P.$('.lb-arrange').onclick();
+    await arrange(P);
     bar(P, 'recent', 'adjust').onclick(ev());
     const panel = () => P.$('.lbc-mp');
     assert.equal(panel().dataset.panel, 'recent'); assert.ok(mod(P, 'recent').contains(panel()), '在模块里展开（不弹窗）');
@@ -318,7 +321,7 @@ const menuItem = (P, re) => P.dom.document.body.querySelectorAll('.lbc-menu-item
   {
     const p = mkPlugin();
     const P = await openCatalog({ data: catalogData(base()), plugin: p });
-    P.$('.lb-arrange').onclick();
+    await arrange(P);
     P.$('.lbc-arrange-tray [data-act="style"]').onclick();
     assert.equal(P.$('.lbc-at-style').hidden, false);
     const sel = k => P.$(`.lbc-arrange-tray [data-theme="${k}"]`);
@@ -341,7 +344,7 @@ const menuItem = (P, re) => P.dom.document.body.querySelectorAll('.lbc-menu-item
   {
     const p = mkPlugin(); p.failSave = '磁盘满了';
     const P = await openCatalog({ data: catalogData(base()), plugin: p });
-    P.$('.lb-arrange').onclick();
+    await arrange(P);
     bar(P, 'token', 'remove').onclick(ev());
     await tick(450);
     const st = P.$('.lbc-arrange-tray .lbc-at-save');
@@ -374,10 +377,10 @@ const menuItem = (P, re) => P.dom.document.body.querySelectorAll('.lbc-menu-item
   // ── ⑧ 手机 / 插件没开：没有编排 ──
   {
     const M = await openCatalog({ data: catalogData(base()), isMobile: true });
-    assert.equal(M.$('.lb-arrange'), null);
+    assert.equal(M.$('.lb-manage'), null, '手机没有「···」');
     assert.deepEqual(topRows(M)[0], [['title'], ['meta']], '手机照默认摆');
     const N = await openCatalog({ data: catalogData(base()), plugin: null });
-    assert.equal(N.$('.lb-arrange'), null, '插件没开：只读，不出编排');
+    assert.equal(await menuHas(N, '编排'), false, '插件没开：只读，「···」里不出编排');
     assert.deepEqual(boardCols(N), [['recent', 'sync', 'token', 'overview'], ['wall']]);
   }
 
@@ -386,7 +389,7 @@ const menuItem = (P, re) => P.dom.document.body.querySelectorAll('.lbc-menu-item
     notes.length = 0;
     const p = mkPlugin();
     const P = await openCatalog({ data: catalogData(base()), plugin: p });
-    P.$('.lb-arrange').onclick();
+    await arrange(P);
     bar(P, 'overview', 'remove').onclick(ev());
     assert.equal(P.$('.lbc-arrange-tray [data-act="save-style"]').textContent, '存为样式');
     P.$('.lbc-arrange-tray [data-act="save-style"]').onclick();
@@ -394,7 +397,7 @@ const menuItem = (P, re) => P.dom.document.body.querySelectorAll('.lbc-menu-item
     assert.deepEqual(p.settings.catalogStyles.map(s => s.name), ['样式 1']); assert.equal(p.settings.catalogStyleCur, '样式 1');
     assert.match(notes.at(-1).message, /存好了：「样式 1」，已锁定/);
     // 再编排、改一下：样式按钮写「改过」
-    P.$('.lb-arrange').onclick();
+    await arrange(P);
     assert.match(P.$('.lbc-arrange-tray [data-act="styles"]').textContent, /^样式：样式 1 ▾/);
     bar(P, 'recent', 'remove').onclick(ev());
     assert.match(P.$('.lbc-arrange-tray [data-act="styles"]').textContent, /样式 1（改过）/);
