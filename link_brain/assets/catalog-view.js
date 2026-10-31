@@ -460,11 +460,32 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-tile-ty{font:600 clamp(9px,4cqi,11px)/1 var(--f-sans);font-style:normal;letter-spacing:.1em;border:1px solid currentColor;border-radius:999px;padding:.35em .7em;white-space:nowrap;}
 .lbc-body{padding:13px 2px 0;}
 /* 1031 她：B 站卡片不做瀑布流——封面一律 16:9、标题固定两行高（每张一样高，排出来就是整齐的一行行）；边距 / 字参考 B 站首页 */
-.lbc-card.is-bili{margin-bottom:30px;}
-.lbc-card.is-bili .lbc-cover{aspect-ratio:16/9;height:auto;max-height:none;object-fit:cover;object-position:center;border-radius:10px;}
-.lbc-card.is-bili .lbc-nocover{aspect-ratio:16/9;border-radius:10px;}
-.lbc-card.is-bili .lbc-body{padding:11px 2px 0;}
-.lbc-card.is-bili .lbc-ctitle{font:500 15px/1.55 var(--f-sans);letter-spacing:.01em;min-height:3.1em;}
+/* 1101 她：再照 B 站首页抠一遍——圆角 6、封面底部渐变条（左 ▶播放量、右 时长，白字 13px）、标题 15/22 两行、下面一行灰色上传时间；
+   悬停不错版（B 站没有），标题变 B 站蓝；悬停 0.4 秒起静音播本地视频，底栏换成右下角「00:15/11:41」。高度估算见 catalog-search.js lbcCardHeight */
+.lbc-card.is-bili{margin-bottom:24px;--bili-t:#18191c;--bili-m:#9499a0;}
+.theme-dark .lbc-card.is-bili{--bili-t:var(--c-ink);--bili-m:var(--c-muted);}
+.lbc-card.is-bili .lbc-cover{aspect-ratio:16/9;height:auto;max-height:none;object-fit:cover;object-position:center;border-radius:6px;}
+.lbc-card.is-bili .lbc-nocover{aspect-ratio:16/9;border-radius:6px;}
+.lbc-card.is-bili:hover :is(.lbc-cover,.lbc-nocover){transform:none;box-shadow:none;}
+.lbc-wrap .lbc-card.is-bili:hover :is(.lbc-badges,.lbc-check,.lbc-star:not(.is-static),.lbc-reclass){translate:none;}
+.lbc-card.is-bili .lbc-body{padding:12px 0 0;}
+.lbc-card.is-bili .lbc-ctitle{font:500 15px/22px var(--f-sans);letter-spacing:0;color:var(--bili-t);height:44px;transition:color .2s;}
+.lbc-card.is-bili:hover .lbc-ctitle{color:#00aeec;}
+.lbc-bili-day{display:flex;align-items:center;margin-top:6px;font:400 13px/17px var(--f-sans);color:var(--bili-m);white-space:nowrap;min-width:0;}
+.lbc-bili-up{display:flex;align-items:center;gap:4px;min-width:0;}
+.lbc-bili-up svg{flex:none;width:17px;height:17px;}
+.lbc-bili-upname{overflow:hidden;text-overflow:ellipsis;min-width:0;}
+.lbc-bili-date{flex:none;white-space:pre;}
+.lbc-bili-media{position:absolute;top:0;left:0;width:100%;aspect-ratio:16/9;border-radius:6px;overflow:hidden;pointer-events:none;}
+.lbc-bili-vid{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#000;opacity:0;transition:opacity .2s;}
+.lbc-bili-media.is-playing .lbc-bili-vid{opacity:1;}
+.lbc-bili-stats{position:absolute;left:0;right:0;bottom:0;box-sizing:border-box;height:38px;padding:16px 8px 6px;display:flex;align-items:center;justify-content:space-between;gap:8px;background:linear-gradient(180deg,rgba(0,0,0,0) 0%,rgba(0,0,0,.8) 100%);color:#fff;font:400 13px/16px var(--f-sans);font-variant-numeric:tabular-nums;transition:opacity .2s;}
+.lbc-bili-stat{display:flex;align-items:center;gap:2px;min-width:0;}
+.lbc-bili-stat svg{flex:none;width:18px;height:18px;}
+.lbc-bili-dur{margin-left:auto;flex:none;}
+.lbc-bili-time{position:absolute;right:8px;bottom:6px;color:#fff;font:400 13px/16px var(--f-sans);font-variant-numeric:tabular-nums;text-shadow:0 0 2px rgba(0,0,0,.6),0 1px 3px rgba(0,0,0,.5);opacity:0;transition:opacity .2s;}
+.lbc-bili-media.is-playing .lbc-bili-stats{opacity:0;}
+.lbc-bili-media.is-playing .lbc-bili-time{opacity:1;}
 .lbc-ctitle{font:600 15.5px/1.6 var(--f-serif);color:var(--c-ink);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
 /* 卡片属于某个星标主题：标题下一排细线小胶囊（最多 2 个） */
 .lbc-ctopics{display:flex;flex-wrap:wrap;gap:4px;margin:6px 0 0;overflow:hidden;max-height:40px;}
@@ -3135,7 +3156,65 @@ function seriesCuts() {
 const cardTitle = it => seriesCuts().get(it.id) || it.title || '未命名';
 function cardSig(it, fuzzy, low) {
   return JSON.stringify([it.title, cardTitle(it), it.cover, it.cover_w, it.cover_h, it.kind, it.attachment, it.attachment_reason, it.author, it.source, it.likes, it.note, it.problems || null, fuzzy, low || '',
-    it.cover ? '' : [catNameOf(it), it.date], cardTopics(it)]);
+    it.cover ? '' : [catNameOf(it), it.date], cardTopics(it), isBili(it) ? [it.views, it.duration, it.video, it.author, biliDay(it)] : 0]);
+}
+// 1101 她：B 站卡片照 B 站首页的写法——播放量「43.5万」、时长「11:41」/「1:02:03」、上传时间「7小时前 / 昨天 / 10月23日 / 2024年6月29日」
+const PLAY_SVG = '<svg viewBox="0 0 24 24"><rect x="2.75" y="4.25" width="18.5" height="15.5" rx="4" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 8.9v6.2a.6.6 0 0 0 .9.5l5-3.1a.6.6 0 0 0 0-1l-5-3.1a.6.6 0 0 0-.9.5z" fill="currentColor"/></svg>';
+const UP_SVG = '<svg viewBox="0 0 24 24"><rect x="2.5" y="5" width="19" height="14" rx="3.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M6.6 9.2v3.6a2 2 0 0 0 4 0V9.2M13.4 15V9.2h2.4a1.8 1.8 0 0 1 0 3.6h-2.4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+function biliCount(n) {
+  n = Number(n); if (!Number.isFinite(n) || n < 0) return '';
+  if (n >= 1e8) return (Math.round(n / 1e7) / 10) + '亿';
+  if (n >= 1e4) return (Math.round(n / 1e3) / 10) + '万';
+  return String(Math.round(n));
+}
+function biliClock(s) {
+  s = Math.max(0, Math.round(Number(s) || 0));
+  const h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60, p = v => String(v).padStart(2, '0');
+  return (h ? h + ':' + p(m) : p(m)) + ':' + p(s % 60);
+}
+function biliDay(it, now = Date.now()) {
+  const t = Date.parse(it.pub_at || it.published || ''); if (!Number.isFinite(t)) return '';
+  const d = new Date(t), n = new Date(now), ago = now - t;
+  if (ago >= 0 && ago < 3600e3) return Math.max(1, Math.floor(ago / 60e3)) + '分钟前';
+  if (ago >= 0 && ago < 86400e3 && d.toDateString() === n.toDateString()) return Math.floor(ago / 3600e3) + '小时前';
+  if (d.toDateString() === new Date(now - 86400e3).toDateString()) return '昨天';
+  return (d.getFullYear() === n.getFullYear() ? '' : d.getFullYear() + '年') + (d.getMonth() + 1) + '月' + d.getDate() + '日';
+}
+// 悬停 0.4 秒起静音播本地视频（B 站首页的悬停预览），右下角「00:15/11:41」；移开就停、视频元素拆掉（不占解码器）
+function biliPreview(card, media) {
+  let timer = 0, vid = null;
+  const stop = () => {
+    clearTimeout(timer); timer = 0;
+    if (vid) { try { vid.pause(); vid.removeAttribute('src'); vid.load(); } catch {} vid.remove(); vid = null; }
+    media.classList.remove('is-playing');
+  };
+  card.addEventListener('mouseenter', () => {
+    const it = card._lbItem; if (!it?.video || selectMode) return;
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = 0; if (vid) return;
+      vid = document.createElement('video'); vid.className = 'lbc-bili-vid';
+      vid.muted = true; vid.defaultMuted = true; vid.playsInline = true; vid.loop = true; vid.preload = 'auto';
+      const time = media.querySelector('.lbc-bili-time');
+      const tick = () => { if (vid && time) time.textContent = biliClock(vid.currentTime) + '/' + biliClock(vid.duration || it.duration); };
+      vid.addEventListener('timeupdate', tick);
+      vid.addEventListener('playing', () => { tick(); media.classList.add('is-playing'); });
+      vid.addEventListener('error', stop, { once: true });
+      vid.src = app.vault.adapter.getResourcePath(lbPath(it.video));
+      media.prepend(vid);
+      vid.play()?.catch?.(() => {});
+    }, 400);
+  });
+  card.addEventListener('mouseleave', stop);
+}
+function biliMedia(card, it) {
+  const media = card.createEl('div', { cls: 'lbc-bili-media' });
+  const stats = media.createEl('div', { cls: 'lbc-bili-stats' });
+  const views = biliCount(it.views);
+  if (views) { const v = stats.createEl('span', { cls: 'lbc-bili-stat' }); putSvg(v, PLAY_SVG); v.createEl('span', { text: views }); }
+  if (it.duration) stats.createEl('span', { cls: 'lbc-bili-dur', text: biliClock(it.duration) });
+  media.createEl('span', { cls: 'lbc-bili-time' });
+  if (!mobile) biliPreview(card, media);
 }
 // 1021 卡片外观：无封面 = 柔和文字封面（按分类取一个浅色底：7 个同明度浅色、分类序号取模）；作者首字头像（底色按作者名散列）
 const TILE_COLORS = ['#f2d7d0', '#f2e5b8', '#d5e6d6', '#d3e1ef', '#e0d9f0', '#f1dcc6', '#e2e9c9'];
@@ -3241,9 +3320,10 @@ function buildCard(it, fuzzy, low) {
     foot.createEl('span', { cls: 'lbc-tile-date', text: shortDay(it.date || it.ts) });
     const ty = tileType(it); if (ty) foot.createEl('span', { cls: 'lbc-tile-ty', text: ty });
   }
+  if (isBili(it)) biliMedia(card, it);
   // 附件角标：待补=有文件未下载（警示色），downloaded=有文件已下（灰）
   const badges = card.createEl('div', { cls: 'lbc-badges' });
-  // 1031 她：B 站的卡片全是视频，不再挂视频角标；作者 / 点赞那一行也不要（见下面 meta）
+  // 1031 她：B 站的卡片全是视频，不再挂视频角标；作者那一行换成 B 站的「UP 名字 · 日期」（见下面）
   if (it.kind === 'video' && !isBili(it)) { const v = badges.createEl('span', { cls: 'lbc-attach lbc-video' }); putSvg(v, VIDEO_SVG); }
   if (it.attachment === '待补') badges.createEl('div', { cls: 'lbc-attach lbc-attach-todo', text: '待补' });
   else if (it.attachment === '线索') badges.createEl('div', { cls: 'lbc-attach lbc-attach-hint', text: '疑似附件', attr: { title: it.attachment_reason || '正文提到附件，但没找到文件' } });
@@ -3289,7 +3369,13 @@ function buildCard(it, fuzzy, low) {
   const ftags = body.createEl('div', { cls: 'lbc-ftags' }); ftags.hidden = true;   // 10-11 索引视图里：这篇在选中这一类的细分标签
   const tops = cardTopics(it);
   if (tops.length) { const tp = body.createEl('div', { cls: 'lbc-ctopics' }); for (const t of tops) tp.createEl('span', { text: '★ ' + t }); }
-  if (!isBili(it)) {
+  if (isBili(it)) {
+    // B 站首页那一行：[UP] 名字 · 上传时间（名字过长省略，日期不让）
+    const day = biliDay(it), row = body.createEl('div', { cls: 'lbc-bili-day' });
+    if (it.author) { const up = row.createEl('span', { cls: 'lbc-bili-up' }); putSvg(up, UP_SVG); up.createEl('span', { cls: 'lbc-bili-upname', text: it.author }); }
+    if (day) row.createEl('span', { cls: 'lbc-bili-date', text: (it.author ? ' · ' : '') + day });
+  }
+  else {
     const meta = body.createEl('div', { cls: 'lbc-cmeta' });
     const who = it.author || it.source || '收藏';
     const au = meta.createEl('div', { cls: 'lbc-au' });

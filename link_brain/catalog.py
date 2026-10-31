@@ -182,6 +182,27 @@ def _cover_info(obj_dir: Path, source: str, source_id: str, version: int) -> tup
     return None, None, None
 
 
+def _bili_card(obj_dir: Path, source: str, source_id: str, version: int, note: dict[str, Any]) -> dict[str, Any]:
+    """B 站卡片要的几项：views 播放量、duration 秒、pub_at 上传时间（完整 ISO，页面算「x 小时前」）、
+    video = 下好的本地视频（vault 相对路径，悬停预览用；没下好就没有这一项）。"""
+    video = note.get("video") if isinstance(note.get("video"), dict) else {}
+    dur = video.get("duration_sec")
+    out: dict[str, Any] = {
+        "views": (note.get("engagement") or {}).get("viewed"),
+        "duration": round(dur) if isinstance(dur, (int, float)) and dur > 0 else None,
+        "pub_at": note.get("published_at") or "",
+    }
+    manifest = _load_json(obj_dir / "raw" / f"v{version:04d}" / "manifest.json")
+    for media in (manifest.get("media") or []) if isinstance(manifest, dict) else []:
+        if isinstance(media, dict) and media.get("role") == "video" and media.get("download_status") == "ok" and media.get("file"):
+            file = str(media["file"])
+            rel = file if file.startswith("raw/") else f"raw/v{version:04d}/{file}"
+            if (obj_dir / rel).is_file():
+                out["video"] = f"_archive/{source}/{source_id}/{rel}"
+            break
+    return out
+
+
 def _clip(text: str, limit: int = SUMMARY_CHARS) -> str:
     text = " ".join((text or "").split())
     return text if len(text) <= limit else text[: limit - 1] + "…"
@@ -543,6 +564,8 @@ def collect(vault: Path, source: str | None = None) -> list[dict[str, Any]]:
                 # 收藏来自哪个号（0926）：同步时写进 meta.favorited_by，供按账号筛选
                 "accounts": [a.get("nickname") or a.get("user_id") for a in (meta.get("favorited_by") or [])
                              if isinstance(a, dict)],
+                # 1101 她：B 站卡片照 B 站首页——封面底栏 播放量 · 时长，标题下 上传时间；悬停静音播本地视频
+                **(_bili_card(obj_dir, source, source_id, version, note) if source == "bilibili" else {}),
             }
         )
     # 新→旧

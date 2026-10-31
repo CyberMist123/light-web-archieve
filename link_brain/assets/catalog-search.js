@@ -410,7 +410,8 @@ function lbcColumns(width, {cols = 0, narrow = false} = {}) {
 function lbcCardHeight(it, colW, {low = ''} = {}) {
   colW = Math.max(1, Number(colW) || 1);
   // 1031 B 站卡片：16:9 封面 + 固定两行标题，每张一样高（不做瀑布流：等高时按行一张张排）
-  if (it && it.source === 'bilibili') return colW * 9 / 16 + 11 + 46.5 + 30 + (low ? 4 + 2 * 18.6 : 0);
+  // 1101 照 B 站首页：标题上 12 + 两行 44 + 上传时间 6 + 17 + 卡间 24（CSS 见 catalog-view.js「1101 B 站卡片」）
+  if (it && it.source === 'bilibili') return colW * 9 / 16 + 12 + 44 + 6 + 17 + 24 + (low ? 4 + 2 * 18.6 : 0);
   const ratio = it && it.cover_w > 0 && it.cover_h > 0 ? it.cover_h / it.cover_w : 4 / 3;
   const cover = it && it.cover ? Math.min(360, colW * ratio) : colW * 0.75;
   const units = s => [...String(s || '')].reduce((n, ch) => n + (/[\u3000-\u9fff\uac00-\ud7af\uf900-\ufaff\uff00-\uffef]/.test(ch) ? 1 : 0.55), 0);
