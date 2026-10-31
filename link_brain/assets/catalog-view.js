@@ -785,7 +785,7 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 /* 「近 7 天 · 最近导入 ↓」：纯文字按钮，前面一道细竖线隔开（不要胶囊框） */
 .lbc-wrap .lbc-ctl button.lbc-time.lbc-pill{border:0!important;border-radius:0!important;background:transparent!important;padding:12px 2px 10px!important;color:var(--c-ink);}
 .lbc-wrap .lbc-ctl.lbc-blk-sort{position:relative;}
-.lbc-wrap .lbc-ctl.lbc-blk-sort::before{content:"";align-self:center;width:1px;height:16px;margin-right:12px;background:var(--c-line);}
+.lbc-wrap .lbc-ctl.lbc-blk-sort::before{content:"";align-self:flex-end;margin-bottom:13px;width:1px;height:15px;margin-right:12px;background:var(--c-line);}
 /* 数字一律齐线（Cormorant 默认旧式数字高低不齐；font 简写会把它重置掉，这里兜一次） */
 .lbc-wrap *{font-variant-numeric:lining-nums tabular-nums;}
 /* 1101 作者：不要分类那一整行、不要 Tag、不要「我的收藏 ▾」（编排里也不出） */
