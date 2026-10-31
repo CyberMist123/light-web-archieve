@@ -283,6 +283,29 @@ def test_download_backoff_across_nights(monkeypatch):
     assert tries == [None, 1], "退避到点后一晚只试 1 次"
 
 
+def test_local_service_down_does_not_back_off(monkeypatch):
+    """1031 她「待补附件没自愈」：本机读取服务超时不是附件的问题——不进跨夜退避，同一晚下一步再试；旧的退避记录（原因写着读取服务）也不挡。"""
+    obj = _obj("mm02", mark={"ok": True, "related_file": RF})
+    att.reconcile()
+    tries = []
+
+    def down(source_key, source_id, **kw):
+        tries.append(kw.get("tries"))
+        raise att.AttachmentServiceDown("读取服务这次没响应（TIMEOUT）", "TIMEOUT")
+
+    monkeypatch.setattr(xhs_attachments, "acquire", down)
+    monkeypatch.setattr(att, "local_download", lambda name: None)
+    att.download_for_object("xiaohongshu", "mm02")
+    att.download_for_object("xiaohongshu", "mm02")
+    assert len(tries) == 2, "本机服务没响应：下一次照常再试，不退避"
+    state = storage.read_json(obj / "attachment-state.json")
+    state["download_backoff"]["fake-doc-0001"] = {"tries": 1, "next_at": "2099-01-01T00:00:00+11:00",
+                                                  "error": "读取服务这次没响应（TIMEOUT），不再重试，下次接着下"}
+    storage.write_json(obj / "attachment-state.json", state)
+    att.download_for_object("xiaohongshu", "mm02")
+    assert len(tries) == 3, "旧记录（10-31 前写的）按原因认出是本机服务，也不挡"
+
+
 def test_skipped_tail_is_recorded_and_shows_in_last_runs(capsys):
     _unseen("nn01")
     assert cli.main(["attachments", "--recheck-status", "--skipped", "号要验证，碰号的步骤今晚跳过"]) == 0

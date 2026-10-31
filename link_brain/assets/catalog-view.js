@@ -1249,6 +1249,10 @@ searchX.onclick = e => { e.preventDefault(); e.stopPropagation(); search.value =
 search.addEventListener('input', paintSearchX);
 const ask = blocks.ask.createEl('button', { cls: 'lbc-askbtn lbc-pill', text: '问收藏 →' }); ask.type = 'button';
 ask.onclick = () => LB.openPage('chat');
+// 1031 她「Wiki / 目录 / 问收藏没有打通跳转」：目录页去个人 Wiki 页的入口（和问收藏、Wiki 页页头的三页切换同一个目的地）；
+// 下面视图切换里原来那个「Wiki」是分类综述，改叫「分类 Wiki」，不再和这个撞名
+const toWiki = blocks.ask.createEl('button', { cls: 'lbc-askbtn lbc-wikibtn lbc-pill', text: 'Wiki →' }); toWiki.type = 'button';
+toWiki.onclick = () => { const p = provider(); if (p?.openLibraryPage) p.openLibraryPage('wiki'); else LB.openPage('wiki'); };
 function clearFilters({ keepStar = starredPage } = {}) { activeCat = ''; todayOnly = false; todoOnly = false; mediaFilter = ''; activeTag = ''; activePlat = ''; activeTopic = ''; activeAlbum = ''; timeRange = ''; timeSort = ''; timeFrom = ''; timeTo = ''; starOnly = keepStar; indexView = false; }
 // C19：重建前记下横向位置和焦点所在的 tab，重建后还原；只有用户点 tab 引起的重建才把选中项滚进视野
 function renderCatBar({ reveal = false } = {}) {
@@ -1399,7 +1403,7 @@ function renderScope() {
     b.onclick = () => { topicAdding = true; topicFocusNew = true; renderTopicBar(); };
   }
   // 1026 类型（一组，组内单选、和范围叠加）；1028 起是自己的一块（「类型」），不再用细竖线隔
-  // 1031 她：有两个以上平台（B 站进来了）时，「图文 / 视频」换成「小红书 / B 站」；图文 / 视频只在小红书里分（B 站全是视频），
+  // 1031 她：有两个以上平台（B 站进来了）时，「图文 / 视频」换成一个来源下拉；图文 / 视频只在小红书里分（B 站全是视频），
   // 选了小红书才跟出来；附件也只有小红书有，照旧放最后
   const platsTab = platCounts();
   const typeTab = (k, label, n, on, onclick, extra = '') => {
@@ -1407,7 +1411,15 @@ function renderScope() {
     b.type = 'button'; b.dataset.type = k; b.dataset.n = String(n); b.setAttribute('aria-pressed', String(on)); b.onclick = onclick;
   };
   if (platsTab.length > 1) {
-    for (const [pl, n] of platsTab) typeTab('plat:' + pl, platLabel(pl), n, activePlat === pl, () => pickPlat(activePlat === pl ? '' : pl), ' lbc-plat-tab');
+    // 1031 她：「小红书 / B 站不需要显示数量；做成来源的可选择就行」——一个下拉（全部来源 / 小红书 / B站），不带数
+    const pchip = typesBox.createEl('button', { cls: 'lbc-pick lbc-platpick' + (activePlat ? ' is-active' : ''), text: activePlat ? platLabel(activePlat) : '全部来源' });
+    pchip.type = 'button'; pchip.dataset.scope = 'plat'; pchip.setAttribute('aria-pressed', String(!!activePlat));
+    pchip.onclick = e => popMenu([
+      { title: '全部来源', checked: !activePlat, onClick: () => pickPlat('') },
+      { separator: true },
+      ...platsTab.map(([pl]) => pl).sort((x, y) => (/^(xhs|xiaohongshu)$/.test(y) ? 1 : 0) - (/^(xhs|xiaohongshu)$/.test(x) ? 1 : 0))   // 小红书排第一，其余按篇数
+        .map(pl => ({ title: platLabel(pl), checked: pl === activePlat, onClick: () => pickPlat(pl) })),
+    ], e, pchip);
     if (activePlat && /^(xhs|xiaohongshu)$/.test(activePlat)) {
       let nv = 0, ni = 0; for (const it of items) if (platOf(it) === activePlat) { if (it.kind === 'video') nv++; else ni++; }
       for (const [k, n] of [['image', ni], ['video', nv]]) typeTab(k, TYPE_LABEL[k], n, mediaFilter === k, () => pickType(k), ' lbc-type-sub');
@@ -1483,7 +1495,7 @@ let viewMode = 'grid', recentPage = 1;   // 1026 'recent' = 最近导入全部�
 function paintViewSeg() {
   // 1023 她拍板：只留瀑布流 + Wiki（空页，以后和索引统一）；列表 / 索引入口藏起来，代码不删
   // 1026：「索引」（分类树编辑）从「管理 → 索引编辑」或 Wiki 页进；开着的时候这里多一项「索引」亮着，再点回去
-  const want = [['grid', simplePage ? '列表' : '瀑布流'], ...(simplePage ? [] : [['wiki', 'Wiki']]), ...(indexView && idx && !simplePage ? [['index', '索引']] : [])];
+  const want = [['grid', simplePage ? '列表' : '瀑布流'], ...(simplePage ? [] : [['wiki', '分类 Wiki']]), ...(indexView && idx && !simplePage ? [['index', '索引']] : [])];
   const sig = want.map(w => w[0]).join(',');
   if (vseg.dataset.sig !== sig) {
     vseg.empty();

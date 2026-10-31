@@ -105,9 +105,9 @@ const state = () => JSON.parse(globalThis.__lbState['lb:catalog']);
   {
     const P = await openCatalog({ data: dataOf(base()), plugin: { settings: { hiddenCats: [] } } });
     const views = () => P.$$('.lbc-vseg .lbc-view').map(b => [b.textContent, b.classList.contains('is-on')]);
-    assert.deepEqual(views(), [['瀑布流', true], ['Wiki', false]], '没有列表 / 索引入口');
+    assert.deepEqual(views(), [['瀑布流', true], ['分类 Wiki', false]], '没有列表 / 索引入口');
     P.$('.lbc-view[data-view="wiki"]').onclick();
-    assert.deepEqual(views(), [['瀑布流', false], ['Wiki', true]]);
+    assert.deepEqual(views(), [['瀑布流', false], ['分类 Wiki', true]]);
     assert.equal(P.$('.lbc-grid').hidden, true); assert.equal(P.$('.lbc-wiki').hidden, false);
     assert.equal(state().view, 'wiki', '视图选择存 LB.state');
     const Q = await openCatalog({ data: dataOf(base()), plugin: { settings: { hiddenCats: [] } }, keepState: true });

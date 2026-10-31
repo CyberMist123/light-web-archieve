@@ -38,7 +38,7 @@ class AttachmentRestricted(AttachmentError):
 
 class AttachmentServiceDown(AttachmentError):
     """1020：读取服务那侧的失败（超时 / 断了 / 忙 / 浏览器卡住）——不是这份附件的问题，同一趟里重试只会再等一轮超时
-    （1019 一份附件 3 次 × 240 秒干等，读取服务其实早卡死，最后被看门狗杀）。不重试，按退避等下次。"""
+    （1019 一份附件 3 次 × 240 秒干等，读取服务其实早卡死，最后被看门狗杀）。这一趟不重试；1031 起不进跨夜退避，下一步 / 下一晚照常再试。"""
 
     def __init__(self, message: str, code: str):
         super().__init__(message)
@@ -401,6 +401,8 @@ def download_for_object(
                 results.append({**known[doc_id], "status": "downloaded"})
                 continue
             prior = backoff.get(doc_id) or {}
+            if prior.get("local") or "读取服务" in str(prior.get("error") or ""):
+                prior = {}   # 1031：上次是本机读取服务没响应（不是小红书拒了），不退避，这次照常重试（旧记录按原因字认）
             if not force and prior.get("next_at") and now < _parse_dt(prior["next_at"], now):
                 # 1008（B3-P3）：同一份附件下载失败后按 1/2/4/7 天跨夜退避，退避期内不开页（以前每晚最多开 6 次号页）
                 results.append({"doc_id": doc_id, "name": att.get("name"), "status": "backoff",
@@ -425,6 +427,11 @@ def download_for_object(
             break  # 账号要人处理：余下附件等处理完再补
         except (AttachmentError, subprocess.SubprocessError, OSError) as exc:
             results.append({"doc_id": doc_id, "status": "failed", "error": errtext(exc)})
+            if isinstance(exc, AttachmentServiceDown):
+                # 1031 她「待补附件没自愈」：本机读取服务超时 / 重启不是这份附件的问题——不进 1/2/4/7 天跨夜退避，
+                # 同一晚后面的「attachments --all」就会再试一次（以前被退避挡到第二天）
+                backoff[doc_id] = {"tries": 0, "local": True, "error": str(exc)[:120]}
+                continue
             n = int((backoff.get(doc_id) or {}).get("tries") or 0) + 1
             backoff[doc_id] = {"tries": n, "next_at": conversion_next_at(n, now), "error": str(exc)[:120]}
 
