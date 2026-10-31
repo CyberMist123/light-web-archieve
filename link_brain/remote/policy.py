@@ -42,9 +42,10 @@ IMAGE_EXT = {".webp": "image/webp", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
 USER_FOLDER_IMAGES = False      # 用户加的文件夹里的图片开不开：默认不开（待主审定）
 
 _ID = r"[A-Za-z0-9_-]{1,64}"
-_ARCHIVE_FILE = re.compile(rf"^_archive/xiaohongshu/{_ID}/(derived/agent\.md|derived/attachments/[^/]+\.md|notes\.json)$")
-_ARCHIVE_ASSET = re.compile(rf"^_archive/xiaohongshu/{_ID}/raw/v[0-9]{{4}}/assets/[^/]+\.(webp|jpg|jpeg|png|gif)$")
-_ARCHIVE_DIR = re.compile(rf"^_archive(/xiaohongshu(/{_ID}(/derived(/attachments)?)?)?)?$")
+_SRC = r"(?:xiaohongshu|bilibili)"   # 1101：B 站收藏也在收藏库里（recent 会列出来），机读版 / 原图同样开放
+_ARCHIVE_FILE = re.compile(rf"^_archive/{_SRC}/{_ID}/(derived/agent\.md|derived/attachments/[^/]+\.md|notes\.json)$")
+_ARCHIVE_ASSET = re.compile(rf"^_archive/{_SRC}/{_ID}/raw/v[0-9]{{4}}/assets/[^/]+\.(webp|jpg|jpeg|png|gif)$")
+_ARCHIVE_DIR = re.compile(rf"^_archive(/{_SRC}(/{_ID}(/derived(/attachments)?)?)?)?$")
 _RESERVED = re.compile(r"^(con|prn|aux|nul|com[0-9]|lpt[0-9])(\..*)?$", re.I)
 _SECRETISH = re.compile(r"(api[-_ ]?key|secret|passw|token|credential|cookie|密码|密钥|口令)", re.I)
 

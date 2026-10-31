@@ -474,6 +474,7 @@ def read(ctx: Ctx, args: dict[str, Any]) -> dict[str, Any]:
         except (Denied, OSError):
             continue
         text = text.rstrip("\n") + f"\n\n## 附件全文：{a.rsplit('/', 1)[-1]}\n\n" + body.strip() + "\n"
+    text = text.replace("需要看原图用 read_asset", "需要看原图用 image")   # 1101：机读版是远程版和本机 MCP 共用的，本机这边看图的工具叫 image
     head, sections = split_sections(text)
     part = _str(args, "part", limit=60)
     if part:
@@ -487,7 +488,7 @@ def read(ctx: Ctx, args: dict[str, Any]) -> dict[str, Any]:
     chunk = text[offset:offset + limit]
     end = offset + len(chunk)
     sid = _short_id(it.get("id"))
-    obj = pol.root.joinpath(*XHS_ARCHIVE.split("/"), sid)
+    obj = pol.root.joinpath(*agent.split("/")[:3]) if agent.startswith("_archive/") else pol.root.joinpath(*XHS_ARCHIVE.split("/"), sid)   # 1101：B 站在 _archive/bilibili/
     out: dict[str, Any] = {
         "id": sid, "title": it.get("title") or "", "date": it.get("date") or "", "source_url": it.get("url"),
         "agent_md": _abs(ctx, agent), "note": _abs(ctx, it.get("note") if isinstance(it.get("note"), str) else None),
@@ -497,6 +498,12 @@ def read(ctx: Ctx, args: dict[str, Any]) -> dict[str, Any]:
     images = rtools.image_list(pol, agent)
     if images:
         out["images"] = images
+    m = _BV_PART.match(sid)   # 1101：B 站多 P 每 P 一篇——告诉对方同一个视频还有哪几 P（各自用 read 读），不用自己去猜
+    if m:
+        sib = sorted((int(mm.group(2) or 1), _short_id(x.get("id"))) for x in _items()
+                     for mm in [_BV_PART.match(_short_id(x.get("id")))] if mm and mm.group(1) == m.group(1))
+        if len(sib) > 1:
+            out["same_video_parts"] = [i for _, i in sib]
     return out
 
 
@@ -828,8 +835,32 @@ def selections(ctx: Ctx, args: dict[str, Any]) -> dict[str, Any]:
 
 # ---------------------------------------------------------------- recent / history
 
+_BV_PART = re.compile(r"^(BV[0-9A-Za-z]+)(?:_p(\d+))?$")
+_P_SUFFIX = re.compile(r"\s*·\s*P\d+(?:\s.*)?$")
+
+
+def _fold_bili_parts(rows: list[tuple[Any, dict[str, Any]]]) -> list[tuple[Any, dict[str, Any]]]:
+    """1101 作者「多 P 合成 1 条」：同步把多 P 拆成每 P 一篇（BV…、BV…_p2）——这里同一个 BV 只留一条（最小的 P），
+    标题去掉「 · P1 …」，记 parts = 几个 P；位置按这组里最新的那篇。"""
+    groups: dict[str, list[tuple[int, int]]] = {}
+    for i, (_, it) in enumerate(rows):
+        m = _BV_PART.match(_short_id(it.get("id")))
+        if m:
+            groups.setdefault(m.group(1), []).append((int(m.group(2) or 1), i))
+    drop: set[int] = set()
+    head: dict[int, dict[str, Any]] = {}
+    for parts in groups.values():
+        if len(parts) < 2:
+            continue
+        parts.sort()
+        base = rows[parts[0][1]][1]
+        first = min(i for _, i in parts)   # rows 新的在前：这组里最靠前的位置
+        head[first] = {**base, "title": _P_SUFFIX.sub("", str(base.get("title") or "")) or base.get("title"), "_parts": len(parts)}
+        drop.update(i for _, i in parts if i != first)
+    return [(dt, head.get(i, it)) for i, (dt, it) in enumerate(rows) if i not in drop]
+
+
 def recent(ctx: Ctx, args: dict[str, Any]) -> dict[str, Any]:
-    from . import synclog
     if not ctx.policy.xhs:
         raise Denied("NOT_OPEN", "收藏库没有开放给你")
     days = _int(args.get("days"), RECENT_DAYS, 1, 3650)
@@ -842,17 +873,18 @@ def recent(ctx: Ctx, args: dict[str, Any]) -> dict[str, Any]:
         if dt >= since:
             rows.append((dt, it))
     rows.sort(key=lambda x: x[0], reverse=True)
-    syncs = []
-    try:
-        for r in synclog.load(30):
-            if _parse_time(r.get("started_at")) >= since:
-                syncs.append(synclog.summary_line(r))
-    except Exception:  # noqa: BLE001
-        pass
-    return {"days": days, "found": len(rows),
-            "items": [{"id": _short_id(it.get("id")), "title": it.get("title") or "", "date": it.get("date") or "",
-                       "summary": _one_sentence(it.get("summary"), 120)} for _, it in rows[:limit]],
-            "syncs": syncs[:10]}
+    rows = _fold_bili_parts(rows)
+    # 1101 作者：只是给 AI 分享生活——不带同步记录那些行（不污染注意力）；没有概要就不写空的 summary 键
+    out = []
+    for _, it in rows[:limit]:
+        row = {"id": _short_id(it.get("id")), "title": it.get("title") or "", "date": it.get("date") or ""}
+        if it.get("_parts"):
+            row["parts"] = it["_parts"]
+        summ = _one_sentence(it.get("summary"), 120)
+        if summ:
+            row["summary"] = summ
+        out.append(row)
+    return {"days": days, "found": len(rows), "items": out}
 
 
 def history(ctx: Ctx, args: dict[str, Any]) -> dict[str, Any]:
@@ -1139,7 +1171,7 @@ TOOLS: list[dict[str, Any]] = [
          "limit": {"type": "integer", "minimum": 1, "maximum": 500, "description": "list：最多几条"}}},
      "annotations": _ann(False)},
     {"name": "recent",
-     "description": "同步记录：最近 days 天新进库的文章（标题 · 一句概要 · 日期，新的在前）和这几天每次同步的一行摘要。",
+     "description": "最近 days 天新进库的收藏（标题 · 一句概要 · 日期，新的在前；B 站多 P 合成一条，parts = 几个 P）。",
      "inputSchema": {"type": "object", "additionalProperties": False, "properties": {
          "days": {"type": "integer", "minimum": 1, "maximum": 3650, "default": RECENT_DAYS, "description": "看最近几天"},
          "limit": {"type": "integer", "minimum": 1, "maximum": 200, "default": RECENT_LIMIT, "description": "最多几篇"}}},
