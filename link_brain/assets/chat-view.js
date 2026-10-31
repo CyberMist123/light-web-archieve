@@ -1136,23 +1136,25 @@ ${LB.brandCss('.lbchat .lbchat-title', '.lbchat .lbchat-engr')}
 .lbchat .lbchat-tools{grid-column:3;grid-row:1;flex-wrap:nowrap;gap:8px;}
 .lbchat .lbchat-head .lb-manage{width:32px;height:32px;font-size:20px!important;}
 @media(max-width:560px){.lbchat .lbchat-head{grid-template-columns:1fr auto;}.lbchat .lbchat-head .lb-page-nav{grid-column:1/-1;grid-row:2;}.lbchat .lbchat-tools{grid-column:2;}}
-/* 1101 她：页头和目录框对齐、正文贴着目录（1031 那版用了 container-type / cqw，在 Obsidian 里把整页挤成一窄条，撤掉）。
-   一律按这一页的宽（W，百分比都相对 .lbchat 内容宽 = 对话区宽）算：
-   没钉住：正文 850 居中；目录那条竖线贴在正文左边 40px（不再在整页最左）；页头左边和目录对齐、右边和正文对齐。
-   钉住：目录 18rem + 24px + 正文 850 当一组居中（窄了组从左边 4px 开始、正文让到目录右边）；页头 / 输入框 / 输入框上面那几条跟着这一组走。 */
-.lbchat .lbchat-head{width:auto;max-width:none;box-sizing:border-box;margin:0 max(0px,calc(50% - 425px)) 14px;padding:0;grid-template-columns:minmax(0,1fr) auto;align-items:start;gap:2px 18px;}
-.lbchat .lbchat-titleblock{grid-column:1;grid-row:1;}
-.lbchat .lbchat-head .lb-page-nav{grid-column:1;grid-row:2;justify-self:start;display:flex;gap:16px;padding:0;background:transparent;border:0;box-shadow:none;}
-.lbchat .lbchat-head .lb-page-nav button{height:auto;padding:0!important;border:0!important;border-radius:0!important;background:transparent!important;box-shadow:none!important;color:var(--lb-muted);font:inherit;font-size:13px;cursor:pointer;}
-.lbchat .lbchat-head .lb-page-nav button:hover{color:var(--lb-ink);}
-.lbchat .lbchat-tools{grid-column:2;grid-row:1;align-self:center;}
-@media(max-width:560px){.lbchat .lbchat-head .lb-page-nav{grid-column:1;grid-row:2;}.lbchat .lbchat-tools{grid-column:2;}}
+/* 1101 设计交接包 §1「页头」：目录 / 问收藏 / Wiki 三页同一个——字标 + ＋ ｜ 空间切换胶囊 ｜ 右边「已保存」· 历史 · ···，下面一道 1px 墨线，铺满整页宽 */
+${LB.siteHeaderCss()}
+.lbchat .lbchat-head{display:flex;flex-direction:row;flex-wrap:wrap;justify-content:flex-start;align-items:center;gap:16px 40px;width:auto;max-width:none;box-sizing:border-box;margin:0 0 18px;padding:28px 0 22px;border-bottom:1px solid var(--lb-ink);text-align:left;}
+.lbchat .lbchat-titleblock{display:flex;flex-direction:row;flex-wrap:wrap;align-items:center;gap:2px;width:auto;max-width:100%;}
+.lbchat .lbchat-head > .lbchat-sub{flex-basis:100%;margin:-6px 0 0;text-align:left;}
+.lbchat .lbchat-titlerow{display:flex;align-items:center;}
+.lbchat .lbchat-title{font-size:44px;line-height:1.02;cursor:default;}
+.lbchat button.lbchat-plus{width:40px;height:44px;padding:0!important;border:0!important;background:transparent!important;box-shadow:none!important;font:500 30px/1 var(--lb-font-title)!important;color:var(--lb-ink);cursor:pointer;transition:transform .2s;}
+.lbchat button.lbchat-plus:hover{transform:rotate(90deg);}
+.lbchat .lbchat-tools{margin-left:auto;display:flex;align-items:center;flex-wrap:nowrap;gap:2px;}
+.lbchat .lbchat-tools button.lbchat-tab{margin-right:14px;padding:4px 0;border-bottom:0!important;font:400 13px/1.2 var(--lb-font-body)!important;color:var(--lb-muted);}
+.lbchat .lbchat-tools button.lbchat-tab.is-on{color:var(--lb-ink);font-weight:600;}
+.lbchat .lbchat-tools .lbchat-hist,.lbchat .lbchat-head .lb-manage{width:44px!important;height:44px!important;padding:0!important;border:0!important;border-radius:999px!important;background:transparent!important;box-shadow:none!important;display:grid;place-items:center;color:var(--lb-ink);}
+.lbchat .lbchat-tools .lbchat-hist:hover,.lbchat .lbchat-head .lb-manage:hover{background:var(--lb-soft)!important;}
+.lbchat .lbchat-tools .lbchat-hist svg{width:20px;height:20px;}
+@media(max-width:760px){.lbchat .lbchat-title{font-size:30px;}.lbchat .lbchat-head{gap:12px;padding:18px 0 14px;}}
 .lbchat-bodywrap > .lbchat-toc.is-float{left:max(4px,calc(50% - 465px))!important;}
-/* 1101 自查：页头只在有目录时才让到目录左边；没目录（一两问 / 手机）时就和正文同宽 */
-.lbchat:has(> .lbchat-bodywrap.has-ftoc) .lbchat-head{margin-left:max(4px,calc(50% - 465px));margin-right:max(44px,calc(50% - 425px));}
 .lbchat-bodywrap.is-ftoc-pin{justify-content:flex-start;padding-left:max(316px,calc(50% - 269px));padding-right:max(16px,calc(50% - 581px));}
 .lbchat-bodywrap.is-ftoc-pin > .lbchat-toc.is-float{left:max(4px,calc(50% - 581px))!important;}
-.lbchat.ftoc-pinned:has(> .lbchat-bodywrap.has-ftoc) .lbchat-head{margin-left:max(4px,calc(50% - 581px));margin-right:max(16px,calc(50% - 581px));}
 .lbchat button.lbchat-tab[hidden]{display:none!important;}
 /* 有目录（没钉住）时：输入框和上面那几条也只占正文那一栏（窄窗时以前比正文宽出一截） */
 .lbchat:has(> .lbchat-bodywrap.has-ftoc) :is(.lbchat-composer,.lbchat-srcbar,.lbchat-queue,.lbchat-followbar,.lbchat-bgbar,.lbchat-cfgbar,.lbchat-ro){width:auto;max-width:850px;margin-left:max(44px,calc(50% - 425px));margin-right:max(44px,calc(50% - 425px));}
@@ -1237,6 +1239,12 @@ const titleRow = titleBlock.createEl('div', { cls: 'lbchat-titlerow' });
 // 1026 她：字体 / 样式 / 文字都和目录页同一份（LB.brandTitle / brandCss / brandFontCss，在 lb-page-lib），别在这里另写
 const chatTitle = LB.brandTitle(titleRow, 'lbchat-title', 'lbchat-engr');
 lbEvent(app.workspace.on('link-brain:catalog-prefs', () => chatTitle.set()));
+// 1101 设计交接包：字标后面一颗 ＋（收进来：添加一条收藏，和目录页同一个菜单）
+if (!readOnly) {
+  const plus = titleBlock.createEl('button', { cls: 'lbchat-plus', text: '+' }); plus.type = 'button';
+  plus.onclick = async e => { try { (await LB.ensure('openPlusMenu')).openPlusMenu(e); } catch (err) { notice('菜单没打开：' + errText(err)); } };
+}
+LB.spaceSwitch(head, 'chat');
 const tools = head.createEl('div', { cls: 'lbchat-tools' });
 try { resizeObserver?.observe(head); } catch {}
 let clearBtn = null;
@@ -1255,13 +1263,10 @@ function paintSub() {
   sub.setText(txt); chatTitle.box.title = txt;   // 1031：字标上悬停看篇数 / 更新时间
 }
 paintSub();
-const pageNav = head.createEl('nav', { cls: 'lb-page-nav' });
-// 1031 她：COLLECTIONS 下面一行小字「目录 · Wiki」（和笔记页「← 目录 原文 机读版」一个样子）；这一页自己（问收藏）不再列
-const browse = pageNav.createEl('button', { text: '目录' });
-browse.onclick = () => { const p = provider(); if (p?.openLibraryPage) p.openLibraryPage('catalog'); else LB.openPage('catalog'); };
-// 10-29 个人 Wiki：和问收藏平级的第三页（样子先沿用胶囊，统一见 docs/WIKI-UNIFY-LATER.md）
-pageNav.createEl('button', { text: 'Wiki' }).onclick = () => { const p = provider(); if (p?.openLibraryPage) p.openLibraryPage('wiki'); else LB.openPage('wiki'); };
-if (!readOnly) { const manage = tools.createEl('button', { cls: 'lb-manage', text: '…' }); manage.onclick = e => provider()?.openAISettingsMenu(e); }
+head.append(sub);   // 1101：数据格式提醒单独一行放在页头最下面（放在字标旁边会把页头撑宽）
+// 1101：页面切换改成页头里的空间切换胶囊（LB.spaceSwitch，上面）；「···」放最右（tabs 建好后挪过去）
+const manage = readOnly ? null : tools.createEl('button', { cls: 'lb-manage', text: '…' });
+if (manage) manage.onclick = e => provider()?.openAISettingsMenu(e);
 // ⑤ 历史入口（时钟）：点开 = 全部历史对话，按天分组，点一行恢复；可多选删除；顶上「隐私模式」开关
 const histBtn = tools.createEl('button', { cls: 'lbchat-hist', attr: { 'aria-label': '历史对话', title: '历史对话（按天，点一段恢复）' } });
 histBtn.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><path d="M12 7v5l3.5 2"/></svg>';
@@ -1394,6 +1399,9 @@ composer.onsubmit = e => {
 // 1031 她：「对话」不要，只留「已保存」——再点一下「已保存」回到对话（对话钮留着不显示：切栏逻辑照旧用它）
 const tabChat = tools.createEl('button', { cls: 'lbchat-tab', text: '对话' }); tabChat.hidden = true;
 const tabArch = tools.createEl('button', { cls: 'lbchat-tab', text: '已保存' });
+// 1101 设计稿顺序：已保存 · 历史 · ···
+tools.insertBefore?.(tabChat, histBtn); tools.insertBefore?.(tabArch, histBtn);
+if (manage) tools.append(manage);
 // 隐私模式开着时，时钟左边一枚小字「隐私模式」（点它 = 打开历史面板，开关在面板顶上）
 const privTag = tools.createEl('button', { cls: 'lbchat-privtag', text: '隐私模式', attr: { title: '隐私模式：这段对话不进历史（点开历史面板可关掉）' } });
 privTag.type = 'button';

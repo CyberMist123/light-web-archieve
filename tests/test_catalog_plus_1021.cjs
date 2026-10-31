@@ -35,10 +35,10 @@ const state = () => JSON.parse(globalThis.__lbState['lb:catalog']);
     assert.equal(t.textContent, '我的收藏'); assert.equal(t.dataset.text, '我的收藏', '改标题设置时刻线层一起换');
     assert.ok(P.$('.lb-manage') && P.$('.lb-manage').textContent === '编排和管理', '1031「编排 / 管理」并成「···」（1101 起三个点用 SVG 画）');
     assert.ok(P.$('.lbc-tools').contains(P.$('.lb-manage')));
-    assert.equal(P.$('.lbc-head .lb-page-nav'), null, '1031 作者（二）：标题旁不再有三页切换');
-    // 1031 作者「和问收藏对齐」：标题后面三页切换，当前页「浏览收藏」；筛选行不再有「问收藏 →」
-    assert.deepEqual(P.$$('.lbc-pagenav button').map(b => [b.textContent, b.classList.contains('is-current')]), [['问收藏', false], ['Wiki', false]]);   // 1031 作者：标题旁的三页切换去掉，「问收藏 · Wiki」在搜索框后面
-    assert.ok(P.$('.lbc-m-search').contains(P.$('.lbc-pagenav')));
+    // 1101 设计交接包：三页共用页头——字标 + ＋ 后面是空间切换胶囊（当前「浏览收藏」实心），搜索框后面不再有「问收藏 · Wiki」
+    assert.deepEqual(P.$$('.lbc-head .lb-space-switch button').map(b => [b.textContent, b.classList.contains('is-current')]), [['浏览收藏', true], ['问收藏', false], ['Wiki', false]]);
+    assert.equal(P.$('.lbc-pagenav'), null);
+    assert.ok(P.$('.lbc-tools .lbc-hist'), '「···」左边一个历史钟（同步记录）');
     assert.equal(P.$('.lbc-askbtn'), null); assert.equal(P.$('.lbc-m-ask'), null);
     assert.equal(P.$('.lbc-search').placeholder, '搜索收藏 · #标签');
     assert.ok(P.$('.lbc-searchbox').contains(P.$('.lbc-search')), '搜索框在胶囊里');

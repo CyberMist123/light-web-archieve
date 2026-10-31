@@ -40,7 +40,8 @@ const CODE = asset('lb-page-lib.js') + '\n' + asset('catalog-search.js') + '\n' 
 
   await open();
   // ① 标题旁的「+」去掉了（标题里也没有「清空」）；没对话时那行小字和「清空」都不出；1020 起输入框左边的 + 也去掉了（导入在浏览收藏页），模型下拉旁是「回答 · 报告」
-  assert.equal(all('.lbchat-plus').length, 0);
+  // 1101 设计交接包：三页共用页头，字标后面又有一颗 ＋（收进来，和目录页同一个菜单）——在标题字外面，标题字里没有按钮
+  assert.equal(all('.lbchat-titleblock > .lbchat-plus').length, 1);
   assert.equal(one('.lbchat-titlerow').querySelectorAll('button').length, 0);
   assert.equal(all('.lbchat-clearall').length, 0);
   const clear = { get disabled() { return one('.lbchat-clearbox .lbchat-clearall').disabled; } };

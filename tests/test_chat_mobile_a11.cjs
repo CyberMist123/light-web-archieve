@@ -32,7 +32,7 @@ const { tick, src, openChat } = require('./_fake_L2.cjs');
     // (c) 点 [来源1] → openLinkText(lbPath('Web/a.md'))；「浏览收藏」走 LB.openPage('catalog')
     C.answers()[0].querySelector('.lbchat-cite').onclick({ stopPropagation() {} }); await tick(5);
     assert.deepEqual(C.app.workspace.opened.at(-1).slice(0, 1), ['Web/a.md']);
-    C.qa('.lb-page-nav button').find(b => b.textContent === '目录').onclick(); await tick(5);
+    C.qa('.lb-space-switch button').find(b => b.textContent === '浏览收藏').onclick(); await tick(5);
     assert.deepEqual(C.app.workspace.opened.at(-1).slice(0, 1), ['Catalog.md']);
     // (e) 历史面板：看得到，没有隐私开关 / 选中圈；点一段只在内存里切换
     C.q('.lbchat-hist').onclick({ stopPropagation() {} }); await tick(5);
