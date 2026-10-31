@@ -41,7 +41,8 @@ WORKERS_MAX = 8          # 1031 她：同时下几路放到 8（撞 412/429 照�
 # 1031：停下来时给她的下一步（设置页直接显示 message；码是 CONVENTIONS §2 的细分码，裸写，和原来的 NOT_LOGGED_IN 一样）
 HINTS = {
     "NOT_LOGGED_IN": "在设置页「账号登录 → B 站」点「扫码登录」重新扫一次，再点「立即同步」（已经下好的不会重下）",
-    "MISSING_DEPENDENCY": "这台电脑缺下载要用的程序（ffmpeg / yt-dlp），装好后再点「立即同步」",
+    "MISSING_DEPENDENCY": ("yt-dlp 要装进 LWA 用的那个 Python：在程序目录运行 pip install -e .（.venv 是 uv 建的就用 uv pip install -e .）；"
+                           "ffmpeg 要另装并加进 PATH。装好再点「立即同步」，从没下的接着下"),
     "HTTP_429": "B 站限流 / 风控了：先停一停（建议过 1 小时），并行路数调成 1 再同步；已经下好的不会重下",
     "NETWORK": "网络不通或 B 站接口没响应，稍后再试",
     "DISK_LOW": "磁盘快满了：腾出空间后再点「立即同步」，会从没下的接着下",
@@ -436,6 +437,11 @@ def run_sync(*, dry_run: bool = False, limit: int | None = None, max_duration_s:
     quality = ytdlp.normalize_quality(quality or ytdlp.DEFAULT_QUALITY)
     workers = max(1, min(WORKERS_MAX, int(workers or 1)))
     skip = {str(x).strip() for x in (skip_folders or []) if str(x).strip()}
+    if not dry_run:
+        # 1031：缺下载器就别去扫收藏夹了（10-31 那趟扫完 71 个收藏夹才在第 1 条撞上 No module named yt_dlp）
+        lacking = ytdlp.missing_tools()
+        if lacking:
+            return _stop_before_start(started, dry_run, "MISSING_DEPENDENCY", ytdlp.missing_text(lacking))
     prev_opts = ytdlp.configure(quality=quality, danmaku=danmaku, tv=tv)
     try:
         client, st = favorites.default_client()
@@ -613,7 +619,7 @@ def run_sync(*, dry_run: bool = False, limit: int | None = None, max_duration_s:
             except (AccountBlocked, NeedsHuman) as exc:
                 r["reason"] = errtext(exc)
                 b["failed"].append(r)
-                out["stopped"] = f"要人处理（{getattr(exc, 'code', '') or 'NEEDS_HUMAN'}）：{errtext(exc)}"
+                out["stopped"] = f"要人处理：{str(exc) or errtext(exc)}"   # 1031：码在 code 里，卡片上只放人话
                 stop_code = str(getattr(exc, "code", "") or "NEEDS_HUMAN").split(".")[-1]
                 say(out["stopped"])
                 break
@@ -876,6 +882,26 @@ def _progress(out: dict[str, Any], b: dict[str, Any], *, done: int, total: int) 
         storage.write_json(favorites.sync_root() / LAST_SYNC, out)
     except OSError:
         pass
+
+
+def _stop_before_start(started: str, dry_run: bool, code: str, reason: str) -> dict[str, Any]:
+    """开跑前就停（没连网、没动队列）：只把上次记录的「为什么停」换成这次的，计数 / 进度 / 待选清单都不碰，
+    侧栏 SYNC 和设置页照旧说「停在第几条」，原因是这次的人话。"""
+    msg = f"{reason}；{HINTS[code]}" if code in HINTS else reason
+    out = {"started_at": started, "finished_at": _now(), "dry_run": dry_run, "counts": {}, "buckets": {},
+           "stopped": f"要人处理：{reason}", "ok": False, "code": code, "message": msg}
+    try:
+        last = storage.read_json(favorites.sync_root() / LAST_SYNC)
+    except (OSError, ValueError):
+        last = None
+    if isinstance(last, dict) and last:
+        last.update(state="stopped", stopped=out["stopped"], ok=False, code=code, message=msg,
+                    started_at=started, finished_at=out["finished_at"], pid=None)
+        try:
+            storage.write_json(favorites.sync_root() / LAST_SYNC, last)
+        except OSError as exc:
+            print(f"[bilibili sync] last-sync.json 没写上：{errtext(exc)}", file=sys.stderr)
+    return out
 
 
 def _persist(out: dict[str, Any]) -> None:

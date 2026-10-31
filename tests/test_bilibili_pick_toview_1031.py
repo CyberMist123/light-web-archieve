@@ -5,7 +5,7 @@ import pytest
 
 from link_brain import storage
 from link_brain.sources import bilibili as bili
-from link_brain.sources.bilibili import favorites, sync, toview
+from link_brain.sources.bilibili import favorites, sync, toview, ytdlp
 
 
 def _item(bvid, title, duration=600, page=1, invalid=False, fav_time=1):
@@ -49,6 +49,7 @@ class Client:
 def vault(tmp_path, monkeypatch):
     monkeypatch.setenv(storage.ENV_VAULT, str(tmp_path / "vault"))
     monkeypatch.setenv("LINK_BRAIN_HOME", str(tmp_path / ".lbhome"))
+    monkeypatch.setattr(ytdlp, "missing_tools", lambda: [])   # 1031：开跑前的缺下载器检查不看测试机装没装
     return tmp_path
 
 
