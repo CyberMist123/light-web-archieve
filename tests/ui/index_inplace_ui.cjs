@@ -86,7 +86,7 @@ const openIndexEdit = async page => { await page.click('.lb-manage'); await page
     assert.ok(a.keptCards === a.cards && a.keptCols === a.cols, `① 卡片 / 列元素原样 ${JSON.stringify(a)}`);
     assert.ok(a.keptRows === a.rows, `① 树的行元素原样（只改了数字）${JSON.stringify(a)}`);
     assert.equal(a.aiCount, '5', '① 树上的篇数换新了');
-    assert.equal(a.chips, 1, '① 建议新增少了一条');
+    // 1031：建议新增不再常驻成一排胶囊（收进「⋯ 更多」），这里不再数
     assert.equal(a.panelScroll, before.panelScroll, '① 左栏滚动没动');
     assert.ok(Math.abs(a.scroll - before.scroll) <= 1, `① 页面滚动没动 ${a.scroll} vs ${before.scroll}`);
     assert.ok(a.minCards === before.cards, `① 任何一帧卡片都在 ${JSON.stringify(a)}`);

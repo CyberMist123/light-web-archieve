@@ -101,7 +101,7 @@ def load_overrides(vault: Path | None = None) -> dict[str, Any]:
     for k in ("items",):
         if not isinstance(o.get(k), dict):
             o[k] = {}
-    for k in ("keep_empty", "dismissed", "history"):
+    for k in ("keep_empty", "dismissed", "history", "auto_adopted"):
         if not isinstance(o.get(k), list):
             o[k] = []
     return o
@@ -673,7 +673,9 @@ def run(vault: Path | None = None, *, auto: bool = False, on_progress: Callable[
         run_row = {"at": _now(), **meter.dump(), **did, "auto": auto}
         if meter.errors:
             run_row["error"] = meter.errors[-1]
-            cache["last_error"] = {"at": _now(), **meter.errors[-1]}
+            # 1031 她：临时失败（超时这类）下次自己再跑，页面不挂「⚠ 重试」；连着没成两次才说（streak）
+            streak = int((cache.get("last_error") or {}).get("streak") or 0) + 1
+            cache["last_error"] = {"at": _now(), **meter.errors[-1], "streak": streak}
         elif meter.calls:
             cache.pop("last_error", None)
         if meter.calls or getattr(meter, "extra", None):
@@ -692,6 +694,14 @@ def run(vault: Path | None = None, *, auto: bool = False, on_progress: Callable[
         _progress(vault, done_run=True)
         lock.__exit__(None, None, None)
     data = indextree.build(vault, force=True, auto_draft=False)
+    adopted: list[str] = []
+    try:   # 1031 她：「新增默认放入」——够 AUTO_ADOPT_MIN 篇的建议直接写进 索引.md（不再一条条点「加进索引」）
+        ad = indextree.auto_adopt(vault)
+        adopted = ad.get("added") or []
+        if adopted:
+            data = indextree.load(vault, fresh=False) or data
+    except Exception as exc:  # noqa: BLE001 - 自动建分类没成不挡归类结果
+        print(f"[index] 自动建分类没成：{errtext(exc)}", file=sys.stderr)
     unc = data["unclassified"]["count"]
     y = meter.yuan()
     calls_all = meter.calls + sum(m.calls for m in getattr(meter, "extra", []))
@@ -705,11 +715,13 @@ def run(vault: Path | None = None, *, auto: bool = False, on_progress: Callable[
             message = message.replace("归好了：；", "归好了；")
         else:
             message = f"没有要归的：未归类 {unc} 篇"
+    if adopted:
+        message += f"；新建了 {len(adopted)} 个分类：" + "、".join(adopted[:6]) + ("…" if len(adopted) > 6 else "")
     if meter.errors:
         message += f"（{len(meter.errors)} 次调用没成：{meter.errors[-1]['error']}）"
     ok = not meter.errors or meter.calls > len(meter.errors)
     return {"ok": ok, "code": "" if ok else (meter.errors[-1]["code"] or "TRANSIENT.SERVICE_BUSY"),
-            "message": message, "usage": meter.dump(), "unclassified": unc, **did}
+            "message": message, "usage": meter.dump(), "unclassified": unc, "adopted": adopted, **did}
 
 
 def _wait_settle(vault: Path) -> None:

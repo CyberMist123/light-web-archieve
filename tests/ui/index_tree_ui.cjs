@@ -150,15 +150,17 @@ const calls = async (S, name) => (await S.calls()).filter(c => c[0] === name);
       assert.match(head, /做饭 › 家常菜.*篇.*天天吃的那种/, `${theme}：网格上面一行说清选的是什么 + 她写的说明 ${head}`);
       assert.ok(await inIndex(page), `${theme}：点节点不跳出索引视图`);
       assert.match(await page.evaluate(() => document.querySelector('.lbc-count').textContent), new RegExp(`^筛出 ${count('做饭/家常菜')} 篇（共 120）`));
-      // ④ 上面一行：未归类 / 状态 / 建议新增
-      const bar = await page.evaluate(() => ({ text: document.querySelector('.lbi-bar').textContent, chips: [...document.querySelectorAll('.lbi-chip')].map(b => b.textContent) }));
-      assert.match(bar.text, /未归类 \d+ 篇/, `${theme}：「未归类 N 篇」${bar.text}`);
+      // ④ 上面一行（1031 她「懒人，不要出现这么多东西」）：整理分类 · 已归类 · 未归类 · 要她点的状态 · ⋯ 更多 · 完成
+      const bar = await page.evaluate(() => ({ text: document.querySelector('.lbi-bar').textContent, chips: document.querySelectorAll('.lbi-chip').length }));
+      assert.match(bar.text, /整理分类已归类 \d+ \/ 120未归类 \d+/, `${theme}：顶条 ${bar.text}`);
       assert.match(bar.text, /还有 3 篇没按内容归，约 ¥0\.02/, `${theme}：按内容归类的状态`);
-      assert.match(bar.text, /4 行|1 行像是写给自己的说明/, `${theme}：说明行没当成分类，告诉她`);
-      assert.deepEqual(bar.chips, [`穿搭灵感${idx.unclassified.count}`, '红烧系列3'], `${theme}：建议新增 chips`);
+      assert.ok(!/像是写给自己的说明|建议新增|起草了一版/.test(bar.text) && bar.chips === 0, `${theme}：说明行 / 建议 / 草稿不常驻 ${bar.text}`);
       await page.click('.lbi-classify-btn'); await S.settle();
       assert.equal((await calls(S, 'indexClassify')).length, 1, `${theme}：「按内容归类」调插件`);
-      await page.evaluate(() => [...document.querySelectorAll('.lbi-chip')].find(b => b.dataset.id === 'p1').click()); await S.settle();
+      await page.click('.lbi-more'); await S.settle();
+      const moreItems = await page.evaluate(() => [...document.querySelectorAll('.menu .menu-item, .lbc-menu .lbc-menu-item, .lbc-menu .lbc-menu-group')].map(e => e.textContent.trim()));
+      assert.ok(moreItems.some(t => /^打开 索引\.md/.test(t)) && moreItems.some(t => /像说明，没当成分类/.test(t)) && moreItems.some(t => /^小建议（2 条/.test(t)), `${theme}：⋯ 更多 ${moreItems}`);
+      await page.evaluate(() => [...document.querySelectorAll('.menu .menu-item, .lbc-menu .lbc-menu-item')].find(e => /穿搭灵感/.test(e.textContent)).click()); await S.settle();
       assert.equal((await cardTitles(page)).length, idx.unclassified.count, `${theme}：点建议 = 右边看那几篇`);
       assert.match(await page.evaluate(() => document.querySelector('.lbi-head').textContent), /建议新增「穿搭灵感」.*第一级/);
       if (theme === 'light') await S.screenshot('index-split-light'); else await S.screenshot('index-split-dark');
@@ -253,6 +255,17 @@ const calls = async (S, name) => (await S.calls()).filter(c => c[0] === name);
       assert.ok(m.overflow <= 1, `${label}：没有横向溢出 ${m.overflow}`);
       if (label === 'mobile') assert.ok(!m.acts && !m.classify, `手机上没有要插件的按钮 ${JSON.stringify(m)}`);
       if (label === 'narrow') await S.screenshot('index-split-narrow');
+      assert.deepEqual(await S.pageErrors(), []);
+      await page.close();
+    }
+    // ⑦b 1031：够 10 篇的建议后端自动写进了 索引.md——顶条说一句「AI 新建了 N 个分类」，名字点了 = 看那一类
+    {
+      const { page, S } = await open(browser, { idx: { ...idx, auto_adopted: { at: '2026-10-31T22:00:00+11:00', nodes: [{ path: 'AI/伴侣', name: '伴侣', count: 6 }, { path: '没了', name: '已删掉的', count: 3 }] } }, data });
+      await clickTab(page, '索引'); await S.settle();
+      const t = await page.evaluate(() => document.querySelector('.lbi-made')?.textContent);
+      assert.equal(t, 'AI 新建了 1 个分类：伴侣', `AI 新建（已删掉的不算）${t}`);
+      await page.click('.lbi-made-node'); await S.settle();
+      assert.match(await page.evaluate(() => document.querySelector('.lbi-head').textContent), /AI › 伴侣/);
       assert.deepEqual(await S.pageErrors(), []);
       await page.close();
     }

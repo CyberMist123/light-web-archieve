@@ -1091,7 +1091,20 @@ def _ai_view(vault: Path, parsed: Parsed, items: list[dict[str, Any]], result: R
         cls["running"] = {k: running.get(k) for k in ("at", "done", "total", "phase")}
     return {"assign": assign, "proposals": proposals, "classify": cls, "comments": list(parsed.comments),
             "ai_stamp": indexai.stamp(vault), "tags_stamp": _tags_stamp(vault), "overrides": len(ov.get("items") or {}),
+            # 1031：最近一次自动建的分类（页面顶条「AI 新建了 N 个」；还在树里的才算）
+            "auto_adopted": _recent_adopted(ov, {n.path for n in parsed.walk()}),
             "item_tags": _item_tags_safe(vault)}
+
+
+def _recent_adopted(ov: dict[str, Any], paths: set[str]) -> dict[str, Any]:
+    rows = [r for r in ov.get("auto_adopted") or [] if isinstance(r, dict) and r.get("ok") and r.get("path")]
+    if not rows:
+        return {}
+    last = str(rows[-1].get("at") or "")[:10]
+    batch = [r for r in rows if str(r.get("at") or "")[:10] == last and r["path"] in paths]
+    if not batch:
+        return {}
+    return {"at": rows[-1].get("at") or "", "nodes": [{"path": r["path"], "name": r.get("name") or "", "count": r.get("count") or 0} for r in batch]}
 
 
 def _facets_safe(parsed: Parsed, items: list[dict[str, Any]], result: Result, cache: dict[str, Any],
@@ -1713,6 +1726,39 @@ def accept_proposal(gid: str, vault: Path | None = None) -> dict[str, Any]:
     return {"ok": True, "code": "", "path": node.path, "line": node.line,
             "message": f"已把「{name}」写进 {index_rel()}（{where}），{len(prop['items'])} 篇归进去了；未归类还剩 "
                        f"{data['unclassified']['count']} 篇", "unclassified": data["unclassified"]["count"]}
+
+
+AUTO_ADOPT_MIN = 10   # 1031 她：「≥10 篇才建」
+
+
+def auto_adopt(vault: Path | None = None, min_count: int | None = None) -> dict[str, Any]:
+    """1031 她：「打标全自动，之后再手动调整；有新增就默认放入」——「建议新增」里够 min_count 篇的，照「加进索引」写进 索引.md。
+    每条建议只自动加一次（记在 index-overrides.json 的 auto_adopted）：她删掉 / 合并掉的不会被加回来。
+    写不进去的（超过 3 级、名字撞了、索引.md 不是 UTF-8）跳过，留在「建议新增」里。"""
+    from . import indexai
+    vault = vault or storage.vault_root()
+    min_count = AUTO_ADOPT_MIN if min_count is None else min_count
+    data = load(vault, fresh=False) or {}
+    ov = indexai.load_overrides(vault)
+    seen = {str(r.get("id")) for r in ov["auto_adopted"] if isinstance(r, dict)}
+    todo = [p for p in data.get("proposals") or [] if int(p.get("count") or 0) >= min_count and p.get("id") not in seen]
+    added: list[str] = []
+    rows: list[dict[str, Any]] = []
+    for p in todo:
+        r = accept_proposal(str(p["id"]), vault)
+        row = {"id": p["id"], "name": p.get("name") or "", "parent": p.get("parent") or "", "count": p.get("count") or 0,
+               "at": _now(), "ok": bool(r.get("ok"))}
+        if r.get("ok"):
+            row["path"] = r.get("path") or ""
+            added.append(str(p.get("name") or ""))
+        rows.append(row)
+    if rows:
+        with storage.file_lock("index-overrides", wait_s=15, owner="index.auto_adopt"):
+            ov = indexai.load_overrides(vault)
+            ov["auto_adopted"] = (list(ov["auto_adopted"]) + rows)[-500:]
+            storage.write_json(indexai.overrides_path(vault), ov)
+        build(vault, force=True, auto_draft=False)
+    return {"ok": True, "code": "", "added": added, "tried": len(rows)}
 
 
 def remove_empty(path: str, vault: Path | None = None) -> dict[str, Any]:

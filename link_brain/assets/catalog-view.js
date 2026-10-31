@@ -348,6 +348,9 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbi-acts button.lbi-link{font-size:11.5px!important;}
 /* 1027b 索引：悬停「改名 / ＋子类」、树底「＋ 加分类」、条上工具靠右 */
 .lbi-tools{display:inline-flex;gap:14px;margin-left:auto;}
+.lbi-mode{font:600 var(--lb-fs-h2)/1.4 var(--lb-font-serif);color:var(--lb-ink);}
+.lbi-made{color:var(--lb-muted);}
+.lbi-hint{margin:0;font-size:var(--lb-fs-small);line-height:1.6;color:var(--lb-faint);}
 .lbi-add{gap:6px;padding-top:2px;padding-bottom:2px;}
 .lbc-wrap .lbi-add input{flex:1 1 auto;min-width:0;height:26px;padding:0 8px;border:1px solid var(--c-ink);border-radius:4px;background:var(--c-bg);color:var(--c-ink);font:13px var(--f-sans);box-shadow:none;}
 .lbc-wrap button.lbi-add-btn{display:block;width:auto!important;height:28px!important;margin:8px 0 0 14px!important;padding:0 12px!important;border:1px dashed var(--c-line)!important;border-radius:999px!important;background:transparent!important;box-shadow:none!important;color:var(--c-muted);font:12.5px/1 var(--f-sans);cursor:pointer;}
@@ -2011,7 +2014,7 @@ const split = boardMain.createEl('div', { cls: 'lbi-split' });
 const ipanel = split.createEl('div', { cls: 'lbi-panel' }); ipanel.hidden = true;
 const imain = split.createEl('div', { cls: 'lbi-main' });
 const ihead = imain.createEl('div', { cls: 'lbi-head' }); ihead.hidden = true;
-let panelKey = null, barKey = null, propsOpen = false;
+let panelKey = null, barKey = null;
 // 默认只展开选中的那一支（树不长）；手动展开 / 收起过的照记的来
 function nodeOpen(path) { return foldOverride.has(path) ? foldOverride.get(path) : !!activeCat && (activeCat === path || activeCat.startsWith(path + '/')); }
 function selectNode(path) {
@@ -2045,7 +2048,8 @@ function classifyStatus() {
   const c = idx?.classify; if (!c) return null;
   if (c.running) return { text: `AI 正在按内容归类${c.running.total ? ` ${c.running.done || 0}/${c.running.total}` : ''}…（归好的会陆续出来）` };
   if (!c.ai_ok) return { text: `没配文本 AI：先按名字和标签找（${c.why || '设置里没配'}）` };
-  if (c.error && c.work) return { text: `上次按内容归类没成：${c.error.error || c.error.code || ''}`, warn: true, action: '重试' };
+  // 1031 她「不要出现这么多东西」：临时失败（超时）下次自己再跑，不挂警告；连着没成两次才说，原因写成看得见的字
+  if (c.error && c.work && Number(c.error.streak || 1) >= 2) return { text: `按内容归类连着 ${c.error.streak} 次没成：${c.error.error || c.error.code || ''}`, warn: true, action: '重试' };
   if (c.blocked) return { text: c.blocked.why, action: '按内容归类' };
   if (c.work) return { text: (c.pending ? `还有 ${c.pending} 篇没按内容归` : '有新改的分类还没核对') + money(c.yuan), action: '按内容归类' };
   const spent = Number(c.spent?.yuan) || 0;
@@ -2055,79 +2059,65 @@ async function runClassify(btn) {
   const r = await indexAction('indexClassify', btn, '正在按内容归类…', { onProgress: ev => { try { btn.setText?.(`正在按内容归类 ${ev.done}/${ev.total}…`); } catch {} } });
   await indexDone(r, '按内容归好了');
 }
+// 1031 她（「索引编辑不好用」→「打标全自动，之后再手动调整；有新增就默认放入；懒人，不要出现这么多东西」）：
+//   顶条只剩一行：整理分类 · 已归类 x / y · 未归类 · （在跑 / 连着没成两次 / 要花钱才出的）状态 · AI 新建了哪几个 · 右边「⋯ 更多」「完成」；
+//   树上能做什么照旧写在树下面那行小字里。建议新增 / 草稿 / 写法提醒 / 说明行都收进「⋯ 更多」（够 10 篇的建议后端已经自动写进 索引.md）
 function renderIndexBar() {
   const key = JSON.stringify([idx.total, idx.classified, idx.unclassified?.count, classifyStatus(), (idx.proposals || []).map(p => [p.id, p.name, p.count]),
-    idx.drafting, idx.draft, idx.warnings, idx.comments, idx.text_ai, activeCat, propsOpen, mobile]);
+    idx.drafting, idx.draft, idx.warnings, idx.comments, idx.text_ai, idx.auto_adopted, activeCat, mobile]);
   if (key === barKey) return;
   barKey = key;
   ibar.empty();
   const unc = idx.unclassified?.count || 0;
-  const l1 = ibar.createEl('div', { cls: 'lbi-line' });
-  l1.createEl('span', { cls: 'lbi-sum', text: `${idx.total} 篇 · 归进分类 ${idx.classified} 篇` });
+  const l1 = ibar.createEl('div', { cls: 'lbi-line lbi-top' });
+  l1.createEl('b', { cls: 'lbi-mode', text: '整理分类' });
+  l1.createEl('span', { cls: 'lbi-sum', text: `已归类 ${idx.classified} / ${idx.total}` });
   if (unc) {
-    const u = panelButton(l1, `未归类 ${unc} 篇`, () => selectNode(activeCat === UNC ? '' : UNC), 'lbi-link lbi-unc-link' + (activeCat === UNC ? ' is-on' : ''));
+    const u = panelButton(l1, `未归类 ${unc}`, () => selectNode(activeCat === UNC ? '' : UNC), 'lbi-link lbi-unc-link' + (activeCat === UNC ? ' is-on' : ''));
     u.setAttribute('aria-pressed', String(activeCat === UNC));
-  } else l1.createEl('span', { cls: 'lbi-sum', text: '没有未归类的' });
+  }
   const st = classifyStatus();
-  if (st) {
-    const sEl = l1.createEl('span', { cls: 'lbi-status' + (st.warn ? ' is-warn' : ''), text: st.warn ? '⚠ 上次按内容归类没成' : st.text });
-    if (st.warn) sEl.title = st.text;
+  if (st && (st.warn || st.action || idx.classify?.running || !idx.classify?.ai_ok)) {
+    l1.createEl('span', { cls: 'lbi-status' + (st.warn ? ' is-warn' : ''), text: st.text });
     if (st.action && !mobile) panelButton(l1, st.action, b => runClassify(b), 'lbi-link is-strong lbi-classify-btn');
   }
+  const made = (idx.auto_adopted?.nodes || []).filter(n => idxByPath.has(n.path));
+  if (made.length) {
+    const m = l1.createEl('span', { cls: 'lbi-made' });
+    m.append(`AI 新建了 ${made.length} 个分类：`);
+    made.slice(0, 6).forEach((n, k) => { if (k) m.append('、'); panelButton(m, n.name, () => selectNode(n.path), 'lbi-link lbi-made-node'); });
+    if (made.length > 6) m.append('…');
+  }
   const tools = l1.createEl('span', { cls: 'lbi-tools' });
-  panelButton(tools, '编辑 索引.md', () => openVaultFile(idx.file || '索引.md'), 'lbi-link lbi-edit');
+  const more = panelButton(tools, '⋯ 更多', () => {}, 'lbi-link lbi-more');
+  more.onclick = e => { e?.stopPropagation?.(); openIndexMore(e, more); };
+  panelButton(tools, '完成', () => pickView('grid'), 'lbi-link is-strong lbi-exit');
+  if (idx.drafting) ibar.createEl('p', { cls: 'lbi-hint', text: 'AI 正在起草一版新的分类树…（好了在「⋯ 更多」里看，不会改你的 索引.md）' });
+}
+// 「⋯ 更多」：不常用的都在这里（她要的时候才看得到）
+function openIndexMore(e, btn) {
+  const file = idx.file || '索引.md';
   const props = Array.isArray(idx.proposals) ? idx.proposals : [];
-  if (!mobile) {
-    panelButton(tools, idx.text_ai?.ok ? 'AI 起草一版新树' : '起草一版', b => indexAction('indexDraft', b, '正在起草…'), 'lbi-link lbi-draft-btn');
-    if (unc && !props.length) panelButton(tools, '未归类建议', b => indexAction('openIndexSuggestions', b, '正在找建议…'), 'lbi-link lbi-suggest-btn');
-  }
-  // 1028 她：「索引得有个地方退出来」——视图开关里的「索引」常被藏着（窄屏 / 只剩一项），这里固定留一个出口，回到进来之前的收藏墙
-  panelButton(tools, '退出索引编辑 ×', () => pickView('grid'), 'lbi-link is-strong lbi-exit');
-  if (props.length) {
-    const chips = ibar.createEl('div', { cls: 'lbi-chips' });
-    chips.createEl('span', { cls: 'lbi-chips-label', text: '建议新增' });
-    const shown = propsOpen ? props : props.slice(0, 8);
-    for (const p of shown) {
-      const on = activeCat === PROP + p.id;
-      const chip = chips.createEl('button', { cls: 'lbi-chip' + (on ? ' is-on' : '') }); chip.type = 'button';
-      chip.dataset.id = p.id; chip.setAttribute('aria-pressed', String(on));
-      chip.append(p.name);
-      chip.createEl('span', { cls: 'lbi-chip-n', text: String(p.count) });
-      chip.onclick = () => selectNode(on ? '' : PROP + p.id);
-    }
-    if (props.length > 8) panelButton(chips, propsOpen ? '收起' : `还有 ${props.length - 8} 条`, () => { propsOpen = !propsOpen; barKey = null; renderIndexBar(); }, 'lbi-link');
-  }
-  if (idx.drafting) {
-    ibar.createEl('div', { cls: 'lbi-line lbi-drafting' }).createEl('span', { text: 'AI 正在起草一版新的索引…（好了会出现在这里，不会改你的 索引.md）' });
-  } else if (idx.draft?.exists) {
-    const d = idx.draft;
-    const line = ibar.createEl('div', { cls: 'lbi-line lbi-draft' });
-    line.createEl('span', { cls: 'lbi-draft-text', text: `${d.mode === 'ai' ? 'AI 起草了一版' : '起草了一版'}：${(d.roots || []).length} 个大类，能归进 ${d.classified}/${d.total} 篇` });
-    panelButton(line, '看草稿', () => openVaultFile(d.file || idx.draft_file));
-    if (!mobile) panelButton(line, '用这版', b => indexAction('indexUseDraft', b, '正在换…'), 'lbi-link is-strong lbi-use-draft');
-  }
-  if (!mobile && !idx.text_ai?.ok) {
-    ibar.createEl('p', { cls: 'lbi-note', text: `没有能用的文本 AI（${idx.text_ai?.why || '设置里没配'}）：「起草一版」按高频标签出草稿；`
-      + 'wiki 生成不了，可以让 GPT 经 MCP 来写（guide 取方法、index 看这个节点的篇目、read 读全文）。' });
-  }
+  const unc = idx.unclassified?.count || 0;
   const warns = (idx.warnings || []).filter(w => w && w.text && w.level !== 'info');   // 1015：第 4 级并进第 3 级（info）是她要的写法，不算
-  if (warns.length) {
-    const w = ibar.createEl('div', { cls: 'lbi-warn' });
-    w.createEl('span', { cls: 'lbi-warn-mark', text: '⚠' });
-    w.createEl('span', { text: `${idx.file || '索引.md'} 有 ${warns.length} 处写法要看一眼：${warns[0].text}` });
-    if (warns[0].line) panelButton(w, '去改', () => openVaultFile(idx.file || '索引.md', warns[0].line));
-    if (warns.length > 1) {
-      const list = w.createEl('ol'); list.hidden = true;
-      for (const x of warns.slice(1, 30)) list.createEl('li', { text: x.text });
-      const more = panelButton(w, `还有 ${warns.length - 1} 处`, () => { list.hidden = !list.hidden; more.setText(list.hidden ? `还有 ${warns.length - 1} 处` : '收起'); });
-    }
-  }
   const notes = (idx.comments || []).filter(c => c && c.line && !c.placeholder);
-  if (notes.length) {
-    const n = ibar.createEl('div', { cls: 'lbi-line lbi-comments' });
-    n.createEl('span', { text: `${idx.file || '索引.md'} 里有 ${notes.length} 行像是写给自己的说明（「${notes[0].text.slice(0, 16)}…」），没当成分类` });
-    panelButton(n, '去看', () => openVaultFile(idx.file || '索引.md', notes[0].line));
+  const d = idx.draft?.exists ? idx.draft : null;
+  const items = [{ title: `打开 ${file}`, onClick: () => openVaultFile(file) }];
+  // 没自动建的小建议（不到 10 篇）：点一条 = 墙筛到那几篇，墙上面照旧有「加进索引 / 不要」
+  if (props.length) items.push({ title: `小建议（${props.length} 条，不到 10 篇，没自动建）`, children: props.slice(0, 30).map(p => ({
+    title: `${p.parent ? pathText(p.parent) + ' › ' : ''}${p.name}（${p.count}）`, onClick: () => selectNode(PROP + p.id) })) });
+  else if (unc && !mobile) items.push({ title: '给未归类找建议', onClick: () => indexAction('openIndexSuggestions', btn, '正在找建议…') });
+  if (!mobile) items.push({ separator: true }, { title: idx.text_ai?.ok ? 'AI 起草一版新树（不改现在的）' : '按高频标签起草一版新树（不改现在的）', onClick: () => indexAction('indexDraft', btn, '正在起草…') });
+  if (d) {
+    const diff = (d.classified || 0) - (idx.classified || 0);
+    items.push({ title: `看草稿：${(d.roots || []).length} 个大类，能归进 ${d.classified} 篇（现在 ${idx.classified} 篇${diff < 0 ? `，少 ${-diff} 篇` : diff > 0 ? `，多 ${diff} 篇` : ''}）`, onClick: () => openVaultFile(d.file || idx.draft_file) });
+    if (!mobile) items.push({ title: '用草稿换掉现在的树', onClick: () => indexAction('indexUseDraft', btn, '正在换…') });
   }
+  if (warns.length || notes.length) items.push({ separator: true });
+  if (warns.length) items.push({ title: `${file} 有 ${warns.length} 处写法要看一眼：${warns[0].text.slice(0, 24)}`, onClick: () => openVaultFile(file, warns[0].line || undefined) });
+  if (notes.length) items.push({ title: `${file} 里 ${notes.length} 行像说明，没当成分类（「${notes[0].text.slice(0, 12)}…」）`, onClick: () => openVaultFile(file, notes[0].line) });
+  if (!mobile && !idx.text_ai?.ok) items.push({ title: `没有能用的文本 AI（${idx.text_ai?.why || '设置里没配'}）：不能自动按内容归类`, disabled: true, onClick: () => {} });
+  popMenu(items, e, btn);
 }
 function wikiActs(acts, n) {
   const st = (idx.wiki || {})[n.path] || {};
