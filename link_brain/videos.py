@@ -190,15 +190,10 @@ def _report(row, result):
     elif status == 'skipped':
         problems.report('videos.transcribe', result.get('code') or 'SKIPPED.NOT_CONFIGURED',
                         result.get('error') or '语音识别没开', action='skipped')
-    elif status in ('no_speech', 'no_audio') and _has_screen_text(result):
-        # 1004：没人声但画面字幕读出来了 = 这条视频有文字可用，不算问题（作者：有字幕还报错让人困扰）
+    elif status in ('no_speech', 'no_audio'):
+        # 1004：没人声但画面字幕读出来了 = 有文字可用，不算问题
+        # 1031 作者：视频没人说话是正常的，连字幕也没读到也不报——结论不是故障，以前登记的一并撤掉
         problems.resolve('videos.transcribe', item_id)
-    elif status == 'no_speech':
-        problems.report('videos.transcribe', 'PERMANENT.NO_SPEECH', '视频里没听出人声，画面上也没认出字幕',
-                        item_id=item_id, title=title)
-    elif status == 'no_audio':
-        problems.report('videos.transcribe', 'PERMANENT.NO_AUDIO', '视频没有音轨，画面上也没认出字幕',
-                        item_id=item_id, title=title)
     elif status == 'failed':
         problems.report('videos.transcribe', result.get('code') or 'TRANSIENT.SERVICE_BUSY',
                         result.get('error') or '语音识别失败', item_id=item_id, title=title,

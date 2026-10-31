@@ -46,7 +46,8 @@ COMMENTS_END = "<!-- link-brain:comments:end -->"
 CONTENT_START = "<!-- link-brain:content:start -->"
 CONTENT_END = "<!-- link-brain:content:end -->"
 
-WINDOWS_ILLEGAL_RE = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+# 1031：# ^ [ ] 进文件名 Obsidian 链接会断（# 被当成标题锚点，点开是一篇只有半截标题的空笔记），一并换掉
+WINDOWS_ILLEGAL_RE = re.compile(r'[<>:"/\\|?*#^\[\]\x00-\x1f]')
 TOPIC_TOKEN_RE = re.compile(r"#([^#\[\]]{1,30})\[话题\]#")
 RESERVED_NAMES = {
     "CON", "PRN", "AUX", "NUL",
@@ -1568,7 +1569,8 @@ def render_object(
     source_doc['note']['screen_v'] = (transcript_doc.get('screen') or {}).get('v')  # 10-08：v2 起画面文字按 OCR 行存，旧的是一帧一行
     if not (source_doc['note'].get('title') or meta.get('title')):
         fallback = (extracted or {}).get('title') or transcript.split('。')[0] or source_doc['note'].get('body') or next((x.get('ocr') for x in vision_doc.get('images', []) if x.get('ocr')), '')
-        title = re.sub(r'\s+', ' ', str(fallback)).strip()[:30] or '视频收藏'
+        # 1031：没标题的小红书拿正文开头当标题，正文末尾那串「#果汁[话题]#」不算标题
+        title = re.sub(r'\s+', ' ', TOPIC_TOKEN_RE.sub('', str(fallback))).strip(' #')[:30] or '视频收藏'
         meta['title'] = title
         source_doc['note']['title'] = title
         # 1024：只补 title 这一个键，锁里重读再写（别拿开头读的旧副本整份写回）

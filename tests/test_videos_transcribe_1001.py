@@ -96,12 +96,14 @@ def test_speech_ok_respects_screen_toggle_off(video_vault, monkeypatch):
     assert run_once() == 0 and "screen" not in video_vault.doc()
 
 
-def test_no_speech_and_no_screen_text_is_still_listed(video_vault, monkeypatch):
+def test_no_speech_and_no_screen_text_is_not_a_problem(video_vault, monkeypatch):
+    """1031 作者：视频没人说话是正常的，连画面字幕也没读到也不进问题列表；以前登记的那条撤掉。"""
     monkeypatch.setattr(screentext, "extract", lambda path: {"status": "ok", "segments": [], "text": ""})
     video_vault.asr = {"status": "ok", "text": "", "code": "", "error": None}
+    problems.report("videos.transcribe", "PERMANENT.NO_SPEECH", "视频里没听出人声", item_id="xhs-v1")
     assert run_once() == 0
-    rows = [r for r in problems.load() if r["step"] == "videos.transcribe"]
-    assert [r["code"] for r in rows] == ["PERMANENT.NO_SPEECH"] and "字幕" in rows[0]["reason"]
+    assert video_vault.doc()["status"] == "no_speech"
+    assert not [r for r in problems.load() if r["step"] == "videos.transcribe"]
 
 
 def test_old_no_speech_record_gets_screen_text_backfilled(video_vault, monkeypatch):

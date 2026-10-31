@@ -39,8 +39,8 @@
 ### 4. 没有人声的视频只报错、不读画面字幕（10-04）
 - **用户看到**：卡片 / 问题列表「视频里没人说话」，但视频画面上其实有烧录字幕。
 - **根因**：「视频画面文字」开关关着时，没人声 / 没音轨的视频不抽画面字幕；结论（没人声）被当成问题登记。
-- **修法 / 自愈**：没人声 / 没音轨的视频即使开关关着也抽画面字幕；**读出字幕就不登记**，旧的「没人声」记录下次补抽并标已解决。仍登记的 `PERMANENT.NO_SPEECH / NO_AUDIO` 文案写明「画面上也没认出字幕」，面板说明「正文和视频都已存好，不用处理」，「现在修」= 重读一次画面字幕（`videos <id> --transcribe --rescreen`），自愈轮不自动跑。
-- **回归用例**：`tests/test_videos_transcribe_1001.py::test_no_speech_reads_screen_text_even_when_toggle_is_off`、`tests/test_videos_transcribe_1001.py::test_old_no_speech_record_gets_screen_text_backfilled`、`tests/test_videos_transcribe_1001.py::test_no_speech_and_no_screen_text_is_still_listed`。
+- **修法 / 自愈**：没人声 / 没音轨的视频即使开关关着也抽画面字幕；**读出字幕就不登记**，旧的「没人声」记录下次补抽并标已解决。10-31 作者：视频没人说话是正常的——连字幕也没读到的也不再登记 `PERMANENT.NO_SPEECH / NO_AUDIO`，以前登记的撤掉。
+- **回归用例**：`tests/test_videos_transcribe_1001.py::test_no_speech_reads_screen_text_even_when_toggle_is_off`、`tests/test_videos_transcribe_1001.py::test_old_no_speech_record_gets_screen_text_backfilled`、`tests/test_videos_transcribe_1001.py::test_no_speech_and_no_screen_text_is_not_a_problem`。
 
 ### 5. 「旧设置已停用 / 已换算」提示不撤（10-04）
 - **用户看到**：设置已经存成新格式了，问题列表「未开启」组里还一直挂着「旧设置已自动换算」。

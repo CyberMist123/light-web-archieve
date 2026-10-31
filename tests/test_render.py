@@ -59,6 +59,8 @@ def test_sanitize_title_strips_illegal_chars_and_reserved_names():
     assert render_mod.sanitize_title('a<b>c:d"e/f\\g|h?i*j') == "a_b_c_d_e_f_g_h_i_j"
     assert render_mod.sanitize_title("CON") == "CON_"
     assert render_mod.sanitize_title("  ") == "untitled"
+    # 1031：# ^ [ ] 进文件名 Obsidian 链接会断
+    assert render_mod.sanitize_title("买到？#果汁[话题]# a^b") == "买到？_果汁_话题__ a_b"
     long_title = "字" * 100
     assert len(render_mod.sanitize_title(long_title)) <= 60
 
