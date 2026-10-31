@@ -1144,7 +1144,7 @@ ${LB.siteHeaderCss()}
 .lbchat .lbchat-head > .lbchat-titleblock{display:none;}
 .lbchat .lbchat-head > .lbchat-tools{margin-left:0;}
 .lbchat .lbchat-jumps{flex:none;display:inline-flex;gap:8px;padding:0;background:transparent;}
-.lbchat .lbchat-jumps button{font-family:var(--lb-font-title-base,serif),var(--lb-font-serif)!important;background:var(--lb-surface)!important;color:var(--lb-ink);box-shadow:0 1px 4px #0000000c!important;font-weight:500;}
+.lbchat .lbchat-jumps button{font-size:14px!important;font-family:var(--lb-font-title-base,serif),var(--lb-font-serif)!important;background:var(--lb-surface)!important;color:var(--lb-ink);box-shadow:0 1px 4px #0000000c!important;font-weight:500;}
 .lbchat .lbchat-jumps button:hover{box-shadow:0 2px 8px #00000018!important;}
 .lbchat .lbchat-titleblock{display:flex;flex-direction:row;flex-wrap:wrap;align-items:center;gap:2px;width:auto;max-width:100%;}
 .lbchat .lbchat-head > .lbchat-sub{flex-basis:100%;margin:-6px 0 0;text-align:left;}

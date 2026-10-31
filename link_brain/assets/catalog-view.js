@@ -72,7 +72,7 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-wrap .lbc-title button.lbc-import:hover{transform:rotate(90deg);}
 .lbc-wrap .lbc-title button.lbc-import[aria-busy="true"]{opacity:.5;cursor:progress;}
 .lbc-tools{position:absolute;top:0;right:0;z-index:1;display:flex;align-items:center;gap:8px;}
-.lbc-wrap .lbc-tools button.lb-manage{width:40px!important;height:40px!important;min-width:40px;padding:0!important;border:0!important;border-radius:10px!important;background:transparent!important;color:var(--lb-ink)!important;box-shadow:none!important;font:500 var(--lb-fs-body)/1 var(--lb-font-body)!important;display:inline-flex;align-items:center;justify-content:center;gap:7px;cursor:pointer;white-space:nowrap;}
+.lbc-wrap .lbc-tools button.lb-manage{width:40px!important;height:40px!important;min-width:40px;padding:0!important;border:0!important;border-radius:10px!important;background:transparent!important;color:var(--lb-ink)!important;box-shadow:none!important;display:inline-flex;align-items:center;justify-content:center;gap:7px;cursor:pointer;white-space:nowrap;}
 .lbc-wrap .lbc-tools button.lb-manage:hover{background:var(--lb-soft)!important;color:var(--lb-ink)!important;}
 /* 1101：「···」不要框（和 Wiki / 问收藏页头一样），三个点用 SVG 画，左右上下都对称 */
 .lbc-wrap .lbc-tools .lbc-manage-dots{display:block;width:18px;height:4px;}
@@ -730,14 +730,15 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-top.is-tools-static .lbc-title{font-size:calc(30px * var(--lbc-title-k,1));}
 .lbc-top.is-tools-static .lbc-titleblock{padding:0!important;}
 /* 1101 作者给的样子：「共 2089 篇 · 更新 11/01 00:32」整行 Cormorant 斜体 + 老式数字（设计稿 .header-meta）；搜索时跳出来的「可能相关 N」「同步中」同一个字 */
-.lbc-titleblock .lbc-subline{padding:0;gap:2px 8px;flex-wrap:wrap;font:italic 500 17px/1.3 var(--lb-font-num);color:var(--c-muted);letter-spacing:.01em;}
-.lbc-titleblock .lbc-subline,.lbc-titleblock .lbc-subline *{font-variant-numeric:oldstyle-nums proportional-nums!important;}
+.lbc-titleblock .lbc-subline{padding:0;gap:2px 8px;flex-wrap:wrap;font:italic 400 17px/1.3 var(--lb-font-num);color:var(--c-muted);letter-spacing:.01em;}
+/* 1101 作者「字体不统一，请和下面（边栏同步的 10/31 19:07）统一」：齐线数字，不要高低不齐的旧式数字 */
+.lbc-titleblock .lbc-subline,.lbc-titleblock .lbc-subline *{font-variant-numeric:lining-nums tabular-nums!important;}
 .lbc-titleblock .lbc-subline :is(.lbc-sub,.lbc-count,.lbc-count b,.lbc-sub-link,.lbc-syncing,.lbc-possible-link,.lbc-updated){font:inherit!important;color:inherit!important;letter-spacing:inherit;}
 .lbc-titleblock .lbc-subline .lbc-stale{color:var(--lb-warn)!important;font:400 12px/1.5 var(--lb-font-body)!important;}
 .lbc-top:not(.is-tools-static)>.lbc-tools{top:8px;}
 .lbc-wrap .lbc-tools{gap:4px;align-items:center;}
 .lbc-wrap .lbc-tools .lbc-jumps{background:transparent;padding:0;gap:8px;margin-right:4px;}
-.lbc-wrap .lbc-tools .lbc-jumps button{height:auto!important;padding:9px 16px!important;border:0!important;border-radius:9px!important;font:500 13px/1.2 var(--lb-font-title-base,serif),var(--lb-font-serif)!important;background:var(--lb-surface)!important;color:var(--lb-ink)!important;box-shadow:0 1px 4px #0000000c!important;cursor:pointer;}
+.lbc-wrap .lbc-tools .lbc-jumps button{height:auto!important;padding:9px 16px!important;border:0!important;border-radius:9px!important;font:500 14px/1.2 var(--lb-font-title-base,serif),var(--lb-font-serif)!important;background:var(--lb-surface)!important;color:var(--lb-ink)!important;box-shadow:0 1px 4px #0000000c!important;cursor:pointer;}
 .lbc-wrap .lbc-tools .lbc-jumps button:hover{box-shadow:0 2px 8px #00000018!important;}
 .lbc-wrap .lbc-tools button.lbc-icon-btn,.lbc-wrap .lbc-tools button.lb-manage{width:36px!important;height:36px!important;min-width:36px;padding:0!important;border:0!important;border-radius:999px!important;background:transparent!important;box-shadow:none!important;color:var(--lb-ink)!important;display:grid;place-items:center;cursor:pointer;}
 .lbc-wrap .lbc-tools button.lbc-icon-btn:hover,.lbc-wrap .lbc-tools button.lb-manage:hover{background:var(--lb-soft)!important;}
@@ -760,11 +761,15 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 /* 1101 作者「编排了一下字体就变了」：小字下边多 2px，和 17px 分页同一条基线（底边都压在那道线上）；主题那一块后面多空一点，不和「全部来源」挤在一起。
    1101 作者「拿到 design 后第一版（0055a14）的式样是对的」：字照那一版——分页和来源 / 视频 / 文件都是 15.5px 衬线，排序 13.5px、搜索 14px 无衬线 */
 .lbc-wrap .lbc-ctl button.lbc-thq .lbc-topic-star{font-size:12px;margin-right:2px;}
-/* 1101 作者（设计稿「全部 2089 · 今日新增 0 · 已收藏」）：全部 / 今日新增 后面跟 Cormorant 斜体篇数；整行（排序、搜索也是）都用分页的衬线 */
-.lbc-wrap .lbc-top:not(.is-squeeze-2) .lbc-ctl button.lbc-scope-tab:is([data-scope=""],[data-scope="today"])[data-n]::after{content:attr(data-n);position:static;margin-left:6px;font:italic 500 16px/1 var(--f-latin);font-variant-numeric:oldstyle-nums proportional-nums;color:var(--c-muted);}
+/* 1101 作者「这一行字体颜色需要一样」「全部和今日新增不用放数字」：整行同一种衬线、同一个灰；选中的那个墨色加粗 + 下划线；放大镜大一点 */
+.lbc-wrap .lbc-ctl button.lbc-time.lbc-pill{color:var(--c-muted)!important;}
+.lbc-wrap .lbc-searchbox input.lbc-search,.lbc-wrap .lbc-searchbox input.lbc-search::placeholder{color:var(--c-muted);}
+.lbc-wrap .lbc-searchbox svg{width:17px;height:17px;}
 .lbc-wrap:not(.is-side-narrow) .lbc-top .lbc-row.is-free>.lbc-rcol.is-gap-r:has(>.lbc-m-topics){padding-right:28px;}
 .lbc-wrap .lbc-ctl button.lbc-time.lbc-pill{height:auto!important;padding:12px 2px 10px!important;font:400 15.5px/1.3 var(--f-serif)!important;}
 .lbc-wrap .lbc-tools button[hidden]{display:none!important;}
+/* 1101 作者：··· 和问收藏页同一个（20px 省略号字符，44px 圆钮），不用粗圆点 */
+.lbc-wrap .lbc-tools button.lb-manage{width:44px!important;height:44px!important;min-width:44px;font-size:20px!important;font-weight:500;color:var(--lb-ink)!important;}
 /* 「近 7 天 · 最近导入 ↓」：纯文字按钮，前面一道细竖线隔开（不要胶囊框） */
 .lbc-wrap .lbc-ctl button.lbc-time.lbc-pill{border:0!important;border-radius:0!important;background:transparent!important;padding:12px 2px 10px!important;color:var(--c-ink);}
 .lbc-wrap .lbc-ctl.lbc-blk-sort{position:relative;}
@@ -916,7 +921,22 @@ if (LB.schemaBlocks(data)) {
 // 1020 来源（用户定）：src='' 是用户自己的收藏；用户在 TG 发给 Fable 的和 Fable 自己收的都是「fable」（1025 起不再单列「聊天分享」）、CC / GPT 按项目收的（项目名）
 // 各是一个来源（catalog.py 的 src，规则在 domain.py）。目录默认只看用户自己的收藏，「来源 ▾」切；已收藏页不分来源。
 // items = 当前来源下的那些（下面所有计数 / 排名 / 专辑都按它算），allItems = 全部
-let allItems = data.items || [];
+// 1101 作者「B 站多 P 应该在一张卡，不是分开」：同步把多 P 拆成每 P 一篇（bili-BV…、bili-BV…_p2 …，笔记页里能切 P）——
+// 目录里同一个 BV 只留一张卡：用 P1 那篇（没有就用最小的 P），标题去掉「 · P1 …」，时长加起来，记下几个 P
+function foldBiliParts(list) {
+  const RE = /^bili-(BV[0-9A-Za-z]+)(?:_p(\d+))?$/, groups = new Map();
+  for (const it of list) { const m = RE.exec(String(it?.id || '')); if (!m) continue; const g = groups.get(m[1]) || []; g.push([Number(m[2] || 1), it]); groups.set(m[1], g); }
+  const drop = new Set(), head = new Map();
+  for (const g of groups.values()) {
+    if (g.length < 2) continue;
+    g.sort((a, b) => a[0] - b[0]);
+    const base = g[0][1], dur = g.reduce((n, [, x]) => n + (Number(x.duration) || 0), 0);
+    head.set(base, { ...base, title: String(base.title || '').replace(/\s*·\s*P\d+.*$/, '') || base.title, parts: g.length, duration: dur || base.duration });
+    for (const [, x] of g.slice(1)) drop.add(x);
+  }
+  return drop.size ? list.filter(it => !drop.has(it)).map(it => head.get(it) || it) : list;
+}
+let allItems = foldBiliParts(data.items || []);
 let activeSrc = '';   // ''=我的收藏 / '*'=全部 / 其它=那个来源
 const srcOf = it => (typeof it.src === 'string' ? it.src : '');
 let items = [];
@@ -1048,7 +1068,7 @@ async function refresh({ strict = false } = {}) {
   catch (e) { if (strict) throw e; return false; }
   // 新数据格式对不上：不换数据、不解析，页面留着上一版，标题下说该做什么
   if (LB.schemaBlocks(next)) { paintSchema(next); return false; }
-  data = next; allItems = data.items || []; applySrc();
+  data = next; allItems = foldBiliParts(data.items || []); applySrc();
   await loadIndex();
   if (activeCat && !knownCat(activeCat)) activeCat = '';
   refreshTags(); dataRev++; stale = false; paintSchema();
@@ -1299,7 +1319,7 @@ const histTool = tools.createEl('button', { cls: 'lbc-hist lbc-icon-btn' });
 histTool.type = 'button'; histTool.innerHTML = HIST_SVG; histTool.onclick = e => openUpdated(e); histTool.hidden = !devLog(); histTool.createEl('span', { cls: 'lb-visually-hidden', text: '同步记录' });
 const manage = mobile ? null : tools.createEl('button', { cls: 'lb-manage lbc-manage' });
 if (manage) {
-  manage.type = 'button'; manage.innerHTML = '<svg class="lbc-manage-dots" viewBox="0 0 18 4" aria-hidden="true"><g fill="currentColor"><circle cx="2" cy="2" r="1.8"/><circle cx="9" cy="2" r="1.8"/><circle cx="16" cy="2" r="1.8"/></g></svg>';
+  manage.type = 'button'; manage.setText('…');   // 1101 作者「··· 颗粒度不一样，按问收藏的统一」：和问收藏同一个字符，不画粗圆点
   manage.createEl('span', { cls: 'lb-visually-hidden', text: '编排和管理' });   // 不设 aria-label / title：Obsidian 会渲染成悬浮框
 }
 // 1026 作者（16:55「它甚至没有回收站」；分类删了内容去哪不清楚）：「管理」按用途分组——
@@ -3250,7 +3270,7 @@ function biliMedia(card, it) {
   const stats = media.createEl('div', { cls: 'lbc-bili-stats' });
   const views = biliCount(it.views);
   if (views) { const v = stats.createEl('span', { cls: 'lbc-bili-stat' }); putSvg(v, PLAY_SVG); v.createEl('span', { text: views }); }
-  if (it.duration) stats.createEl('span', { cls: 'lbc-bili-dur', text: biliClock(it.duration) });
+  if (it.duration) stats.createEl('span', { cls: 'lbc-bili-dur', text: (it.parts > 1 ? it.parts + 'P · ' : '') + biliClock(it.duration) });
   media.createEl('span', { cls: 'lbc-bili-time' });
   if (!mobile) biliPreview(card, media);
 }
