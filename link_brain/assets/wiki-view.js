@@ -318,6 +318,14 @@ LB.style('lb-wiki-style', LB.brandFontCss() + fontFace('LB Digits Inline', FONT_
 .lbw .lbw-ai-row button:disabled{opacity:.4;cursor:default;}
 .lbw-blk.is-ai-lock{outline:1px dashed var(--lb-muted);outline-offset:-1px;background:color-mix(in srgb,var(--lb-ink) 3%,transparent);cursor:default;}
 .lbw-blk.is-ai-lock + .lbw-blk.is-ai-lock{margin-top:0;}
+.lbw-blk.is-ai-lock.is-page{outline:none;margin-top:12px;}   /* 整页改：不一段段画框，淡底就够 */
+.lbw .lbw-ai-idea{display:block;width:100%;min-height:120px;resize:vertical;padding:8px 10px;border:1px solid var(--lb-line);border-radius:2px;background:var(--lb-surface);box-shadow:none;color:var(--lb-ink);font:400 14px/1.8 var(--lbw-serif);}
+.lbw .lbw-ai-idea:focus{outline:none;border-color:var(--lb-ink);}
+.lbw-plan-sec{padding:8px 0;border-top:1px solid var(--lb-line);}
+.lbw-plan-sec .lbw-num{font-size:16px;color:var(--lb-muted);min-width:14px;}
+.lbw-ai-bad{margin:8px 0;padding:8px 10px;border:1px solid var(--lb-warn);border-radius:2px;color:var(--lb-warn);font:400 12.5px/1.7 var(--lbw-sans);}
+.lbw-ai-bad > div{color:var(--lb-ink);}
+.lbw-ai-srcs{display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:8px;font:400 12.5px/1.7 var(--lbw-sans);}
 .lbw .lbw-selai{position:fixed;z-index:30;height:28px;padding:0 12px;border:1px solid var(--lb-ink);border-radius:999px;background:var(--lb-surface);color:var(--lb-ink);font:500 12.5px/1 var(--lbw-sans);box-shadow:2px 2px 0 var(--lb-ink);}
 .lbw-ai-out p{margin:0 0 6px;}
 /* 目录首页 */
@@ -1750,7 +1758,7 @@ function docNodes(p, placeholder) {
   if (A && A.scope === 'part') { const at = relocate(A, p); if (at) Object.assign(A, at); }   // 别处加删了行：跟着挪
   const lastIn = A && A.scope === 'part' ? blocks.reduce((k, b, j) => (b.s < A.end && b.e > A.start ? j : k), -1) : -1;
   blocks.forEach((b, i) => {
-    const blk = add(h('div', { cls: 'lbw-blk' + (b.type === 'li' ? ' is-li' : '') + (aiLocked(p, b) ? ' is-ai-lock' : ''), data: { i } }), renderBlock(b, lines, p));
+    const blk = add(h('div', { cls: 'lbw-blk' + (b.type === 'li' ? ' is-li' : '') + (aiLocked(p, b) ? (A && A.scope === 'page' ? ' is-ai-lock is-page' : ' is-ai-lock') : ''), data: { i } }), renderBlock(b, lines, p));
     if (!readOnly) {
       blk.addEventListener('click', e => clickBlock(e, blk, p, i));
       // 段和段之间插一段：左边空白里的 ＋（10-31：以前只能在页尾「接着写」）
@@ -1762,7 +1770,7 @@ function docNodes(p, placeholder) {
   R.doc = docEl;
   if (readOnly) return [docEl, blocks.length ? null : h('p', { cls: 'lbw-rnone', text: '这一页还是空的' })];
   R.add = btn({ cls: 'lbw-addblk', text: blocks.length ? '＋ 接着写…' : placeholder, on: { click: () => openEditor(-1, null, true) } });
-  const draft = blocks.length ? null : btn({ cls: 'lbw-addblk', text: '或者让 AI 先搭个框架', data: { ai: 'draft' }, on: { click: () => openAiPage(p, 'draft') } });
+  const draft = blocks.length ? null : btn({ cls: 'lbw-addblk', text: '或者写下你的思路，让 AI 按它搭框架、去收藏里找材料', data: { ai: 'draft' }, on: { click: () => openAiPlan(p) } });
   return [docEl, R.add, draft];
 }
 // 这一页现在开着、还作数的整页 Markdown 框（被恢复 / 冲突作废的框 _lbDead，不再拿去存）
@@ -2637,6 +2645,7 @@ function aiBody(A) {
     const go2 = () => { const v = inp.value.trim(); if (v) runAi(A, '', v); else inp.focus(); };
     inp.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); go2(); } else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeAi(); } });
     out.push(h('div', { cls: 'lbw-ai-row' }, AI_PRESETS[A.scope].map(([k, t]) => btn({ text: t, data: { preset: k }, on: { click: () => runAi(A, k, '') } }))));
+    if (A.scope === 'page') out.push(h('div', { cls: 'lbw-ai-row', attr: { style: 'margin-top:6px' } }, btn({ text: '按我的思路搭框架（去收藏里找材料）→', data: { plan: 'open' }, on: { click: () => { const p = PAGES.get(A.id); if (p) openAiPlan(p); } } })));
     const recent = aiRecent();
     if (recent.length) out.push(h('div', { cls: 'lbw-ai-row', attr: { style: 'margin-top:6px' } }, h('span', { cls: 'lbw-ai-note', attr: { style: 'margin:0' }, text: '用过的：' }), recent.map(t => btn({ text: t.length > 14 ? t.slice(0, 14) + '…' : t, on: { click: () => runAi(A, '', t) } }))));
     out.push(h('div', { cls: 'lbw-ai-row', attr: { style: 'margin-top:8px' } }, inp, btn({ cls: 'is-solid', text: '改', on: { click: go2 } }), btn({ text: '关', on: { click: closeAi } })));
@@ -2646,7 +2655,7 @@ function aiBody(A) {
     out.push(h('p', { cls: 'lbw-ai-note', attr: { style: 'margin:0' }, text: `AI 在改${A.what}（${A.label}）… 一般十几秒到一分钟；这期间这一截先别动` }), h('div', { cls: 'lbw-ai-row', attr: { style: 'margin-top:8px' } }, btn({ text: '不等了', on: { click: closeAi } })));
   } else if (A.state === 'same') {
     out.push(h('p', { cls: 'lbw-ai-note', attr: { style: 'margin:0' }, text: 'AI 一个字都没改。' }), h('div', { cls: 'lbw-ai-row', attr: { style: 'margin-top:8px' } },
-      btn({ text: '换个说法', on: { click: () => { A.state = 'ask'; paintAi(A); } } }), btn({ text: '关', on: { click: closeAi } })));
+      btn({ text: A.mode === 'plan' ? '改计划' : '换个说法', on: { click: () => { A.state = A.mode === 'plan' ? 'plan' : 'ask'; paintAi(A); } } }), btn({ text: '关', on: { click: closeAi } })));
   } else if (A.state === 'done') {
     const r = A.result || {}, all = A.segs.filter(x => x.t === 'ch').length, n = A.pick.size;
     out.push(h('p', { cls: 'lbw-ai-note', attr: { style: 'margin:0 0 6px' } }, nums(`改了 ${all} 处，选了 ${n} 处`), '：划线的是原来的，加粗的是 AI 改的；点一处切换要不要'));
@@ -2656,8 +2665,10 @@ function aiBody(A) {
     out.push(h('div', { cls: 'lbw-ai-row', attr: { style: 'margin-top:8px' } },
       btn({ cls: 'is-solid', text: n === all ? '全部用上' : `用选中的 ${n} 处`, data: { ai: 'apply' }, attr: { disabled: !n }, on: { click: () => applyAi(A) } }),
       btn({ text: '全要', data: { ai: 'all' }, on: { click: () => setAll(true) } }), btn({ text: '全不要', data: { ai: 'none' }, on: { click: () => setAll(false) } }),
-      btn({ text: '再改一次', on: { click: () => runAi(A, A.preset, A.ask) } }), btn({ text: '换个说法', on: { click: () => { A.state = 'ask'; paintAi(A); } } }), btn({ text: '不要', on: { click: closeAi } })),
+      btn({ text: '再改一次', on: { click: () => (A.mode === 'plan' ? runFill(A) : runAi(A, A.preset, A.ask)) } }),
+      btn({ text: A.mode === 'plan' ? '改计划' : '换个说法', on: { click: () => { A.state = A.mode === 'plan' ? 'plan' : 'ask'; paintAi(A); } } }), btn({ text: '不要', on: { click: closeAi } })),
       h('p', { cls: 'lbw-ai-note', text: (r.model ? `模型：${r.model} · ` : '') + '用了之后不满意，Ctrl+Z 一步撤回，或者去「历史」里找回' }));
+    if (A.mode === 'plan') out.push(...planExtras(A));
   }
   return out;
 }
@@ -2668,9 +2679,90 @@ function aiPanel(A) {
 }
 function renderAiSide(side) {
   const A = UI.ai, p = PAGES.get(A.id);
-  side.append(h('div', { cls: 'lbw-rbar' }, btn({ text: '← 收起', on: { click: closeAi } }), h('span', { cls: 'is-on', text: '让 AI 改整页' }), h('span', { text: p ? p.title : '' })));
+  side.append(h('div', { cls: 'lbw-rbar' }, btn({ text: '← 收起', on: { click: closeAi } }), h('span', { cls: 'is-on', text: A.mode === 'plan' ? '按我的思路搭框架' : '让 AI 改整页' }), h('span', { text: p ? p.title : '' })));
   if (!p) { side.append(h('p', { cls: 'lbw-note', text: '这一页找不到了。' })); return; }
-  side.append(h('div', { cls: 'lbw-ai', data: { scope: 'page' } }, aiBody(A)));
+  side.append(h('div', { cls: 'lbw-ai', data: { scope: 'page', mode: A.mode || 'edit' } }, A.mode === 'plan' ? planBody(A) : aiBody(A)));
+}
+// ═════════════ 按我的思路搭框架（10-31 第二块，她：「我给一段文字，但我有我的思路，ai 根据我的思路，把资料、wiki 框架配齐」） ═════════════
+// 右侧栏：写思路 → AI 出计划（每节标题 + 去收藏里搜什么）→ 她改 / 删 / 加节 → 「按这个去收藏里找」：每节用问收藏同一套检索，
+// 模型只许引候选编号、每条带一句原帖原话（后端核对，对不上的标出来）；她写的字不动，只往节下补，相反的说法单独一小节 →
+// 结果照第一块逐处勾选再存（kind=ai）。后端在 link_brain/wiki_plan.py（pwiki plan / fill）。
+function openAiPlan(p) {
+  if (readOnly || !p) return;
+  commitHere(p);
+  UI.hist = null; UI.trash = null;
+  UI.ai = { scope: 'page', mode: 'plan', id: p.id, text: p.body, what: '整页', label: '按思路搭框架', state: 'idea', idea: '', sections: [] };
+  renderSide(); renderKeepScroll();
+  const ta = R.side.querySelector('.lbw-ai textarea'); if (ta) ta.focus();
+}
+async function runPlan(A) {
+  if (A !== UI.ai) return;
+  if (!A.idea.trim()) { LB.say('先写几句你的思路：想写什么、想要哪几节'); return; }
+  const p = PAGES.get(A.id); if (!p) { closeAi(); return; }
+  Object.assign(A, { state: 'planning', error: '', text: p.body });
+  paintAi(A);
+  try {
+    const r = await wcall('plan', { input: { id: A.id, idea: A.idea, text: p.body }, timeoutMs: 300000 });
+    if (A !== UI.ai) return;
+    Object.assign(A, { state: 'plan', sections: (r.sections || []).map(s => ({ title: s.title || '', query: s.query || '', why: s.why || '' })) });
+  } catch (e) { if (A !== UI.ai) return; Object.assign(A, { state: 'idea', error: errText(e) }); }
+  paintAi(A);
+}
+async function runFill(A) {
+  if (A !== UI.ai) return;
+  const secs = A.sections.map(s => ({ ...s, title: s.title.trim(), query: s.query.trim() })).filter(s => s.title);
+  if (!secs.length) { LB.say('计划里至少留一节'); return; }
+  const p = PAGES.get(A.id); if (!p) { closeAi(); return; }
+  Object.assign(A, { state: 'filling', error: '', text: p.body, sections: secs, segs: null, pick: null, result: null });
+  paintAi(A);
+  try {
+    const r = await wcall('fill', { input: { id: A.id, idea: A.idea, text: p.body, sections: secs }, timeoutMs: 600000 });
+    if (A !== UI.ai) return;
+    const segs = textDiff(A.text, String(r.text || ''));
+    Object.assign(A, { state: segs.some(x => x.t === 'ch') ? 'done' : 'same', result: r, segs, pick: new Set(segs.map((x, i) => (x.t === 'ch' ? i : -1)).filter(i => i >= 0)) });
+  } catch (e) { if (A !== UI.ai) return; Object.assign(A, { state: 'plan', error: errText(e) }); }
+  paintAi(A);
+}
+function planBody(A) {
+  const out = [];
+  const note = (t, warn) => h('p', { cls: 'lbw-ai-note' + (warn ? ' is-warn' : ''), text: t });
+  if (A.state === 'idea') {
+    const ta = h('textarea', { cls: 'lbw-ai-idea', attr: { rows: '6', placeholder: '写下你的思路：想弄清楚什么、你现在怎么看、想要哪几节（一行一节也行）。\nAI 先出计划给你改，你点头了才去收藏里找材料。' } });
+    ta.value = A.idea || '';
+    ta.addEventListener('input', () => { A.idea = ta.value; });
+    out.push(ta, h('div', { cls: 'lbw-ai-row', attr: { style: 'margin-top:8px' } }, btn({ cls: 'is-solid', text: '出计划', data: { plan: 'make' }, on: { click: () => runPlan(A) } }), btn({ text: '关', on: { click: closeAi } })));
+    out.push(A.error ? note(A.error, true) : note('她写过的字一个不动，AI 只往各节下面补；每条都带收藏出处和原帖原话。'));
+  } else if (A.state === 'planning') {
+    out.push(note('AI 在按你的思路拆节… 一般十几秒'), h('div', { cls: 'lbw-ai-row' }, btn({ text: '不等了', on: { click: closeAi } })));
+  } else if (A.state === 'plan') {
+    out.push(note('计划：每节的小标题和「去收藏里搜什么」都能改；不要的节点 ×。', false));
+    A.sections.forEach((s, k) => {
+      const ti = h('input', { attr: { type: 'text', placeholder: '小标题' }, data: { k, f: 'title' } }); ti.value = s.title;
+      const qi = h('input', { attr: { type: 'text', placeholder: '去收藏里搜什么' }, data: { k, f: 'query' } }); qi.value = s.query;
+      ti.addEventListener('input', () => { s.title = ti.value; }); qi.addEventListener('input', () => { s.query = qi.value; });
+      out.push(h('div', { cls: 'lbw-plan-sec' }, h('div', { cls: 'lbw-ai-row' }, h('span', { cls: 'lbw-num', text: String(k + 1) }), ti,
+        btn({ text: '×', data: { del: k }, on: { click: () => { A.sections.splice(k, 1); paintAi(A); } } }, sr('删掉这一节'))),
+      h('div', { cls: 'lbw-ai-row' }, h('span', { cls: 'lbw-ai-note', attr: { style: 'margin:0' }, text: '搜：' }), qi), s.why ? note(s.why) : null));
+    });
+    out.push(h('div', { cls: 'lbw-ai-row', attr: { style: 'margin-top:8px' } },
+      btn({ text: '＋ 加一节', on: { click: () => { A.sections.push({ title: '', query: '', why: '' }); paintAi(A); } } }),
+      btn({ cls: 'is-solid', text: '按这个去收藏里找', data: { plan: 'fill' }, on: { click: () => runFill(A) } }),
+      btn({ text: '改思路', on: { click: () => { A.state = 'idea'; paintAi(A); } } }), btn({ text: '关', on: { click: closeAi } })));
+    if (A.error) out.push(note(A.error, true));
+  } else if (A.state === 'filling') {
+    out.push(note(`正在按 ${A.sections.length} 节去收藏里找材料，再让 AI 往各节下补… 一般两三分钟；这期间这页先别动`), h('div', { cls: 'lbw-ai-row' }, btn({ text: '不等了', on: { click: closeAi } })));
+  } else return aiBody(A);   // done / same：照第一块逐处勾选
+  return out;
+}
+// 补材料的结果附在逐处勾选下面：用到的收藏（S 编号）、原话没对上的（红）、删掉了几条编号对不上的
+function planExtras(A) {
+  const r = A.result || {}, out = [];
+  if ((r.bad_quotes || []).length) out.push(h('div', { cls: 'lbw-ai-bad' }, h('b', { text: `${r.bad_quotes.length} 句「原帖原话」在原帖里没找到——正文里已标「⚠」，别直接信：` }),
+    r.bad_quotes.map(x => h('div', null, `${x.src}《${x.title}》：「${x.quote}」`))));
+  if (r.dropped) out.push(h('p', { cls: 'lbw-ai-note', text: `另有 ${r.dropped} 条引了不存在的编号，已经删掉。` }));
+  if ((r.sources || []).length) out.push(h('div', { cls: 'lbw-ai-srcs' }, h('span', { cls: 'lbw-ai-note', attr: { style: 'margin:0' }, text: `用到的收藏（${r.sources.length} 篇）：` }),
+    r.sources.map(x => h('a', { cls: 'lbw-cite', attr: { href: '#' }, text: `${x.n} ${x.title}`, on: { click: e => { e.preventDefault(); openCite(x.id); } } }))));
+  return out;
 }
 // 最近删除（PersonalWiki/.trash）：列出来，一键找回
 function openTrash() {
@@ -2785,6 +2877,7 @@ function showMoreMenu(evt, anchor) {
     { title: UI.src ? '回到正文' : '整页 Markdown', disabled: !p, onClick: () => { commitEditor(false); flushSrc(); if (UI.src && liveSrc(p)) liveSrc(p)._lbDead = true; UI.src = !UI.src; renderKeepScroll(); } },
     { title: '新页面', onClick: () => newPageModal() },
     { title: '新文件夹', onClick: () => newPageModal({ folder: true }) },
+    { title: '按我的思路搭框架', sub: '写思路 → AI 出计划你改 → 按节去收藏里找材料补上', disabled: !p, onClick: () => p && openAiPlan(p) },
     { title: '让 AI 改整页', sub: '理顺结构 / 精简 / 从引用补要点 / 自己说怎么改', disabled: !p, onClick: () => p && openAiPage(p) },
     { separator: true },
     { title: '最近删除', sub: '删掉的页在这里找回', onClick: () => openTrash() },

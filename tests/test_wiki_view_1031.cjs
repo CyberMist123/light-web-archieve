@@ -81,6 +81,8 @@ function fakePlugin() {
       const pg = { id: meta.id, title: meta.title, role: meta.role, index_tag: meta.index_tag || '', order: meta.order || [], tags: meta.tags || [], created: meta.created, body };
       return { ok: true, message: `已找回《${meta.title}》`, page: P.write(null, pg) };
     }
+    if (op === 'plan') return { ok: true, sections: P.planReply.sections, model: 'demo' };
+    if (op === 'fill') return { ok: true, ...P.fillReply };
     if (op === 'ai') {
       if (P.aiFail) throw Object.assign(new Error(P.aiFail), { code: 'NOT_CONFIGURED' });
       return { ok: true, text: typeof P.aiText === 'function' ? P.aiText(input) : P.aiText, model: 'demo-model', lost_cites: [], scope: input.scope };
@@ -300,12 +302,43 @@ const run = async (name, fn) => { try { await fn(); console.log('  ok   ' + name
     assert.ok(A.q('.lbw-side').hidden, '用完收起');
   });
 
+  await run('按我的思路搭框架：写思路 → 出计划 → 改计划 → 去收藏里找 → 逐处勾选存；原话没对上的标红', async () => {
+    const P = fakePlugin(); const { A, V } = await open({ plugin: P });
+    await openPage(A, 'pw-kyoto');
+    A.q('.lbw-hbtn.is-more').click();
+    A.qa('.lbw-pop button').find(b => b.textContent.startsWith('按我的思路搭框架')).click(); await tick(2);
+    assert.ok(A.q('.lbw-side .lbw-ai[data-mode="plan"] textarea'), '右侧栏先写思路');
+    A.q('.lbw-side [data-plan="make"]').click(); await tick(2);
+    assert.ok(A.notices.at(-1).includes('先写几句'), '空思路不发');
+    const ta = A.q('.lbw-side textarea'); ta.value = '想住町屋，想要两节：住哪、怎么订'; ta.dispatchEvent(new A.window.Event('input'));
+    P.planReply = { sections: [{ title: '住哪', query: '京都 町屋 民宿', why: '' }, { title: '怎么订', query: '京都 订房', why: '' }, { title: '多余的一节', query: 'x', why: '' }] };
+    A.q('.lbw-side [data-plan="make"]').click(); await tick(15);
+    assert.equal(P.calls.find(c => c.op === 'plan').input.idea, '想住町屋，想要两节：住哪、怎么订');
+    assert.equal(A.qa('.lbw-side .lbw-plan-sec').length, 3, '计划三节');
+    A.q('.lbw-side [data-del="2"]').click(); await tick(1);              // 删掉多余的
+    const q0 = A.q('.lbw-side input[data-f="query"]'); q0.value = '京都 町屋 一个人'; q0.dispatchEvent(new A.window.Event('input'));
+    P.fillReply = { text: '种草先挂着，町屋民宿。\n\n## 住哪\n\n- 町屋安静。 [示例咖啡地图](lwa:xhs-aa1)\n  > 「几家店」\n\n## 怎么订\n\n- 提前两个月。 [示例咖啡地图](lwa:xhs-aa1)\n  > 「瞎编的」（⚠ 原帖里没找到这句，别直接信）',
+      sources: [{ n: 'S1', id: 'xhs-aa1', title: '示例咖啡地图' }], bad_quotes: [{ src: 'S1', title: '示例咖啡地图', quote: '瞎编的' }], dropped: 1, model: 'demo' };
+    A.q('.lbw-side [data-plan="fill"]').click(); await tick(15);
+    const fc = P.calls.find(c => c.op === 'fill');
+    assert.deepEqual(fc.input.sections.map(s => [s.title, s.query]), [['住哪', '京都 町屋 一个人'], ['怎么订', '京都 订房']], '改过的计划原样交给后端');
+    assert.equal(fc.input.text, '种草先挂着，町屋民宿。\n', '交的是这页现在的正文');
+    assert.ok(A.qa('.lbw-side .lbw-hk').length >= 1, '逐处勾选');
+    assert.ok(A.q('.lbw-side .lbw-ai-bad').textContent.includes('瞎编的'), '原话没对上的标出来');
+    assert.ok(A.q('.lbw-side .lbw-ai-srcs').textContent.includes('S1 示例咖啡地图'));
+    assert.ok(A.q('.lbw-side').textContent.includes('1 条引了不存在的编号'));
+    A.q('.lbw-side [data-ai="apply"]').click(); await tick(20);
+    const sv = P.calls.filter(c => c.op === 'save').at(-1);
+    assert.equal(sv.input.kind, 'ai'); assert.match(sv.input.note, /按思路搭框架/);
+    assert.ok(body(V, '京都.md').startsWith('种草先挂着，町屋民宿。\n\n## 住哪'), body(V, '京都.md'));
+  });
+
   await run('空页：「让 AI 先搭个框架」', async () => {
     const P = fakePlugin(); const { A } = await open({ plugin: P, files: { 'PersonalWiki/空页.md': page('pw-empty', '空页', {}) } });
     await openPage(A, 'pw-empty');
     const d = A.q('[data-ai="draft"]'); assert.ok(d);
-    d.click(); await tick(15);
-    assert.equal(P.calls.find(c => c.op === 'ai').input.preset, 'draft');
+    d.click(); await tick(2);
+    assert.ok(A.q('.lbw-side .lbw-ai[data-mode="plan"] textarea'), '空页：写思路搭框架');
   });
 
   await run('Ctrl+F 搜正文，回车开第一「页」（以前开成文件夹）', async () => {
