@@ -306,6 +306,19 @@ LB.style('lb-wiki-style', LB.brandFontCss() + fontFace('LB Digits Inline', FONT_
 .lbw-ai-note{margin:8px 0 0;color:var(--lb-muted);}
 .lbw-ai-note.is-warn{color:var(--lb-warn);}
 .lbw-ai-out{margin:10px 0;padding:8px 12px;border-left:2px solid var(--lb-ink);font:400 15px/1.9 var(--lbw-serif);}
+/* 逐处勾选：划掉的原文 + 加粗的新字；点一处切换；不要的那处只剩原文（淡一点的虚线框） */
+.lbw-ai-diff{max-height:60vh;overflow:auto;margin:4px 0 0;padding:10px 12px;border-left:2px solid var(--lb-ink);white-space:pre-wrap;overflow-wrap:anywhere;font:400 14.5px/1.9 var(--lbw-serif);color:var(--lb-ink);}
+.lbw-hk{cursor:pointer;border-radius:2px;box-shadow:0 0 0 1px var(--lb-line);}
+.lbw-hk:hover{box-shadow:0 0 0 1px var(--lb-ink);}
+.lbw-hk del{color:var(--lb-muted);text-decoration:line-through;text-decoration-color:var(--lb-warn);}
+.lbw-hk ins{text-decoration:none;font-weight:700;background:color-mix(in srgb,var(--lb-ink) 8%,transparent);}
+.lbw-hk.is-off ins{display:none;}
+.lbw-hk.is-off del{text-decoration:none;color:var(--lb-ink);}
+.lbw-hk.is-off{box-shadow:0 0 0 1px var(--lb-line);outline:1px dashed var(--lb-faint);}
+.lbw .lbw-ai-row button:disabled{opacity:.4;cursor:default;}
+.lbw-blk.is-ai-lock{outline:1px dashed var(--lb-muted);outline-offset:-1px;background:color-mix(in srgb,var(--lb-ink) 3%,transparent);cursor:default;}
+.lbw-blk.is-ai-lock + .lbw-blk.is-ai-lock{margin-top:0;}
+.lbw .lbw-selai{position:fixed;z-index:30;height:28px;padding:0 12px;border:1px solid var(--lb-ink);border-radius:999px;background:var(--lb-surface);color:var(--lb-ink);font:500 12.5px/1 var(--lbw-sans);box-shadow:2px 2px 0 var(--lb-ink);}
 .lbw-ai-out p{margin:0 0 6px;}
 /* 目录首页 */
 .lbw-gap{margin-top:80px;}
@@ -1733,15 +1746,18 @@ function docNodes(p, placeholder) {
   CITE_NO = new Map(); for (const id of p._cites) { const k = citeKey(id); if (!CITE_NO.has(k)) CITE_NO.set(k, CITE_NO.size + 1); }
   const { lines, blocks } = parseBlocks(p.body);
   const docEl = h('div', { cls: 'lbw-doc' });
+  const A = UI.ai && UI.ai.id === p.id ? UI.ai : null;
+  if (A && A.scope === 'part') { const at = relocate(A, p); if (at) Object.assign(A, at); }   // 别处加删了行：跟着挪
+  const lastIn = A && A.scope === 'part' ? blocks.reduce((k, b, j) => (b.s < A.end && b.e > A.start ? j : k), -1) : -1;
   blocks.forEach((b, i) => {
-    const blk = add(h('div', { cls: 'lbw-blk' + (b.type === 'li' ? ' is-li' : ''), data: { i } }), renderBlock(b, lines, p));
+    const blk = add(h('div', { cls: 'lbw-blk' + (b.type === 'li' ? ' is-li' : '') + (aiLocked(p, b) ? ' is-ai-lock' : ''), data: { i } }), renderBlock(b, lines, p));
     if (!readOnly) {
       blk.addEventListener('click', e => clickBlock(e, blk, p, i));
       // 段和段之间插一段：左边空白里的 ＋（10-31：以前只能在页尾「接着写」）
       blk.append(btn({ cls: 'lbw-ins', text: '+', on: { click: e => { e.stopPropagation(); openEditor(-1, 0, true, { kind: 'p', pre: '', at: b.e }); } } }, sr('在这段后面插一段')));
     }
     docEl.append(blk);
-    if (UI.ai && UI.ai.scope === 'block' && UI.ai.id === p.id && UI.ai.start === b.s) docEl.append(aiPanel(UI.ai));
+    if (i === lastIn) docEl.append(aiPanel(A));
   });
   R.doc = docEl;
   if (readOnly) return [docEl, blocks.length ? null : h('p', { cls: 'lbw-rnone', text: '这一页还是空的' })];
@@ -1762,6 +1778,8 @@ let ED = null;   // {i, s, e, ta, p, el, bar, kind, lv, pre, ind, ord, done, cit
 const lineOffset = (lines, n) => { let o = 0; for (let k = 0; k < n; k++) o += lines[k].length + 1; return o; };
 function clickBlock(e, blk, p, i) {
   if (e && e.defaultPrevented) return;
+  const bk = parseBlocks(p.body).blocks[i];
+  if (bk && aiLocked(p, bk)) { LB.say('这一截在让 AI 改：先在 AI 面板里用上或者「不要」，再改'); return; }
   const sel = WIN && typeof WIN.getSelection === 'function' ? WIN.getSelection() : null;
   if (sel && sel.anchorNode && !sel.isCollapsed && blk.contains(sel.anchorNode)) return;   // 在选字，不打断
   let caret = null;
@@ -1901,7 +1919,7 @@ function openEditor(i, caret = null, isNew = false, ins = null) {
   ta.placeholder = isNew && !p.body.trim() ? (p.role === 'topic' ? '一句话说说这个文件夹放什么' : '写下第一句：为什么关注这件事？') : '';
   const lv = (t, v) => btn({ text: t, data: { lv: v } });
   const bar = h('div', { cls: 'lbw-edbar' }, lv('正文', 0), lv('H1', 1), lv('H2', 2), lv('H3', 3), h('span', { cls: 'lbw-sep' }), lv('列表', 'ul'), lv('待办', 'task'),
-    h('span', { cls: 'lbw-sep' }), btn({ cls: 'is-ai', text: 'AI 改', data: { ai: '1' }, on: { click: () => aiBlock() } }));
+    h('span', { cls: 'lbw-sep' }), btn({ cls: 'is-ai', text: 'AI 改', data: { ai: '1' }, on: { click: () => aiFromEditor() } }));
   bar.addEventListener('mousedown', ev => ev.preventDefault());
   for (const x of bar.querySelectorAll('[data-lv]')) x.addEventListener('click', () => setLevel(ta, x.dataset.lv));
   E.bar = bar;
@@ -2435,10 +2453,13 @@ function saveVersion(p, note) {
   }).then(() => ok);
 }
 
-// ═════════════ 让 AI 改（10-31）：改一段（这段下面的小面板）/ 整页（右侧栏）；只拿建议，她点「用这版」才照常存（kind=ai，记进历史，Ctrl+Z 能撤） ═════════════
-// 模型 = 插件设置里的文本 AI（命令行模型 / 接口都行），提示词在 link_brain/wiki_ai.py；这里的说法和那边的 PRESETS 同一套 key
+// ═════════════ 让 AI 改（10-31 晚重做，她：「ai 是对 wiki 整体改，不是单行。还有选中段落不方便」） ═════════════
+// 范围：编辑时点「AI 改」= 光标所在的那一节（上一个小标题到下一个同级小标题）；页面上拖选了字 = 选中的那几段（浮出「AI 改选中的」）；
+//   「…→让 AI 改整页」= 整页（右侧栏）。范围里的段在等 / 看的时候锁住不让改。
+// 结果：按字 / 词比（中文按字、英文按词，先按行对齐再细比），每一处改动单独勾选，「用选中的」一次拼好经 pwiki save（kind=ai）存——一步 Ctrl+Z 能撤；
+//   回来时那截原文在页里找不到了（别处改过它）就作废，不套用。模型 = 插件设置里的文本 AI；提示词在 link_brain/wiki_ai.py（<replacement> 外框）。
 const AI_PRESETS = {
-  block: [['polish', '润色'], ['concise', '精简'], ['expand', '说清楚一点'], ['list', '改成列表'], ['fix', '只改错字']],
+  part: [['polish', '润色'], ['concise', '精简'], ['expand', '说清楚一点'], ['list', '改成列表'], ['fix', '只改错字']],
   page: [['structure', '理顺结构'], ['concise', '精简'], ['from_cites', '从引用补要点'], ['draft', '搭个框架'], ['polish', '润色']],
 };
 const aiRecent = () => { try { const v = typeof app.loadLocalStorage === 'function' ? app.loadLocalStorage('lb-wiki-ai-recent') : null; return Array.isArray(v) ? v.filter(x => typeof x === 'string').slice(0, 6) : []; } catch (e) { return []; } };
@@ -2446,51 +2467,168 @@ function rememberAsk(text) {
   const t = String(text || '').trim(); if (!t) return;
   try { if (typeof app.saveLocalStorage === 'function') app.saveLocalStorage('lb-wiki-ai-recent', [t, ...aiRecent().filter(x => x !== t)].slice(0, 6)); } catch (e) { console.debug('[lb] wiki ai recent', e); }
 }
-// 正在改的那段：先收好（存一次），记下它在第几行到第几行、原文是什么——AI 回来时原文变了就不套用
-function aiBlock() {
+// 第 line 行所在的那一节：上一个小标题（含）到下一个同级或更高的小标题（不含）；前面没有小标题 = 页首到第一个小标题；去掉末尾空行
+function sectionRange(p, line) {
+  const lines = p.body.split('\n'), heads = (p._heads || []).filter(x => x.line <= lines.length);
+  let s = 0, lv = 0;
+  for (const x of heads) if (x.line <= line) { s = x.line; lv = x.level; }
+  const next = heads.find(x => x.line > Math.max(s, line - 1) && x.line > s && (!lv || x.level <= lv));
+  let e = next ? next.line : lines.length;
+  if (!lv && heads.length && heads[0].line > line) e = heads[0].line;
+  while (e > s && !lines[e - 1].trim()) e--;
+  const head = heads.find(x => x.line === s);
+  return { start: s, end: e, what: head ? `「${head.text}」这一节` : '开头这一节' };
+}
+// 在页里重新找那截原文（期间别处加删了行，行号会挪）：离原来位置最近的那一处；找不到 = 原文被改了
+function relocate(A, p) {
+  if (A.scope === 'page') return p.body === A.text ? { start: 0, end: p.body.split('\n').length } : null;
+  const lines = p.body.split('\n'), want = A.text.split('\n'), n = want.length;
+  let best = null;
+  for (let k = 0; k + n <= lines.length; k++) {
+    if (lines[k] !== want[0]) continue;
+    if (lines.slice(k, k + n).join('\n') !== A.text) continue;
+    if (best == null || Math.abs(k - A.start) < Math.abs(best - A.start)) best = k;
+  }
+  return best == null ? null : { start: best, end: best + n };
+}
+const aiLocked = (p, b) => { const A = UI.ai; if (!A || A.id !== p.id) return false; if (A.scope === 'page') return true; return b.s < A.end && b.e > A.start; };
+function openAiPart(p, start, end, what) {
+  if (readOnly || !p) return;
+  const text = p.body.split('\n').slice(start, end).join('\n');
+  if (!text.trim()) { LB.say('这一截是空的，先写一点再让 AI 改'); return; }
+  if (UI.ai && UI.ai.scope === 'page') UI.ai = null;
+  UI.ai = { scope: 'part', id: p.id, start, end, text, what, state: 'ask', ask: '' };
+  renderSide(); renderKeepScroll();
+  const inp = R.center.querySelector('.lbw-ai input'); if (inp) inp.focus();
+}
+// 编辑时工具条上的「AI 改」：先收好正在改的这段，再取它所在的那一节
+function aiFromEditor() {
   const E = ED; if (!E) return;
   const p = E.p, loc = commitEditor(false);
-  if (!loc || loc.empty) { renderKeepScroll(); LB.say('这一段是空的，先写一点再让 AI 改'); return; }
-  UI.ai = { scope: 'block', id: p.id, start: loc.start, end: loc.end, text: p.body.split('\n').slice(loc.start, loc.end).join('\n'), state: 'ask', ask: '' };
-  renderKeepScroll();
-  const inp = R.center.querySelector('.lbw-ai input'); if (inp) inp.focus();
+  const r = sectionRange(p, loc ? loc.start : E.s);
+  openAiPart(p, r.start, r.end, r.what);
+}
+// 页面上拖选了字：浮一个「AI 改选中的」，范围 = 选区碰到的那几段
+function selectedRange() {
+  const sel = WIN && typeof WIN.getSelection === 'function' ? WIN.getSelection() : null;
+  if (!sel || sel.isCollapsed || !R.doc || !sel.anchorNode || !sel.focusNode) return null;
+  const blk = n => { const el = n.nodeType === 1 ? n : n.parentElement; return el && el.closest ? el.closest('.lbw-blk[data-i]') : null; };
+  const a = blk(sel.anchorNode), b = blk(sel.focusNode);
+  if (!a || !b || !R.doc.contains(a) || !R.doc.contains(b)) return null;
+  const p = current(); if (!p) return null;
+  const blocks = parseBlocks(p.body).blocks, i = Math.min(+a.dataset.i, +b.dataset.i), j = Math.max(+a.dataset.i, +b.dataset.i);
+  if (!blocks[i] || !blocks[j]) return null;
+  return { p, start: blocks[i].s, end: blocks[j].e, what: i === j ? '选中的这一段' : `选中的 ${j - i + 1} 段` };
+}
+function hideSelAi() { if (R.selAi) { R.selAi.remove(); R.selAi = null; } }
+function showSelAi() {
+  hideSelAi();
+  if (readOnly || ED || UI.view !== 'page' || UI.ai) return;
+  const r = selectedRange(); if (!r) return;
+  let rect = null; try { rect = WIN.getSelection().getRangeAt(0).getBoundingClientRect(); } catch (e) { rect = null; }
+  const b = btn({ cls: 'lbw-selai', text: 'AI 改' + r.what.replace(/^选中的/, '选中的'), on: { mousedown: e => e.preventDefault(), click: () => { hideSelAi(); openAiPart(r.p, r.start, r.end, r.what); } } });
+  R.layer.append(b); R.selAi = b;
+  if (rect && (rect.width || rect.height)) placeFixed(b, Math.max(8, rect.right - 10), rect.bottom + 8);
 }
 function openAiPage(p, preset = '') {
   if (readOnly || !p) return;
   commitHere(p);
   UI.hist = null; UI.trash = null;
-  UI.ai = { scope: 'page', id: p.id, text: p.body, state: 'ask', ask: '' };
-  renderSide();
+  UI.ai = { scope: 'page', id: p.id, text: p.body, what: '整页', state: 'ask', ask: '' };
+  renderSide(); renderKeepScroll();
   if (preset) runAi(UI.ai, preset, '');
 }
-function closeAi() { const A = UI.ai; UI.ai = null; if (A && A.scope === 'page') renderSide(); else renderKeepScroll(); }
+function closeAi() { UI.ai = null; renderSide(); renderKeepScroll(); }
 async function runAi(A, preset, ask) {
   if (A !== UI.ai) return;
   const p = PAGES.get(A.id); if (!p) { closeAi(); return; }
+  const at = relocate(A, p);
   if (A.scope === 'page') A.text = p.body;
-  Object.assign(A, { state: 'run', preset, ask, label: preset ? (AI_PRESETS[A.scope].find(x => x[0] === preset) || [, preset])[1] : ask, result: null, error: '' });
+  else if (!at) { Object.assign(A, { state: 'error', error: '这一截在页里找不到了（刚改过它）：关掉重新选' }); paintAi(A); return; }
+  else Object.assign(A, at);
+  Object.assign(A, { state: 'run', preset, ask, label: preset ? (AI_PRESETS[A.scope].find(x => x[0] === preset) || [, preset])[1] : ask, result: null, error: '', segs: null, pick: null });
   if (ask) rememberAsk(ask);
   paintAi(A);
   try {
     const r = await wcall('ai', { input: { id: A.id, scope: A.scope, text: A.text, preset, instruction: ask }, timeoutMs: 300000 });
     if (A !== UI.ai) return;
-    Object.assign(A, { state: 'done', result: r });
+    const segs = textDiff(A.text, String(r.text || ''));
+    const n = segs.filter(x => x.t === 'ch').length;
+    Object.assign(A, { state: n ? 'done' : 'same', result: r, segs, pick: new Set(segs.map((x, i) => (x.t === 'ch' ? i : -1)).filter(i => i >= 0)) });
   } catch (e) { if (A !== UI.ai) return; Object.assign(A, { state: 'error', error: errText(e) }); }
   paintAi(A);
 }
 const paintAi = A => { if (A.scope === 'page') renderSide(); else if (!ED) renderKeepScroll(); };
-function applyAi(A) {
-  const p = PAGES.get(A.id), r = A.result; if (!p || !r) return;
-  if (A.scope === 'page') {
-    if (p.body !== A.text) { LB.say('这页在等 AI 的时候改过了，没套用；可以再让它改一次', { kind: 'warn' }); return; }
-    if (mutate(p, n => { n.body = r.text; }, { kind: 'ai', note: 'AI：' + A.label })) { UI.ai = null; renderSide(); renderKeepScroll(); LB.say('用了 AI 这版；不满意按 Ctrl+Z 撤销', { kind: 'ok' }); }
-    return;
-  }
-  const now = p.body.split('\n').slice(A.start, A.end).join('\n');
-  if (now !== A.text) { LB.say('这段在等 AI 的时候改过了，没套用；可以再让它改一次', { kind: 'warn' }); return; }
-  if (mutate(p, n => { n.body = spliceBody(n.body, A.start, A.end, r.text).body; }, { kind: 'ai', note: 'AI：' + A.label })) { UI.ai = null; renderKeepScroll(); LB.say('用了 AI 这版；不满意按 Ctrl+Z 撤销', { kind: 'ok' }); }
+// ── 按字 / 词比 ──
+// 切词：英文 / 数字按词，空白一段，其余（中文、标点）一个字一个
+const toks = s => String(s).match(/[A-Za-z0-9_]+(?:['’.-][A-Za-z0-9_]+)*|[^\S\n]+|\n|[\s\S]/gu) || [];
+function lcsOps(A, B) {
+  const n = A.length, m = B.length;
+  if (n * m > 2.5e6) return null;
+  const dp = Array.from({ length: n + 1 }, () => new Uint32Array(m + 1));
+  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) dp[i][j] = A[i] === B[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+  const out = []; let i = 0, j = 0;
+  while (i < n && j < m) { if (A[i] === B[j]) { out.push(['=', A[i]]); i++; j++; } else if (dp[i + 1][j] >= dp[i][j + 1]) out.push(['-', A[i++]]); else out.push(['+', B[j++]]); }
+  while (i < n) out.push(['-', A[i++]]); while (j < m) out.push(['+', B[j++]]);
+  return out;
 }
-// 面板：问（现成说法 / 自己说）→ 在改 → 看结果（用这版 / 再改 / 不要）
+// 段：{t:'eq', s} | {t:'ch', del, add}。先按行对齐（行一样的直接相等），改过的那几行再按字 / 词细比；太大就整块算一处
+function textDiff(a, b) {
+  const L = s => String(s).split(/(?<=\n)/);
+  const out = [];
+  const push = (t, x, y = '') => {
+    const last = out[out.length - 1];
+    if (t === 'eq') { if (last && last.t === 'eq') last.s += x; else out.push({ t, s: x }); }
+    else if (last && last.t === 'ch') { last.del += x; last.add += y; } else out.push({ t: 'ch', del: x, add: y });
+  };
+  const fine = (x, y) => {
+    const ops = lcsOps(toks(x), toks(y));
+    if (!ops) { push('ch', x, y); return; }
+    for (const [k, tk] of ops) { if (k === '=') push('eq', tk); else if (k === '-') push('ch', tk, ''); else push('ch', '', tk); }
+  };
+  const lo = lcsOps(L(a), L(b));
+  if (!lo) fine(a, b);
+  else {
+    let del = '', add = '';
+    const flush = () => { if (del || add) fine(del, add); del = add = ''; };
+    for (const [k, ln] of lo) { if (k === '=') { flush(); push('eq', ln); } else if (k === '-') del += ln; else add += ln; }
+    flush();
+  }
+  // 两处改动之间只隔一个字（不是换行）：并成一处，免得满屏碎点
+  const merged = [];
+  for (const x of out) {
+    const prev = merged[merged.length - 1], prev2 = merged[merged.length - 2];
+    if (x.t === 'ch' && prev && prev.t === 'eq' && prev2 && prev2.t === 'ch' && [...prev.s].length <= 1 && !prev.s.includes('\n')) {
+      merged.pop(); prev2.del += prev.s + x.del; prev2.add += prev.s + x.add;
+    } else merged.push(x);
+  }
+  return merged;
+}
+const assemble = (segs, pick) => segs.map((x, i) => (x.t === 'eq' ? x.s : pick.has(i) ? x.add : x.del)).join('');
+function applyAi(A) {
+  const p = PAGES.get(A.id); if (!p || !A.segs) return;
+  const at = relocate(A, p);
+  if (!at) { LB.say(A.scope === 'page' ? '这页在等 AI 的时候改过了，没套用；可以再让它改一次' : '这一截在等 AI 的时候改过了，没套用；可以再让它改一次', { kind: 'warn' }); return; }
+  const next = assemble(A.segs, A.pick);
+  if (next === A.text) { LB.say('一处都没选：没改'); return; }
+  const n = A.pick.size, all = A.segs.filter(x => x.t === 'ch').length;
+  const ok = A.scope === 'page' ? mutate(p, x => { x.body = next; }, { kind: 'ai', note: `AI：${A.label}（用了 ${n}/${all} 处）` })
+    : mutate(p, x => { x.body = spliceBody(x.body, at.start, at.end, next).body; }, { kind: 'ai', note: `AI：${A.label}（用了 ${n}/${all} 处）` });
+  if (ok) { UI.ai = null; renderSide(); renderKeepScroll(); LB.say(`用了 AI 改的 ${n} 处；不满意按 Ctrl+Z 撤销`, { kind: 'ok' }); }
+}
+// 逐处勾选的那块：没改的字照常显示，改动处 = 划掉的原文 + 新字，点一下切换「要 / 不要」
+function diffView(A) {
+  const box = h('div', { cls: 'lbw-ai-diff' });
+  A.segs.forEach((x, i) => {
+    if (x.t === 'eq') { box.append(x.s); return; }
+    const on = A.pick.has(i);
+    const hk = h('span', { cls: 'lbw-hk' + (on ? '' : ' is-off'), data: { h: i } }, x.del ? h('del', { text: x.del }) : null, x.add ? h('ins', { text: x.add }) : null);
+    hk.addEventListener('click', e => { e.stopPropagation(); if (A.pick.has(i)) A.pick.delete(i); else A.pick.add(i); paintAi(A); });
+    box.append(hk);
+  });
+  return box;
+}
+// 面板：问（现成说法 / 自己说）→ 在改 → 逐处勾选（用选中的 / 全要 / 全不要 / 再改 / 换说法 / 不要）
 function aiBody(A) {
   const out = [];
   if (A.state === 'ask' || A.state === 'error') {
@@ -2503,28 +2641,28 @@ function aiBody(A) {
     if (recent.length) out.push(h('div', { cls: 'lbw-ai-row', attr: { style: 'margin-top:6px' } }, h('span', { cls: 'lbw-ai-note', attr: { style: 'margin:0' }, text: '用过的：' }), recent.map(t => btn({ text: t.length > 14 ? t.slice(0, 14) + '…' : t, on: { click: () => runAi(A, '', t) } }))));
     out.push(h('div', { cls: 'lbw-ai-row', attr: { style: 'margin-top:8px' } }, inp, btn({ cls: 'is-solid', text: '改', on: { click: go2 } }), btn({ text: '关', on: { click: closeAi } })));
     if (A.state === 'error') out.push(h('p', { cls: 'lbw-ai-note is-warn', text: A.error }));
-    else out.push(h('p', { cls: 'lbw-ai-note', text: '用插件设置里的文本 AI；只给建议，你点「用这版」才改进去。' }));
+    else out.push(h('p', { cls: 'lbw-ai-note', text: '用插件设置里的文本 AI；回来后每处改动你自己勾，点「用选中的」才改进去。' }));
   } else if (A.state === 'run') {
-    out.push(h('p', { cls: 'lbw-ai-note', attr: { style: 'margin:0' }, text: `AI 在改（${A.label}）… 一般十几秒到一分钟` }), h('div', { cls: 'lbw-ai-row', attr: { style: 'margin-top:8px' } }, btn({ text: '不等了', on: { click: closeAi } })));
+    out.push(h('p', { cls: 'lbw-ai-note', attr: { style: 'margin:0' }, text: `AI 在改${A.what}（${A.label}）… 一般十几秒到一分钟；这期间这一截先别动` }), h('div', { cls: 'lbw-ai-row', attr: { style: 'margin-top:8px' } }, btn({ text: '不等了', on: { click: closeAi } })));
+  } else if (A.state === 'same') {
+    out.push(h('p', { cls: 'lbw-ai-note', attr: { style: 'margin:0' }, text: 'AI 一个字都没改。' }), h('div', { cls: 'lbw-ai-row', attr: { style: 'margin-top:8px' } },
+      btn({ text: '换个说法', on: { click: () => { A.state = 'ask'; paintAi(A); } } }), btn({ text: '关', on: { click: closeAi } })));
   } else if (A.state === 'done') {
-    const r = A.result || {};
-    if (A.scope === 'page') {
-      const d = lineDiff(A.text, r.text || '');
-      out.push(h('div', { cls: 'lbw-diff' }, d.map(([k, l]) => h('div', { cls: 'is-' + k, text: (k === 'a' ? '+ ' : k === 'd' ? '− ' : '  ') + (l || ' ') }))));
-    } else {
-      const { lines, blocks } = parseBlocks(r.text || '');
-      const p = PAGES.get(A.id);
-      out.push(h('div', { cls: 'lbw-ai-out lbw-doc', attr: { style: 'margin-top:10px' } }, blocks.map(b => h('div', { cls: 'lbw-blk' + (b.type === 'li' ? ' is-li' : '') }, renderBlock(b, lines, p || {})))));
-    }
-    if ((r.lost_cites || []).length) out.push(h('p', { cls: 'lbw-ai-note is-warn', text: `注意：AI 这版少了 ${r.lost_cites.length} 处收藏引用；要的话用了之后再补上，或者「再改一次」` }));
-    out.push(h('div', { cls: 'lbw-ai-row', attr: { style: 'margin-top:8px' } }, btn({ cls: 'is-solid', text: '用这版', data: { ai: 'apply' }, on: { click: () => applyAi(A) } }),
+    const r = A.result || {}, all = A.segs.filter(x => x.t === 'ch').length, n = A.pick.size;
+    out.push(h('p', { cls: 'lbw-ai-note', attr: { style: 'margin:0 0 6px' } }, nums(`改了 ${all} 处，选了 ${n} 处`), '：划线的是原来的，加粗的是 AI 改的；点一处切换要不要'));
+    out.push(diffView(A));
+    if ((r.lost_cites || []).length) out.push(h('p', { cls: 'lbw-ai-note is-warn', text: `注意：AI 这版少了 ${r.lost_cites.length} 处收藏引用——那几处别勾，或者「再改一次」` }));
+    const setAll = on => { A.pick = new Set(on ? A.segs.map((x, i) => (x.t === 'ch' ? i : -1)).filter(i => i >= 0) : []); paintAi(A); };
+    out.push(h('div', { cls: 'lbw-ai-row', attr: { style: 'margin-top:8px' } },
+      btn({ cls: 'is-solid', text: n === all ? '全部用上' : `用选中的 ${n} 处`, data: { ai: 'apply' }, attr: { disabled: !n }, on: { click: () => applyAi(A) } }),
+      btn({ text: '全要', data: { ai: 'all' }, on: { click: () => setAll(true) } }), btn({ text: '全不要', data: { ai: 'none' }, on: { click: () => setAll(false) } }),
       btn({ text: '再改一次', on: { click: () => runAi(A, A.preset, A.ask) } }), btn({ text: '换个说法', on: { click: () => { A.state = 'ask'; paintAi(A); } } }), btn({ text: '不要', on: { click: closeAi } })),
-      h('p', { cls: 'lbw-ai-note', text: (r.model ? `模型：${r.model} · ` : '') + '用了之后不满意，Ctrl+Z 撤销，或者去「历史」里找回' }));
+      h('p', { cls: 'lbw-ai-note', text: (r.model ? `模型：${r.model} · ` : '') + '用了之后不满意，Ctrl+Z 一步撤回，或者去「历史」里找回' }));
   }
   return out;
 }
 function aiPanel(A) {
-  const el = h('div', { cls: 'lbw-ai', data: { scope: 'block' } }, h('div', { cls: 'lbw-ai-row', attr: { style: 'margin-bottom:8px' } }, h('span', { cls: 'lbw-kick', text: 'AI' }), h('span', { cls: 'lbw-ai-note', attr: { style: 'margin:0' }, text: '改上面这一段' })), aiBody(A));
+  const el = h('div', { cls: 'lbw-ai', data: { scope: 'part' } }, h('div', { cls: 'lbw-ai-row', attr: { style: 'margin-bottom:8px' } }, h('span', { cls: 'lbw-kick', text: 'AI' }), h('span', { cls: 'lbw-ai-note', attr: { style: 'margin:0' }, text: '改' + A.what + '（上面虚线框里的）' })), aiBody(A));
   el.addEventListener('click', e => e.stopPropagation());
   return el;
 }
@@ -2712,6 +2850,10 @@ LB.t('pages');
 paintWidth();
 render();
 LB.t('render');
+// 拖选了正文：浮「AI 改选中的」（10-31 晚：以前只能在编辑某一段时点「AI 改」，选中段落不方便）
+R.center.addEventListener('mouseup', () => setTimeout(showSelAi, 0));
+R.center.addEventListener('keyup', e => { if (e.shiftKey) showSelAi(); });
+LB.listen('wiki-selai', D, 'mousedown', e => { if (R.selAi && e.target !== R.selAi) hideSelAi(); });
 // 目录跟着读到哪（滚动时每帧最多算一次）
 { const sc = LB.scroller(); let spyQ = 0; if (sc) LB.listen('wiki-spy', sc, 'scroll', () => { if (spyQ) return; spyQ = 1; (WIN && WIN.requestAnimationFrame ? WIN.requestAnimationFrame : f => setTimeout(f, 16))(() => { spyQ = 0; spyHeads(); }); }, { passive: true }); }
 // 登记这一版 DOM（§5.1 / §5.9）：catalog-data 变了只换收藏（引用编号 / 缺失标记）；Dataview 重跑时按磁盘签名看 PersonalWiki 有没有变

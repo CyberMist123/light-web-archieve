@@ -114,11 +114,11 @@ def test_ai_block_prompt_has_rules_task_context_and_returns_suggestion_only(fake
     before = pw.get_page(p["id"])["hash"]
     write_catalog([{"id": "xhs-a1", "title": "示例", "summary": "几家店", "search_fields": {"body": "咖啡 地图"}}])
     fake_ai["reply"] = "```\n为什么记：订房前总要从头翻收藏。\n```"
-    res = wiki_ai.rewrite({"id": p["id"], "scope": "block", "text": "为什么记：每次都从头翻。", "preset": "polish", "instruction": "语气轻一点"})
+    res = wiki_ai.rewrite({"id": p["id"], "scope": "block", "text": "为什么记：每次都从头翻。", "preset": "polish", "instruction": "语气轻一点"})   # 旧的 block 也认
     assert res["text"] == "为什么记：订房前总要从头翻收藏。"   # 包了代码块也剥掉
     assert res["model"] == "demo-model" and res["lost_cites"] == []
     ins = fake_ai["instruction"]
-    assert "只输出改好的 Markdown 本身" in ins and "[标题](lwa:编号)" in ins   # 规矩
+    assert "<replacement>" in ins and "[标题](lwa:编号)" in ins   # 规矩：外框协议、引用不能丢
     assert "润色" in ins and "语气轻一点" in ins                              # 现成说法 + 她自己说的
     assert "《住宿偏好》" in ins and "整页" in ins                           # 上下文
     assert "为什么记：每次都从头翻。" in fake_ai["text"]
@@ -170,6 +170,20 @@ def test_cli_ai_reads_stdin_and_never_writes(fake_ai, monkeypatch, capsys):
 def test_presets_match_the_page():
     """页面上那排按钮（wiki-view.js AI_PRESETS）和这里 PRESETS 同一套 key、同一套字。"""
     js = (ROOT / "link_brain" / "assets" / "wiki-view.js").read_text(encoding="utf-8")
-    for scope, keys in (("block", wiki_ai.BLOCK_PRESETS), ("page", wiki_ai.PAGE_PRESETS)):
+    for scope, keys in (("part", wiki_ai.BLOCK_PRESETS), ("page", wiki_ai.PAGE_PRESETS)):
         expect = ", ".join(f"['{k}', '{wiki_ai.PRESETS[k][0]}']" for k in keys)
         assert f"{scope}: [{expect}]" in js, scope
+
+
+@pytest.mark.parametrize("raw, want", [
+    ("<replacement>\n改好的\n</replacement>", "改好的"),
+    ("好的，下面是润色后的：\n<replacement>改好的</replacement>\n希望有帮助", "改好的"),        # 外框外的话都不要
+    ("<replacement>写 <replacement> 标签的那段</replacement> 还在</replacement>", "写 <replacement> 标签的那段</replacement> 还在"),   # 只认最外一层
+    ("<replacement>\n被截断了", "被截断了"),
+    ("好的，以下是改好的版本：\n\n改好的\n\n希望对你有帮助！", "改好的"),                    # 没外框：剥中文开场白 / 收尾
+    ("以下是润色后的：\n改好的", "改好的"),
+    ("```markdown\n改好的\n```", "改好的"),
+    ("本来就是正文：冒号后面。", "本来就是正文：冒号后面。"),
+])
+def test_clean_takes_outermost_replacement_and_strips_chatter(raw, want):
+    assert wiki_ai._clean(raw) == want
