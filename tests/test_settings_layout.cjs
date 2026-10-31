@@ -407,6 +407,39 @@ async function inventory(p) {
   await pick(A('识图'), 'off');
   assert.equal(val('识图'), 'ai', '下拉拨回'); assert.equal(JSON.stringify(env.p.settings.setup.selected), before, '选择还原');
   assert.ok(notices.some(n => String(n).startsWith('没保存上，已改回原来的')), notices.join('|'));
+  // 1101 每一行「现在」一句：能不能用 + 要不要钱、大概多少（谁在干活、价钱只照后端 ai_routes / pricing.json，前端不算）
+  tab.hide();
+  env = makePlugin({ setup: { selected: ['core', 'reader', 'dataview', 'ocr', 'asr', 'ai_text', 'ai_vision'], aiSynced: true }, asrAI: { mode: 'capswriter' },
+    textAI: { mode: 'http', endpoint: 'https://api.deepseek.com/chat/completions', model: 'deepseek-flash', keyFile: 'k.csv' },
+    summaryAI: { mode: 'cli', preset: 'opencode', command: 'opencode run -m deepseek-v4.1-flash-free' },
+    visionAI: { mode: 'http', endpoint: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', model: 'qwen3.8-flash', keyFile: 'k.csv' } });
+  const usageBak = REPLIES.usage;
+  REPLIES.usage = { ...USAGE, features: USAGE.features.map(f => f.id !== 'summary' ? f
+    : { ...f, chain: [{ label: '本机 opencode deepseek-v4.1-flash-free', provider: 'cli', free: true, price: '免费（本机）' }] }) };
+  tab = openPage(env.p, 'ai'); root = tab.containerEl; await settle(30);
+  const now = n => { const el = A(n).querySelector('.lb-feat-now'); return el ? el.textContent : ''; };
+  assert.equal(now('问答模型'), '现在✓ 能用 · 用的是 DeepSeek · 要你自己的 key，按用量付费，约 ¥0.004 / 次');
+  assert.equal(now('概要与标签'), '现在✓ 能用 · 用的是 本机 opencode deepseek-v4.1-flash-free · 免费（用本机已登录的命令行，不要 key）', '单独配置：直接写出现在用的是哪个');
+  assert.match(now('识图'), /^现在✓ 能用 · 用的是 通义千问 · 要你自己的 key，按用量付费（花多少在「AI 控制台」看） · ⚠ 已换用 通义千问$/, '在用备用：说是谁顶着');
+  assert.match(now('语音转文字'), /^现在⚠ 还不能用：语音转文字的本机组件还没装好，点页顶「懒人安装」装上/, '本机组件没装：如实说、指去装');
+  assert.ok(!A('语音转文字').querySelector('.lb-feat-now button'), '本机组件没装不是填 key 的事：不给「去填」');
+  assert.match(now('按意思搜'), /^现在✓ 能用 · 用的是 通义千问 · 要你自己的 key/);
+  // 在线语音：价钱是后端按价格表每分钟算的
+  REPLIES.usage = { ...REPLIES.usage, asr: { ready: true, label: 'OpenAI gpt-4o-mini-transcribe', free: false, price: '约 ¥0.02/分钟' } };
+  env.p.settings.asrAI = { mode: 'http', endpoint: 'https://api.openai.com/v1/audio/transcriptions', model: 'gpt-4o-mini-transcribe', apiKey: 'sk-test' };
+  delete env.p.v6Cache.usage; tab.hide(); tab = openPage(env.p, 'ai'); root = tab.containerEl; await settle(30);
+  assert.equal(now('语音转文字'), '现在✓ 能用 · 用的是 OpenAI gpt-4o-mini-transcribe · 要你自己的 key，按用量付费，约 ¥0.02/分钟');
+  // 后端读不出来：不猜，指去 AI 控制台
+  REPLIES.usage = { ok: false, message: '没读出来（合成）' };
+  delete env.p.v6Cache.usage; tab.hide(); tab = openPage(env.p, 'ai'); root = tab.containerEl; await settle(30);
+  assert.equal(now('问答模型'), '现在已填 key · 要你自己的 key，按用量付费（用的是哪家、多少钱：在下面「AI 控制台」看）');
+  assert.equal(now('概要与标签'), '现在✓ 能用 · 本机命令行 opencode，免费（用它自己已登录的账号，不要 key）');
+  REPLIES.usage = usageBak;
+  // 关着：说关着、不花钱
+  await pick(A('问答模型'), 'off'); await settle(30);
+  assert.equal(now('问答模型'), '现在关着：问答、概要、按意思搜都不用 AI，不花钱');
+  assert.equal(now('概要与标签'), '现在关着：不自动写概要、打标签（不花钱）');
+  assert.equal(now('按意思搜'), '现在关着：照样能按关键词搜（不花钱）');
   // 识别细项：按 CapsLock 说话只在「本机」时能用；精细识图模型改的是真正起作用的那一个
   tab.hide();
   env = makePlugin({ visionAI: { mode: 'http', model: 'gemini-3.5-flash', refineModel: 'old-unused', refine: { endpoint: 'https://ws-x.cn-beijing.maas.aliyuncs.com/compatible-mode/v1/chat/completions', model: 'qwen3.8-max' } } });

@@ -110,3 +110,19 @@ def test_routes_fail_open_when_chains_explode(monkeypatch):
     monkeypatch.setattr(providers, "resolve", boom)
     out = ar.routes({})
     assert out["features"] == [] and out["error"].startswith("读不出各功能的配置")
+
+
+def test_asr_price_from_table(monkeypatch):
+    # 本机 / 关着 = None；在线接口按价格表每分钟折算，查不到价写「未计价」，没配好说 ready False
+    assert ar._asr({"asrAI": {"mode": "capswriter"}}, pricing.table()) is None
+    t = pricing.table()
+    monkeypatch.setattr(providers, "resolve", lambda cap, s=None: {"mode": "http", "endpoint": "https://api.openai.com/v1/audio/transcriptions",
+                                                                 "model": "gpt-4o-mini-transcribe", "apiKey": "x"})
+    got = ar._asr({"asrAI": {"mode": "http"}}, t)
+    rate = t["usd_cny"]["rate"] * t["models"]["gpt-4o-mini-transcribe"]["price"]
+    assert got["ready"] and got["free"] is False and got["price"] == f"约 ¥{rate:.2f}/分钟"
+    monkeypatch.setattr(providers, "resolve", lambda cap, s=None: {"mode": "http", "endpoint": "https://x.example/v1/audio", "model": "whisper-1", "apiKey": "x"})
+    assert ar._asr({"asrAI": {"mode": "http"}}, t)["price"] == "—，未计价"
+    monkeypatch.setattr(providers, "resolve", lambda cap, s=None: None)
+    monkeypatch.setattr(providers, "why_not", lambda cap, s=None: "没填接口")
+    assert ar._asr({"asrAI": {"mode": "http"}}, t) == {"ready": False, "why": "没填接口"}

@@ -83,7 +83,10 @@ async function open(browser, theme, { failRemote = false, guide = false, width =
             series: { dates, providers: { aliyun: wave(3), deepseek: wave(5) }, models: { 'aliyun|qwen3.8-flash': wave(3) }, features: { vision: wave(3), summary: wave(4), ask: wave(6) } },
             recent: [{ ts: new Date().toISOString(), f: 'vision', p: 'aliyun', m: 'qwen3.8-flash', in: 2100, out: 150, ok: true, item: 'xhs-synthetic-1', cost: 0.0021, status: 'paid' }], recent_limit: 200,
             month: { deepseek: f({ calls: 46, cost: 1.05 }), aliyun: f({ calls: 512, cost: 1.80 }) } },
-          features: [{ id: 'vision', name: '识图', on: true, state: 'ok', chain: [{ label: 'Gemini', provider: 'google' }, { label: '通义千问', provider: 'aliyun' }] }] };
+          features: [{ id: 'ask', name: '问收藏', on: true, state: 'ok', chain: [{ label: 'DeepSeek sample-text', provider: 'deepseek', free: false, price: '约 ¥0.01/次' }] },
+            { id: 'summary', name: '概要 · 打标签', on: true, state: 'ok', chain: [{ label: 'Gemini 免费', provider: 'google', free: true, price: '免费' }, { label: '通义千问 qwen3.7-flash', provider: 'aliyun', free: false, price: '约 ¥0.05/百篇' }] },
+            { id: 'vision', name: '识图', on: true, state: 'ok', chain: [{ label: 'Gemini', provider: 'google', free: true, price: '免费' }, { label: '通义千问', provider: 'aliyun' }] },
+            { id: 'embed', name: '语义搜索', on: true, state: 'ok', chain: [{ label: '通义千问 text-embedding-v4', provider: 'aliyun', free: false, price: '不到 1 分/百次' }] }] };
       }
       return { ok: true };
     };
@@ -170,6 +173,13 @@ const visibleText = page => page.evaluate(() => {
       // ④ 图标：六个、可见、和名字同一行
       const icons = await page.evaluate(() => [...document.querySelectorAll('[data-section="g-advanced"] .lb-feat .lb-feat-icon svg')].map(s => { const r = s.getBoundingClientRect(); return Math.round(r.width) + 'x' + Math.round(r.height); }));
       assert.deepEqual(icons, Array(6).fill('18x18'), theme + '：六个线条图标 ' + icons);
+      // 1101 ④ 每一行一句「现在」：能不能用 + 要不要钱（谁在干活、价钱照后端 ai_routes）
+      await page.waitForFunction(() => /DeepSeek/.test(document.querySelector('[data-section="ask-model"] .lb-feat-now')?.textContent || ''));
+      const nowLines = await page.evaluate(() => ['ai-asr', 'ai-vision', 'ask-model', 'ai-summary', 'ai-embed'].map(id => document.querySelector(`[data-section="${id}"] .lb-feat-now`)?.textContent || ''));
+      assert.deepEqual(nowLines, ['现在关着：视频里说的话不转文字（不花钱）', '现在✓ 能用 · 用的是 Gemini · 免费（免费额度的 key）',
+        '现在✓ 能用 · 用的是 DeepSeek sample-text · 要你自己的 key，按用量付费，约 ¥0.01/次', '现在✓ 能用 · 用的是 Gemini 免费 · 免费（免费额度的 key）',
+        '现在✓ 能用 · 用的是 通义千问 text-embedding-v4 · 要你自己的 key，按用量付费，不到 1 分/百次'], theme + '：' + JSON.stringify(nowLines));
+      await page.locator('[data-section="g-advanced"]').screenshot({ path: path.join(shell.QA_DIR, `S1101-feature-now-${theme}.png`) });
       // 账号卡、电脑端 / 网页端两张卡并排
       const twin = await page.evaluate(() => [...document.querySelectorAll('.lb-twin')].map(t => { const [a, b] = t.querySelectorAll('.lb-twin-card'); const ra = a.getBoundingClientRect(), rb = b.getBoundingClientRect(); return Math.abs(ra.top - rb.top) < 2 && ra.right <= rb.left; }));
       assert.deepEqual(twin, [true, true], theme + '：两张卡并排');

@@ -994,21 +994,101 @@ module.exports = function (obsidian, plugin) {
         repaint();
       });
     });
-    // 选了要 key 的但还没配：那一行下面一句 + 去填（落到「接口与密钥」那一格）
-    const hint = (r, text, cap) => {
-      let el = r.descEl.querySelector?.('.lb-feat-need');
-      if (!text) { el?.remove?.(); return; }
-      if (!el) el = r.descEl.createDiv({ cls: 'lb-feat-need' });
-      el.empty?.(); el.createSpan({ text });
-      if (cap && !guide) { const b = el.createEl('button', { cls: 'lb-link', text: '去填' }); b.onclick = () => openApiFor(tab, cap); }
+    // 1101 作者：「我需要付多少 apikey？现在可以跑了吗？」——每一行下面一句「现在」：①能不能用（还差什么）②要不要钱、大概多少。
+    // 用的是谁、多少钱只照后端 usage 里 ai_routes 给的（providers.resolve + pricing.json 算好的「约 ¥x/百篇」），前端不算价钱、不猜；
+    // 后端那份还没读回来时先按设置说能说的（关着 / 本机 / 没填 key），读不到就请去「AI 控制台」看。
+    const h = home();
+    let alive = true; if (tab.stops) tab.stops.push(() => { alive = false; });
+    const PAY = '要你自己的 key，按用量付费';
+    const comp = id => { const p = h && h.state && h.state().plan; const c = p && (p.components || []).find(x => x.id === id); return c ? c.status : null; };
+    const localNow = (id, what) => {
+      const st = comp(id);
+      if (st === 'ready') return { ok: true, text: `能用 · ${what}在本机跑，免费` };
+      if (st && st !== 'needs_key') return { ok: false, text: `还不能用：${what}的本机组件还没装好，点页顶「懒人安装」装上（免费，不要 key）` };
+      const reading = h && h.state && !h.state().plan && !h.state().planError;
+      return { text: `${what}在本机跑，免费` + (reading ? '（装没装好正在读…）' : '（装没装好：点页顶「懒人安装」看）') };
     };
     const ready = cap => { const c = s[cap] || {}; return c.mode === 'cli' ? !!(c.command || c.preset) : !!(c.endpoint && (c.apiKey || c.keyFile || c.apiKeyEnv || c.keyPool)); };
+    // 后端 ai_routes 的一项 → 一句；u === undefined 还在读，null 读不到
+    const routeNow = (u, fid, fallback) => {
+      if (u === undefined) return fallback;
+      const f = u && (u.features || []).find(x => x.id === fid);
+      if (!f) return /正在读…）$/.test(fallback.text) ? { ...fallback, text: fallback.text.replace(/（[^（]*正在读…）$/, '') + '（用的是哪家、多少钱：在下面「AI 控制台」看）' } : fallback;
+      if (!(f.chain || []).length) return { ok: false, text: `还不能用：还没填 key（DeepSeek、千问、Gemini 这类在线接口${PAY}）` };
+      const c = f.chain[pages.workingIndex ? pages.workingIndex(f) : 0] || f.chain[0];
+      const money = c.provider === 'cli' ? '免费（用本机已登录的命令行，不要 key）'
+        : c.free ? '免费（免费额度的 key）'
+        : c.unpriced ? `${PAY}（这个模型价格表里查不到，花多少在「AI 控制台」看）`
+        : c.price && c.price !== '按用量' ? `${PAY}，${c.price}` : `${PAY}（花多少在「AI 控制台」看）`;
+      const warn = f.state && !['ok', 'off'].includes(f.state) && f.state_text ? ' · ⚠ ' + f.state_text : '';
+      return { ok: !warn || f.state === 'backup', text: `能用 · 用的是 ${c.label} · ${money}${warn}` };
+    };
+    function nowOf(key, u) {
+      if (key === 'asr') {
+        const v = asrValue();
+        if (v === 'off') return { text: '关着：视频里说的话不转文字（不花钱）' };
+        if (v === 'local') return localNow('asr', '语音转文字');
+        if (!(s.asrAI && s.asrAI.endpoint)) return { ok: false, text: `还不能用：还没填在线接口和 key（在线接口${PAY}，按录音时长算）`, cap: 'asr' };
+        const a = u && u.asr;
+        if (u === undefined || !a) return { text: `已填接口 · ${PAY}，按录音时长算` + (u === undefined ? '' : '（多少钱：在下面「AI 控制台」看）') };
+        if (!a.ready) return { ok: false, text: '还不能用：' + (a.why || '在线接口没配好'), cap: 'asr' };
+        return { ok: true, text: `能用 · 用的是 ${a.label} · ` + (a.free ? '免费' : a.price === '—，未计价' ? `${PAY}（这个模型价格表里查不到）` : `${PAY}，${a.price}`) };
+      }
+      if (key === 'vision') {
+        const v = visionValue();
+        if (v === 'off') return { text: '关着：图片里的字不认、不描述（不花钱）' };
+        const ocr = localNow('ocr', '认字');
+        if (v === 'local') return ocr;
+        if (!ready('visionAI') && !(u && (u.features || []).some(x => x.id === 'vision' && (x.chain || []).length)))
+          return { ok: false, text: `认字在本机（免费）；AI 识图还不能用：还没填 key（${PAY}）`, cap: 'vision' };
+        const r = routeNow(u, 'vision', { text: `认字在本机（免费）；AI 识图${PAY}（多少钱正在读…）` });
+        return ocr.ok === false ? { ok: false, text: ocr.text + '；AI 识图：' + r.text } : r;
+      }
+      if (key === 'ask') {
+        if (askValue() === 'off') return { text: '关着：问答、概要、按意思搜都不用 AI，不花钱' };
+        const m = (s.models || []).find(x => x.name === s.activeModel) || {};
+        if (m.mode === 'cli' || ((!m.mode || m.mode === 'inherit') && (s.textAI || {}).mode === 'cli'))
+          return { ok: true, text: '能用 · 本机命令行，免费（用它自己已登录的账号，不要 key）' };
+        if (m.mode && m.mode !== 'inherit') return { text: `「${m.name}」单独配了接口：${PAY}（花多少在下面「AI 控制台」看）` };
+        if (!ready('textAI') && !(u && (u.features || []).some(x => x.id === 'ask' && (x.chain || []).length)))
+          return { ok: false, text: `还不能用：还没填 key（DeepSeek、千问、Gemini 这类在线接口${PAY}）`, cap: 'ask' };
+        return routeNow(u, 'ask', { text: `已填 key · ${PAY}（多少钱正在读…）` });
+      }
+      if (key === 'summary') {
+        const v = summaryValue();
+        if (v === 'off') return { text: '关着：不自动写概要、打标签（不花钱）' };
+        const cfg = v === 'custom' ? s.summaryAI : s.textAI;
+        if (v === 'custom' && !ready('summaryAI')) return { ok: false, text: '还不能用：单独配置还没填好（选本机命令行免费；选接口要 key、按用量付费）', cap: 'summary' };
+        const fb = (cfg || {}).mode === 'cli' ? { ok: true, text: `能用 · 本机命令行${cfg.preset ? ' ' + cfg.preset : ''}，免费（用它自己已登录的账号，不要 key）` }
+          : { text: `${PAY}（用的是哪家、多少钱正在读…）` };
+        const r = routeNow(u, 'summary', fb);
+        return r.ok === false ? { ...r, cap: 'summary' } : r;
+      }
+      if (key === 'embed') {
+        if (!embedValue()) return { text: '关着：照样能按关键词搜（不花钱）' };
+        const r = routeNow(u, 'embed', { text: `${PAY}，每篇只算一次（多少钱正在读…）` });
+        return r.ok === false ? { ...r, text: '还不能用：还没有能做「按意思搜」的 key（千问或 Gemini 的都行）', cap: 'embed' } : r;
+      }
+      return null;
+    }
+    const rowsOf = { asr, vision: vis, ask, summary: sum, embed: emb };
+    const paintNow = (key, n) => {
+      const r = rowsOf[key];
+      let el = r.descEl.querySelector?.('.lb-feat-now');
+      if (!n) { el?.remove?.(); return; }
+      if (!el) el = r.descEl.createDiv({ cls: 'lb-feat-now' });
+      el.empty?.();
+      el.toggleClass?.('lb-feat-need', n.ok === false); el.toggleClass?.('is-ok', n.ok === true);
+      el.createSpan({ cls: 'lb-feat-now-k', text: '现在' });
+      el.createSpan({ text: (n.ok === true ? '✓ ' : n.ok === false ? '⚠ ' : '') + n.text });
+      if (n.ok === false && n.cap && !guide) { const b = el.createEl('button', { cls: 'lb-link', text: '去填' }); b.onclick = () => openApiFor(tab, n.cap); }
+    };
+    let paintSeq = 0;
     function paintHints() {
-      hint(vis, visionValue() === 'ai' && !ready('visionAI') ? '还没配识图用的接口和 key' : '', 'vision');
-      hint(asr, asrValue() === 'http' && !(s.asrAI && s.asrAI.endpoint) ? '还没填在线接口' : '', 'asr');
-      hint(sum, summaryValue() === 'custom' && !ready('summaryAI') ? '单独配置还没填好' : '', 'summary');
-      const m = (s.models || []).find(x => x.name === s.activeModel) || {};
-      hint(ask, askValue() !== 'off' && (!m.mode || m.mode === 'inherit') && !ready('textAI') ? '问答用的接口和 key 还没填' : '', 'ask');
+      const seq = ++paintSeq;
+      for (const k of Object.keys(rowsOf)) paintNow(k, nowOf(k, undefined));
+      if (guide || typeof loadUsage !== 'function') return;
+      loadUsage().catch(() => null).then(u => { if (seq !== paintSeq || !alive) return; for (const k of Object.keys(rowsOf)) paintNow(k, nowOf(k, u || null)); });
     }
     function repaint() {
       const set = (d, v) => { try { if (d && d.getValue() !== v) d.setValue(v); } catch {} };
@@ -1017,8 +1097,6 @@ module.exports = function (obsidian, plugin) {
       paintHints();
     }
     paintHints();
-    const h = home();
-    let alive = true; if (tab.stops) tab.stops.push(() => { alive = false; });
     if (h && h.state && !h.state().plan) h.loadPlan().then(() => { if (alive) repaint(); }).catch(() => {});
     return repaint;
   }
