@@ -449,6 +449,9 @@ LB.style('lb-wiki-style', LB.brandFontCss() + fontFace('LB Digits Inline', FONT_
 .lbw.is-narrow .lbw-fhead .lbw-big{font-size:76px;}
 .lbw.is-narrow .lbw-fhead .lbw-ptitle{font-size:28px;}
 .lbw.is-narrow .lbw-hint{margin-top:44px;}
+/* 收起目录：压过上面中等宽度的「目录 200px + 正文」两列（10-31：以前正文被塞进 200px 那一列，首页挤成一条） */
+.lbw.is-mid.is-tocoff:not(.is-narrow) .lbw-main{grid-template-columns:minmax(0,760px);justify-content:center;}
+.lbw.is-mid.is-tocoff.is-home:not(.is-narrow) .lbw-main{grid-template-columns:minmax(0,1fr);}
 @media (prefers-reduced-motion: reduce){.lbw-fold-sheet,.lbw-fold-face,.lbw-tw,.lbw-chev{transition:none;}}
 ${LB.brandCss('.lbw .lbw-brand', '.lbw .lbw-engr')}
 .lbw .lbw-brand{font-size:84px;line-height:.92;transform-origin:left bottom;}
@@ -798,13 +801,21 @@ add(wrap, [body, R.fab, R.layer]);
 
 // 三种宽度（design.md §8）：≥1040 宽；680–1040 开着原文格；<680 手机（目录收成「目录」按钮 + 底部抽屉）
 let lastW = 0;
+// 10-31 她：「Wiki 页一直在闪屏」——Dataview 每隔几秒重跑（库里有文件在变，比如 B 站同步在下），重跑那一下量到宽度 0，
+// 以前当成「变宽了」：先切到宽屏布局再切回来，首页还整个重画（关系图从头动）。现在：量到 0 不算；档位切换留 24px 缓冲
+// （滚动条出 / 没让宽度在分界线上来回跳也不翻）；首页只在档位真变了才重画
+const BAND = (w, cur) => { const g = 24; const mid = cur.mid ? w < 1040 + g : w < 1040 - g; const narrow = cur.narrow ? w < 680 + g : w < 680 - g; return { mid, narrow }; };
 function paintWidth(w) {
   w = Number(w) || wrap.clientWidth || 0;
   fitToc();
-  wrap.classList.toggle('is-mid', w > 0 && w < 1040);
-  wrap.classList.toggle('is-narrow', w > 0 && w < 680);
-  const moved = Math.abs(w - lastW) > 40; lastW = w;
-  if (moved && UI.view === 'home' && !ED) { clearTimeout(paintWidth.t); paintWidth.t = setTimeout(() => { if (UI.view === 'home' && !ED) renderCenter(); }, 150); }
+  if (w <= 0) return;
+  const cur = { mid: wrap.classList.contains('is-mid'), narrow: wrap.classList.contains('is-narrow') };
+  const b = lastW ? BAND(w, cur) : { mid: w < 1040, narrow: w < 680 };
+  wrap.classList.toggle('is-mid', b.mid);
+  wrap.classList.toggle('is-narrow', b.narrow);
+  const changed = !!lastW && (b.mid !== cur.mid || b.narrow !== cur.narrow);
+  lastW = w;
+  if (changed && UI.view === 'home' && !ED) { clearTimeout(paintWidth.t); paintWidth.t = setTimeout(() => { if (UI.view === 'home' && !ED) renderCenter(); }, 150); }
 }
 if (typeof ResizeObserver === 'function') {
   try { const ro = new ResizeObserver(es => { for (const e of es) paintWidth(e.contentRect && e.contentRect.width); }); ro.observe(wrap); LB.onUnload(() => ro.disconnect()); }

@@ -328,6 +328,25 @@ const run = async (name, fn) => { try { await fn(); console.log('  ok   ' + name
     assert.ok(A.q('.lbw-ed'), '新文件夹建好直接进编辑');
   });
 
+  await run('不闪：量到宽度 0（Dataview 重跑那一下）不切布局、首页不重画；分界线附近有缓冲；收起目录压过中等宽度', async () => {
+    const P = fakePlugin(); const { A } = await open({ plugin: P });
+    const wrap = A.q('.lbw');
+    A.resize.trigger(1000, 800); await tick(200);
+    assert.ok(wrap.classList.contains('is-mid'));
+    const first = A.q('.lbw-center').firstChild;
+    A.resize.trigger(0, 800); await tick(200);
+    assert.ok(wrap.classList.contains('is-mid'), '宽度 0 不算：还是中等宽');
+    A.resize.trigger(1000, 800); await tick(200);
+    assert.equal(A.q('.lbw-center').firstChild, first, '首页没有重画');
+    A.resize.trigger(1050, 800); await tick(200);
+    assert.ok(wrap.classList.contains('is-mid'), '刚过 1040 不翻（缓冲 24px）');
+    assert.equal(A.q('.lbw-center').firstChild, first);
+    A.resize.trigger(1100, 800); await tick(200);
+    assert.ok(!wrap.classList.contains('is-mid'), '真变宽了才翻');
+    const css = A.window.document.getElementById('lb-wiki-style').textContent;
+    assert.ok(css.includes('.lbw.is-mid.is-tocoff.is-home:not(.is-narrow) .lbw-main{grid-template-columns:minmax(0,1fr);}'), '收起目录压过中等宽度两列');
+  });
+
   if (failed.length) { console.log('FAIL wiki 10-31: ' + failed.join(' / ')); process.exit(1); }
   console.log('PASS wiki 10-31: in-place editing (li per item, markers hidden, @n cite tokens, Enter/empty-Enter/Ctrl+Enter/Backspace/shortcuts, insert between, Ctrl+Z), saves no longer lock, AI block/page/draft, TOC current-folder only + hide, body search, cross-folder drag, delete undo + trash, new folder editor');
 })().catch(e => { console.error(e); process.exit(1); });
