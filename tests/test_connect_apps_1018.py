@@ -24,6 +24,12 @@ def fake_bins(tmp_path, monkeypatch):
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "cc"))
     monkeypatch.delenv(connect.ENV_CLAUDE_EXE, raising=False)
     monkeypatch.setattr(connect, "_version", lambda exe: "1.2.3")
+    # 1101：Cursor / Gemini / Cline 这些看自己的目录认「装了」——家目录、VS Code 目录、LOCALAPPDATA 都换成临时的
+    monkeypatch.setattr(connect, "_home", lambda: tmp_path / "home")
+    monkeypatch.setattr(connect, "_vscode_storages", lambda: [tmp_path / "vscode" / "globalStorage"])
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local"))
+    for k in ("KIMI_CODE_HOME", "PI_CODING_AGENT_DIR", "CODEX_HOME"):
+        monkeypatch.delenv(k, raising=False)
 
     def make(name: str, where=bindir):
         where.mkdir(parents=True, exist_ok=True)

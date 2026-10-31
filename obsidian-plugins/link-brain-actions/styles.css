@@ -661,6 +661,9 @@ button.lb-sched-add { align-self: flex-start; font-size: 12px; }
 .lb-settings .lb-v6 .lb-app .setting-item-name { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; font-weight: var(--font-semibold, 600); }
 .lb-settings .lb-v6 .lb-app-ver { color: var(--text-muted); font-family: var(--font-monospace); font-size: var(--font-ui-smaller); font-weight: normal; }
 .theme-light .lb-icon-variant--dark, .theme-dark .lb-icon-variant--light { display: none; }
+/* 1101 没认出来的应用收在一个折叠里：标题一行灰字，展开的行和上面同样式；这些没装，不画右下角的点 */
+.lb-settings .lb-v6 .lb-apps-more > summary { cursor: pointer; padding: var(--lb-space-2, 8px) 0; }
+.lb-settings .lb-v6 .lb-apps-more .lb-app { opacity: .85; }
 /* 一行点开在原地展开（范围 / 网页端；更多里每一项）：展开的内容只缩进，不加底色、不加框 */
 .lb-settings .lb-v6 details.lb-row-fold { border-top: 1px solid var(--background-modifier-border-hover, var(--background-modifier-border)); }
 .lb-settings .lb-v6 .lb-card-body > details.lb-row-fold:first-child, .lb-settings .lb-v6 .lb-grp + details.lb-row-fold { border-top: 0; }
