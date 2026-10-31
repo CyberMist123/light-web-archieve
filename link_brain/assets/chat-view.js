@@ -1154,7 +1154,10 @@ ${LB.brandCss('.lbchat .lbchat-title', '.lbchat .lbchat-engr')}
 .lbchat button.lbchat-tab[hidden]{display:none!important;}
 /* 有目录（没钉住）时：输入框和上面那几条也只占正文那一栏（窄窗时以前比正文宽出一截） */
 .lbchat:has(> .lbchat-bodywrap.has-ftoc) :is(.lbchat-composer,.lbchat-srcbar,.lbchat-queue,.lbchat-followbar,.lbchat-bgbar,.lbchat-cfgbar,.lbchat-ro){width:auto;max-width:850px;margin-left:max(44px,calc(50% - 425px));margin-right:max(44px,calc(50% - 425px));}
-.lbchat.ftoc-pinned:has(> .lbchat-bodywrap.has-ftoc) :is(.lbchat-composer,.lbchat-ctlrow,.lbchat-srcbar,.lbchat-queue,.lbchat-followbar,.lbchat-bgbar,.lbchat-cfgbar,.lbchat-ro){transform:none;width:auto;max-width:850px;margin-left:max(316px,calc(50% - 269px));margin-right:max(16px,calc(50% - 581px));}
+.lbchat.ftoc-pinned:has(> .lbchat-bodywrap.has-ftoc) :is(.lbchat-composer,.lbchat-srcbar,.lbchat-queue,.lbchat-followbar,.lbchat-bgbar,.lbchat-cfgbar,.lbchat-ro){transform:none;width:auto;max-width:850px;margin-left:max(316px,calc(50% - 269px));margin-right:max(16px,calc(50% - 581px));}
+/* 1101：输入框上面那块灰底「追问 · 新问题」比输入框左右各缩 14px（以前窄窗时输入框跟着正文收窄了、灰条没跟，两边各伸出一截） */
+.lbchat:has(> .lbchat-bodywrap.has-ftoc) .lbchat-ctlrow{width:auto;max-width:822px;margin-left:max(58px,calc(50% - 411px));margin-right:max(58px,calc(50% - 411px));}
+.lbchat.ftoc-pinned:has(> .lbchat-bodywrap.has-ftoc) .lbchat-ctlrow{transform:none;width:auto;max-width:822px;margin-left:max(330px,calc(50% - 255px));margin-right:max(30px,calc(50% - 567px));}
 /* 1031 她：Ctrl + 加号 / 减号（Ctrl + 滚轮）调问答区的字——只缩放对话那一列，页头和输入框不动 */
 .lbchat .lbchat-body{zoom:var(--lbchat-zoom,1);}
 /* 1026 第三轮（她录屏 04 / 05 / 06）：问这篇小条、生成状态、后台在答、报告顶上的动作、存上之后的「已保存 · 打开」、右栏证据条 */

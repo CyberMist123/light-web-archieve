@@ -162,8 +162,8 @@ async function runCatalogPage(data,{view=fs.readFileSync('link_brain/assets/cata
     assert.ok(pg.root.querySelector('.lbc-m-albums').contains(chip()),'在「专辑」那一块里');
     assert.equal(chip().textContent,'专辑');assert.ok(chip().classList.contains('lbc-album'));
     chip().onclick(ev);
-    assert.ok(item('全部专辑')&&item('做饭（2）')&&item('睡前（1）'),'菜单：全部专辑 + 按篇数多的在前、带篇数');
-    item('做饭（2）').onclick(ev);
+    assert.ok(item('全部专辑')&&item('做饭 2')&&item('睡前 1'),'菜单：全部专辑 + 按篇数多的在前、带篇数');
+    item('做饭 2').onclick(ev);
     assert.deepEqual(pg.cards(),['快手菜','睡前记忆整理']);
     assert.equal(chip().textContent,'专辑：做饭');assert.ok(chip().classList.contains('is-active'));assert.equal(chip().getAttribute('aria-pressed'),'true');
     // 1021：分类「全部」只管分类；菜单里「全部专辑」取消
@@ -184,13 +184,13 @@ async function runCatalogPage(data,{view=fs.readFileSync('link_brain/assets/cata
     {const kids=pt.root.querySelector('.lbc-scope-types').children;assert.equal(kids[kids.indexOf(ac())-1],pt.root.querySelector('.lbc-platpick'),'紧跟来源下拉');}
     assert.ok(!pt.root.querySelectorAll('.lbc-type-tab').some(b=>b.dataset.type==='attachment'),'B 站没有附件：不出「附件」');
     ac().onclick(ev);
-    assert.ok(pick('默认收藏夹（2）')&&pick('游戏（1）'),'只列 B 站收藏夹');
-    pick('游戏（1）').onclick(ev);
+    assert.ok(pick('默认收藏夹 2')&&pick('游戏 1'),'只列 B 站收藏夹');
+    pick('游戏 1').onclick(ev);
     assert.deepEqual(pt.cards(),['B站视频二']);
     pt.root.querySelector('.lbc-platpick').onclick(ev);pick('小红书').onclick(ev);
     assert.ok(ac().classList.contains('lbc-album-none'),'小红书没读过专辑：灰的');assert.equal(ac().textContent,'专辑','换来源后专辑筛选清掉');
     ac().onclick(ev);
-    assert.ok(pt.dom.document.body.querySelectorAll('.lbc-menu-item').some(e=>/还没读过小红书专辑/.test(e.textContent)),'点开说缺什么');
+    assert.ok(pt.dom.document.body.querySelectorAll('.lbc-menu-item, .lbc-chip-note').some(e=>/还没读过小红书专辑/.test(e.textContent)),'点开说缺什么');
   }
   // 主题名不认识的旧 activeTopic / 坏数据不炸
   const bad=await runCatalogPage({...base,topics:[null,'',42]});

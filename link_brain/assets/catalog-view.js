@@ -431,6 +431,7 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-time-menu .lbc-range{padding:4px 0 2px calc(2.6em + 10px);flex-wrap:nowrap;}
 .lbc-time-menu .lbc-range input{flex:1 1 8.6em;width:8.6em;min-width:0;}
 .lbc-time-menu .lbc-range button{flex:0 0 auto;}
+.lbc-chip-menu .lbc-chip-note{font-size:12px;line-height:26px;color:var(--text-muted);}
 /* C9 按行瀑布流：每列一个 flex 子列，卡片按预估高度放进当前最矮的一列 */
 .lbc-grid{height:auto;overflow:visible;display:block;padding:12px 5px 30px;}
 .lbc-grid[hidden]{display:none!important;}
@@ -1478,12 +1479,12 @@ function renderScope() {
     // 1031 作者：「小红书 / B 站不需要显示数量；做成来源的可选择就行」——一个下拉（全部来源 / 小红书 / B站），不带数
     const pchip = typesBox.createEl('button', { cls: 'lbc-pick lbc-platpick' + (activePlat ? ' is-active' : ''), text: activePlat ? platLabel(activePlat) : '全部来源' });
     pchip.type = 'button'; pchip.dataset.scope = 'plat'; pchip.setAttribute('aria-pressed', String(!!activePlat));
-    pchip.onclick = e => popMenu([
+    pchip.onclick = () => chipMenu('来源', [
       { title: '全部来源', checked: !activePlat, onClick: () => pickPlat('') },
       { separator: true },
       ...platsTab.map(([pl]) => pl).sort((x, y) => (/^(xhs|xiaohongshu)$/.test(y) ? 1 : 0) - (/^(xhs|xiaohongshu)$/.test(x) ? 1 : 0))   // 小红书排第一，其余按篇数
         .map(pl => ({ title: platLabel(pl), checked: pl === activePlat, onClick: () => pickPlat(pl) })),
-    ], e, pchip);
+    ], pchip);
     if (activePlat && /^(xhs|xiaohongshu)$/.test(activePlat)) {
       let nv = 0, ni = 0; for (const it of items) if (platOf(it) === activePlat) { if (it.kind === 'video') nv++; else ni++; }
       typeTab('video', TYPE_LABEL.video, nv, mediaFilter === 'video', () => pickType('video'), ' lbc-type-sub');
@@ -1498,11 +1499,11 @@ function renderScope() {
   if (!starredPage || items.length) {
     const tchip = picksBox.createEl('button', { cls: 'lbc-pick lbc-tagpick' + (activeTag ? ' is-active' : ''), text: activeTag ? `#${activeTag}` : 'Tag' });
     tchip.type = 'button'; tchip.dataset.scope = 'tag'; tchip.setAttribute('aria-pressed', String(!!activeTag));
-    tchip.onclick = e => { const list = tagCounts(); popMenu([
+    tchip.onclick = () => { const list = tagCounts(); chipMenu('Tag', [
       ...(activeTag ? [{ title: '全部 Tag（取消）', onClick: () => pickTag('') }, { separator: true }] : []),
       ...(list.length ? list.map(([t, c]) => ({ title: `#${t}（${c}）`, checked: normTag(activeTag) === t, onClick: () => pickTag(normTag(activeTag) === t ? '' : t) }))
         : [{ title: '当前条件下没有标签', disabled: true, onClick: () => {} }]),
-    ], e, tchip); };
+    ], tchip); };
   }
   const plats = platCounts();
   if (activePlat && !plats.some(([p]) => p === activePlat)) activePlat = '';
@@ -1515,12 +1516,12 @@ function renderScope() {
     chip.type = 'button'; chip.dataset.scope = 'src';
     chip.setAttribute('aria-pressed', String(!!activeSrc));
     const pick = s_ => { leaveSideViews(); activeSrc = s_; applySrc(); dataRev++; renderCatBar(); render(); scrollToResults(); };
-    chip.onclick = e => popMenu([
+    chip.onclick = () => chipMenu('收藏', [
       { title: `我的收藏（${mine}）`, checked: activeSrc === '', onClick: () => pick('') },
       { title: `全部（${allItems.length}）`, checked: activeSrc === '*', onClick: () => pick('*') },
       { separator: true },
       ...srcs.map(([n, c]) => ({ title: `${n}（${c}）`, checked: n === activeSrc, onClick: () => pick(n) })),
-    ], e, chip);
+    ], chip);
   }
   // 1031 作者：「来源选 B 站时加一个『专辑』下拉（B 站收藏夹 = 专辑）；小红书也要」——专辑只按当前来源列，一颗「专辑 ▾」下拉（不再平铺）：
   //   库里有两个以上来源时，选了某个来源才出，紧跟在来源下拉后面；只有一个来源就一直在「专辑」那一块。
@@ -1536,11 +1537,11 @@ function renderScope() {
     const none = /^(xhs|xiaohongshu)$/.test(plat) ? '还没读过小红书专辑（夜跑「读专辑」没开）'
       : /^(bili|bilibili|bv)$/.test(plat) ? '还没读到 B 站收藏夹（同步一次就有）' : '这个来源没有专辑';
     // 1101 作者：专辑都收在「专辑 ▾」里，不再摆几个在栏上（1031 那版「常用专辑拎出来」撤掉）；选中的那个照旧写在按钮上「专辑：xx」
-    chip.onclick = e => popMenu(albums.length ? [
+    chip.onclick = () => chipMenu('专辑', albums.length ? [
       { title: '全部专辑', checked: !activeAlbum, onClick: () => pickAlbum('') },
       { separator: true },
       ...albums.map(([n, c]) => ({ title: `${n}（${c}）`, checked: n === activeAlbum, onClick: () => pickAlbum(n === activeAlbum ? '' : n) })),
-    ] : [{ title: none, disabled: true, onClick: () => {} }], e, chip);
+    ] : [{ title: none, disabled: true, onClick: () => {} }], chip);
   }
   if (focusedKey != null) { const again = scopeBoxes.flatMap(x => [...x.querySelectorAll('button')]).find(b => (b.dataset?.scope ?? b.dataset?.type) === focusedKey); try { again?.focus({ preventScroll: true }); } catch { again?.focus?.(); } }
 }
@@ -1854,6 +1855,25 @@ function popMenu(items, e, anchor, pos) {
 //         起 ~ 止 [筛选]                    ← 只在选了「自定义」时出现
 // 状态键不变（timeSort / timeRange / timeFrom / timeTo）；点排序 / 时间块立刻生效并关菜单，「自定义」只展开起止、点「筛选」才生效。
 const TIME_CHIPS = [['', '全部'], ['today', '今天'], ['7d', '7 天'], ['30d', '30 天']];
+// 1101 作者「这里样式都不一样」：控制行上的几个下拉（来源 / 专辑 / Tag / 我的收藏）和「最新在前」那个弹层用同一个样子——
+// 左边一个小标签、右边一排圆角小块，选中的黑底；收的还是 popMenu 那种 [{title, checked, onClick, separator, disabled}]，「名字（12）」写成「名字 12」
+function chipMenu(label, items, anchor) {
+  const { menu, close } = menuShell('lbc-time-menu lbc-chip-menu', anchor);
+  const row = menu.createEl('div', { cls: 'lbc-tm-row' });
+  row.createEl('span', { cls: 'lbc-tm-label', text: label });
+  const chips = row.createEl('div', { cls: 'lbc-chips' }); chips.setAttribute('role', 'group');
+  for (const it of items) {
+    if (!it || it.separator) continue;
+    const text = String(it.title).replace(/（(\d+)）$/, ' $1');
+    if (it.disabled) { chips.createEl('span', { cls: 'lbc-chip-note', text }); continue; }
+    const b = chips.createEl('button', { cls: 'lbc-menu-item lbc-chip' + (it.checked ? ' is-on' : ''), text });
+    b.type = 'button'; b.setAttribute('role', 'menuitemradio'); b.setAttribute('aria-checked', String(!!it.checked));
+    b.onclick = ev => { ev?.stopPropagation?.(); close(); it.onClick?.(ev); };
+  }
+  const r = anchor.getBoundingClientRect(); placeMenu(menu, r.left, r.bottom + 4);
+  focusFirst(menu);
+  return menu;
+}
 function openTimeMenu(anchor) {
   const { menu, close } = menuShell('lbc-time-menu', anchor);
   const apply = () => { close(); leaveSideViews(); renderCatBar(); render(); scrollToResults(); };
