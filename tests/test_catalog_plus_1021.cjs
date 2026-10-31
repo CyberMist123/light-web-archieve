@@ -33,7 +33,7 @@ const state = () => JSON.parse(globalThis.__lbState['lb:catalog']);
     plugin.settings.catalogTitle = '我的收藏';
     P.app.workspace.trigger('link-brain:catalog-prefs');
     assert.equal(t.textContent, '我的收藏'); assert.equal(t.dataset.text, '我的收藏', '改标题设置时刻线层一起换');
-    assert.ok(P.$('.lb-manage') && P.$('.lb-manage').textContent === '编排和管理', '1031「编排 / 管理」并成「···」（1101 起三个点用 SVG 画）');
+    assert.ok(P.$('.lb-manage') && P.$('.lb-manage').textContent === '…编排和管理', '1031「编排 / 管理」并成「···」（1101 起和问收藏同一个省略号字符）');
     assert.ok(P.$('.lbc-tools').contains(P.$('.lb-manage')));
     // 1101 作者：右上角和问收藏 / Wiki 页同一个样子——只写要跳过去的「问收藏」「Wiki」（白底浅阴影小长方形），标题旁不再有切换
     assert.equal(P.$('.lbc-head .lb-space-switch'), null);
@@ -52,7 +52,7 @@ const state = () => JSON.parse(globalThis.__lbState['lb:catalog']);
     // 1026：类型单独一组（图文 / 视频 / 附件），和范围叠加
     assert.deepEqual(P.$$('.lbc-type-tab').map(b => [b.textContent, b.dataset.n]), [['视频', '1'], ['文件', '1']]);   // 1101 作者：「附件」改叫「文件」   // 1031 作者：图文删掉，只剩「视频 · 附件」（1101 中间的竖线去掉——和选中下划线抢同一个位置，叠成一道粗杠）
     assert.ok(P.$('.lbc-tagpick'), 'Tag ▾'); assert.equal(P.$('.lbc-platpick'), null, '只有一个平台时不出平台选择');
-    assert.equal(P.$('.lbc-time').textContent, '最新在前');
+    assert.equal(P.$('.lbc-time').textContent, '全部时间 · 最新在前');
     // 字体：@font-face 用资源路径（过 lbPath），不连 Google Fonts
     const css = P.dom.document.head.querySelectorAll('style').find(s => s.getAttribute('id') === 'lbc-style').textContent;
     assert.ok(css.includes('@font-face{font-family:"LB Cinzel";src:url("app://_archive/fonts/Cinzel-latin-variable.woff2")'), css.slice(0, 300));

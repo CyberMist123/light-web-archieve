@@ -105,7 +105,7 @@ const pickMenu = (P, re) => { const b = P.menuItems().find(x => re.test(x.textCo
     P.$('.lb-manage').onclick(ev()); await tick(5);
     // 1027b 作者：管理只留五样，设置在最上面；1031「编排」并进来，加「每行几列」
     const titles = P.menuItems().map(b => b.textContent);
-    assert.deepEqual(titles, ['编排', '✓ 自动', '2 列', '3 列', '4 列', '5 列', '6 列', '设置', '索引编辑', '刷新目录（手动）', '导出资料', '回收站（2 篇）']);
+    assert.deepEqual(titles, ['设置', '编排', '✓ 自动', '2 列', '3 列', '4 列', '5 列', '6 列', '索引编辑', '刷新目录（手动）', '导出资料', '回收站（2 篇）']);
     assert.equal(P.dom.document.body.querySelectorAll('.lbc-menu-label').length, 0, '不再分组');
     pickMenu(P, /^回收站（2 篇/); await tick(5);
     assert.equal(P.app.workspace.opened.at(-1)[0], '回收站.md', '点回收站 = 打开回收站页');

@@ -272,7 +272,7 @@ async function pluginTests() {
   // 「…」老菜单（openManageMenu）1027 删了：目录页 1021 起是自己画的「管理」胶囊（catalog-view.js），这个菜单没人调了
   assert.equal(p.openManageMenu, undefined, 'openManageMenu 删了（死代码）');
   p.openAISettingsMenu({});
-  assert.deepEqual(loadPlugin.lastMenu.items.map(i => i.title), ['设置', '导出资料', '目录：窄窗也钉住'], '「模型与提示词」并进「设置」；1026 加目录钉住开关');
+  assert.deepEqual(loadPlugin.lastMenu.items.map(i => i.title), ['设置', '导出资料', '目录：一问也显示'], '「模型与提示词」并进「设置」；1026 加目录钉住开关');
   // 改标题 / 每行几列：存设置 + 通知开着的目录页
   const events = [];
   p.settings = { catalogColumns: 0, catalogTitle: '' };

@@ -143,10 +143,10 @@ const ymd = d => [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), St
   await open();
   assert.deepEqual(ids(), ['old', 'd3', 'today', 'd20'], '默认 = 数据顺序');
   const timeTab = () => $('.lbc-time');
-  assert.equal(timeTab().textContent, '最新在前', '1021 排序胶囊：默认写当前状态');
+  assert.equal(timeTab().textContent, '全部时间 · 最新在前', '1021 排序胶囊：默认写当前状态');
   timeTab().onclick(ev); pick('最近导入').onclick(ev);
   assert.deepEqual(ids(), ['today', 'd3', 'd20', 'old']);
-  assert.equal(timeTab().textContent, '最近导入');
+  assert.equal(timeTab().textContent, '全部时间 · 最近导入');
   // 1011 紧凑版：排序一行分段、时间一行小块（全部 / 今天 / 7 天 / 30 天 / 自定义），选中的 is-on + aria-checked
   timeTab().onclick(ev);
   const tm = () => dom.document.body.querySelector('.lbc-time-menu');
@@ -195,7 +195,7 @@ const ymd = d => [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), St
   timeTab().onclick(ev); pick('全部').onclick(ev);
   timeTab().onclick(ev); pick('默认').onclick(ev);
   assert.deepEqual(ids(), ['old', 'd3', 'today', 'd20']);
-  assert.equal(timeTab().textContent, '最新在前');
+  assert.equal(timeTab().textContent, '全部时间 · 最新在前');
   assert.ok(!timeTab().classList.contains('is-active'));
 
   console.log('PASS catalog 1004: hover check selects without entering multi-select first, right-click 导出 exports immediately (remembered 附带原图), 给 AI saves a named selection (default 主题+MMDD, rename, overwrite confirm, write failure honest), import-time sort / today / 7d / 30d / custom range, 全部 resets');

@@ -764,7 +764,7 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
    1101 作者「拿到 design 后第一版（0055a14）的式样是对的」：字照那一版——分页和来源 / 视频 / 文件都是 15.5px 衬线，排序 13.5px、搜索 14px 无衬线 */
 .lbc-wrap .lbc-ctl button.lbc-thq .lbc-topic-star{font-size:12px;margin-right:2px;}
 /* 1101 作者「这里也没对齐」：筛选这一行不按编排格子的起点留空（已收藏和★主题之间空一大截）——块和块之间一律 28px，搜索那一列照旧靠右 */
-.lbc-wrap:not(.is-side-narrow):not(.is-arranging) .lbc-top .lbc-row.is-free:has(> .lbc-rcol > .lbc-m-scope) > .lbc-rcol:not(.is-grow){margin-left:0!important;padding-right:var(--lbc-ctl-gap,26px)!important;}
+.lbc-wrap:not(.is-side-narrow):not(.is-arranging) .lbc-top .lbc-row.is-free:has(> .lbc-rcol > .lbc-m-scope) > .lbc-rcol:not(.is-grow){margin-left:var(--lbc-wall-ml,0px)!important;padding-right:var(--lbc-ctl-gap,26px)!important;}
 .lbc-wrap .lbc-top.is-squeeze-1{--lbc-ctl-gap:12px;}
 .lbc-wrap .lbc-top.is-squeeze-3{--lbc-ctl-gap:9px;}
 .lbc-wrap .lbc-top.is-squeeze-4{--lbc-ctl-gap:6px;}
@@ -4611,7 +4611,7 @@ function paintVisibility() {
 //   4 = 再挤：筛选字再小一号、按钮内边距收小、搜索框最窄 100px、窄到不出边栏时边栏钮也不显示。
 //   每次从 0 级量起（变宽了会自己松回去）；同一宽度、同一排内容只量一次
 const SQUEEZE_MAX = 4;
-let squeezeKey = '', squeezeLvl = 0;
+let squeezeKey = '', squeezeLvl = 0, wallAlignOff = false;
 function setSqueeze(n) { for (let k = 1; k <= SQUEEZE_MAX; k++) { const on = n >= k; if (top.classList.contains('is-squeeze-' + k) !== on) top.classList.toggle('is-squeeze-' + k, on); } squeezeLvl = n; }
 function ctlRowEl() { for (const id of ['search', 'sort', 'scope', 'types']) { const b = blocks[id]; const r = b && !b.classList.contains('is-gone') && b.closest?.('.lbc-row'); if (r && !r.hidden && top.contains(r)) return r; } return null; }
 function rowIsOneLine(row) {
@@ -4624,8 +4624,13 @@ function fitFreeGaps() {
   if (!row) { if (squeezeLvl) setSqueeze(0); placeFreeGaps(); return; }
   const key = (wrap.classList.contains('is-arranging') ? 'A' : '') + (row.clientWidth || 0) + '|' + [...row.querySelectorAll('.lbc-ctl-piece')].map(p => p.classList.contains('is-gone') ? '' : p.textContent).join('|');
   if (key === squeezeKey) { placeFreeGaps(); return; }
-  setSqueeze(0); placeFreeGaps();
-  while (squeezeLvl < SQUEEZE_MAX && !rowIsOneLine(row)) { setSqueeze(squeezeLvl + 1); placeFreeGaps(); }
+  // 1101：先试「★主题对齐收藏墙」（最多收紧一级）；放不下就不对齐，照原来逐级收紧
+  wallAlignOff = false; setSqueeze(0); placeFreeGaps();
+  if (!rowIsOneLine(row)) { setSqueeze(1); placeFreeGaps(); }
+  if (!rowIsOneLine(row)) {
+    wallAlignOff = true; setSqueeze(0); placeFreeGaps();
+    while (squeezeLvl < SQUEEZE_MAX && !rowIsOneLine(row)) { setSqueeze(squeezeLvl + 1); placeFreeGaps(); }
+  }
   squeezeKey = key;
 }
 // 1028 自由排的「起点」：块左边离这一排左边 = x 格；前面的块因为内容比格子宽占多了，就从它后面接着放（不重叠）。量现在的宽度再写 margin-left（px），
@@ -4647,6 +4652,20 @@ function placeFreeGaps() {
     for (const it of items) { const m = Math.floor(it.m * k); plan.push([it.node, m ? m + 'px' : '']); }   // 搜索那一列 m = 0：CSS margin-left:auto 把它和后面的推到右边
   });
   for (const [node, v] of plan) if (node.style.marginLeft !== v) node.style.marginLeft = v;
+  alignCtlToWall();
+}
+// 1101 作者「★ 贴着箭头的边」：筛选行里范围标签（全部 / 今日新增 / 已收藏）后面那一块（★主题，没有就是来源 / 类型）的左边
+// 对齐收藏墙的左边（边栏开着时）；先读后写，值放在那一列的 --lbc-wall-ml 上（CSS 的 margin-left 用它）
+function alignCtlToWall() {
+  const row = ctlRowEl(); if (!row) return;
+  const cols = [...(row.children || [])].filter(c => c.classList?.contains('lbc-rcol') && !c.hidden && c.offsetWidth);
+  const i = cols.indexOf(blocks.scope?.closest?.('.lbc-rcol')), next = i >= 0 ? cols[i + 1] : null;
+  let want = 0;
+  if (next && !wallAlignOff && !next.classList.contains('is-grow') && sideOpen && !wallCol.hidden && !wrap.classList.contains('is-side-narrow') && typeof getComputedStyle === 'function') {
+    const cur = parseFloat(getComputedStyle(next).marginLeft) || 0;
+    want = Math.round((wallCol.getBoundingClientRect?.().left || 0) - ((next.getBoundingClientRect?.().left || 0) - cur));
+  }
+  for (const c of cols) { const v = c === next && want > 0 ? want + 'px' : ''; if (c.style.getPropertyValue('--lbc-wall-ml') !== v) { if (v) c.style.setProperty('--lbc-wall-ml', v); else c.style.removeProperty('--lbc-wall-ml'); } }
 }
 function boardIndex() { const i = layout.rows.findIndex(r => r.cols.some(c => c.mods.includes('wall'))); return i < 0 ? layout.rows.length - 1 : i; }
 function applyLayout({ relayout = true } = {}) {
