@@ -708,9 +708,9 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-wrap .lbc-tools button.lb-manage{width:auto!important;min-width:0;height:var(--ctl-h)!important;padding:0 16px!important;border:1px solid var(--c-ink)!important;border-radius:999px!important;background:var(--c-bg)!important;color:var(--c-ink)!important;box-shadow:none!important;display:inline-flex;align-items:center;justify-content:center;}
 .lbc-wrap .lbc-tools button.lb-manage:hover{background:var(--c-ink)!important;color:var(--c-bg)!important;}
 .lbc-wrap .lbc-m-search .lbc-askbtn{flex:none;margin-left:10px;}
-/* 1101 作者：边栏「概览」那几个数和下面的字每格居中对齐（以前靠左） */
-.lbc-figs .lbc-fig{text-align:center;}
-.lbc-figs .lbc-fig-n{text-overflow:clip;}
+/* 1101 作者：边栏「概览」整组居中——每格里数字和字照旧左对齐，几格按内容宽度排、左右空白一样（以前四格挤在左边） */
+.lbc-figs{grid-template-columns:repeat(4,max-content);justify-content:space-evenly;}
+@container (max-width:340px){.lbc-figs{grid-template-columns:repeat(2,max-content);justify-content:space-evenly;}}
 `;
 // 1021：标题 / 数字字体随包发（catalog.py 重建时拷进 _archive/fonts/），@font-face 的地址运行时拼（vault 可能挂在别的库子目录里，过 lbPath；
 // 不连 Google Fonts，离线照样显示；文件不在时浏览器退回系统衬线字体）
