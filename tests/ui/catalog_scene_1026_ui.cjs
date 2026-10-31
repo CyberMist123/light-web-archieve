@@ -45,7 +45,7 @@ const PLUGIN = (schedule, settings = {}) => ({ settings: { hiddenCats: [], ...se
         const view = sc.getBoundingClientRect(), cats = document.querySelector('.lbc-cats').getBoundingClientRect();
         const clipped = [...document.querySelectorAll('.lbc-cats .lbc-cat')].filter(b => { const r = b.getBoundingClientRect(); return r.right > cats.right + 1 || r.left < cats.left - 1 || r.right > view.right + 1; }).map(b => b.textContent);
         const inView = s => { const r = document.querySelector(s).getBoundingClientRect(); return r.width > 0 && r.left >= view.left - 1 && r.right <= view.right + 1; };
-        return { h: sc.scrollWidth - sc.clientWidth, clipped, n: document.querySelectorAll('.lbc-cats .lbc-cat').length, search: inView('.lbc-searchbox'), ask: inView('.lbc-askbtn'), manage: inView('.lb-manage'),
+        return { h: sc.scrollWidth - sc.clientWidth, clipped, n: document.querySelectorAll('.lbc-cats .lbc-cat').length, search: inView('.lbc-searchbox'), ask: inView('.lbc-pnav-chat'), manage: inView('.lb-manage'),
           wrapCls: document.querySelector('.lbc-cats').className };
       });
       assert.ok(m.h <= 1, `${width}：没有横向滚动 ${m.h}`);
@@ -97,7 +97,7 @@ const PLUGIN = (schedule, settings = {}) => ({ settings: { hiddenCats: [], ...se
       // 1028 她：「不像图 2 那么突兀」——十六块都有工具条，平时收着，指着 / 选中那块才出来
       const a = await page.evaluate(() => ({ bars: document.querySelectorAll('.lbc-mod-bar').length, shown: [...document.querySelectorAll('.lbc-mod-bar')].filter(b => getComputedStyle(b).display === 'flex').length,
         trayAbove: document.querySelector('.lbc-arrange-tray').getBoundingClientRect().bottom <= document.querySelector('.lbc-board').getBoundingClientRect().top + 1 }));
-      assert.equal(a.bars, 16, '十六块都有工具条（1028 加了专辑，1031 去掉视图）'); assert.equal(a.shown, 0, '平时不露工具条'); assert.ok(a.trayAbove, '编排条在收藏墙上面');
+      assert.equal(a.bars, 15, '十五块都有工具条（1028 加了专辑，1031 去掉视图、问收藏）'); assert.equal(a.shown, 0, '平时不露工具条'); assert.ok(a.trayAbove, '编排条在收藏墙上面');
       await page.hover('.lbc-m-sync'); await S.settle(60);
       assert.equal(await page.evaluate(() => getComputedStyle(document.querySelector('.lbc-m-sync .lbc-mod-bar')).display), 'flex', '指着的那块露出工具条');
       shots.push(await S.screenshot('catalog-1026-arrange'));

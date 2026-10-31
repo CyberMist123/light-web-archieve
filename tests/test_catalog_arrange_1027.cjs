@@ -39,7 +39,7 @@ const mod = (P, id) => P.$('.lbc-m-' + id);
 const bar = (P, id, act) => mod(P, id).querySelector(`.lbc-mod-bar [data-act="${act}"]`);
 const topRows = P => P.$('.lbc-top').children.filter(c => c.classList.contains('lbc-row') && !c.hidden).map(r => r.children.filter(c => c.classList.contains('lbc-rcol') && !c.hidden).map(c => c.children.filter(m => m.classList.contains('lbc-m') && !m.classList.contains('is-gone')).map(m => m.dataset.m)));
 const boardCols = P => P.$('.lbc-board').children.filter(c => (c.classList.contains('lbc-side') || c.classList.contains('lbc-wallcol')) && !c.hidden).map(c => c.children.filter(m => m.classList.contains('lbc-m') && !m.classList.contains('is-gone')).map(m => m.dataset.m));
-const FILTER_ROW = [['scope'], ['topics'], ['types'], ['albums'], ['picks'], ['sort'], ['search'], ['ask']];   // 1031：「视图」那一块去掉了
+const FILTER_ROW = [['scope'], ['topics'], ['types'], ['albums'], ['picks'], ['sort'], ['search']];   // 1031：「视图」「问收藏」两块去掉了（三页切换在标题后面）
 const colOf = (P, id) => mod(P, id).parentNode;
 const xw = (P, id) => [Number(colOf(P, id).dataset.x), Number(colOf(P, id).dataset.w)];
 // 编排用的假几何：页宽 1200（一格 25px）；页头每一排 40 高、排和排之间空 30；块按自己的 x / w 落位。边栏 380 宽、墙 780 宽
@@ -81,7 +81,7 @@ const menuItem = (P, re) => P.dom.document.body.querySelectorAll('.lbc-menu-item
     assert.deepEqual(boardCols(P), [['recent', 'sync', 'token', 'overview'], ['wall']], '边栏四块 + 墙');
     assert.equal(P.$('.lbc-board').style.getPropertyValue('--lbc-board-cols'), 'minmax(0,16fr) minmax(0,32fr)', '边栏 16/48、墙 32/48（和改版前一样宽）');
     assert.equal(colOf(P, 'title').style.width, 'calc(34 * 100% / 48)', '页头的块按 48 格定宽');
-    assert.equal(colOf(P, 'ask').style.width, '', '筛选小块没拉过宽度：跟内容一样宽');
+    assert.equal(colOf(P, 'albums').style.width, '', '筛选小块没拉过宽度：跟内容一样宽');
     assert.ok(colOf(P, 'scope').classList.contains('is-tight') && !colOf(P, 'title').classList.contains('is-tight'), '筛选小块至少有内容那么宽');
     assert.ok(P.$('.lbc-m-search').contains(P.$('.lbc-search')) && P.$('.lbc-m-meta').contains(P.$('.lbc-count')), '搜索框、计数在各自的块里');
     assert.equal(L(p), null); assert.equal(saves(p).length, 0, '打开不写设置');
@@ -95,7 +95,7 @@ const menuItem = (P, re) => P.dom.document.body.querySelectorAll('.lbc-menu-item
     const P = await openCatalog({ data: catalogData(base()), plugin: p });
     P.$('.lb-arrange').onclick();
     assert.ok(P.$('.lbc-wrap').classList.contains('is-arranging'));
-    assert.equal(P.$$('.lbc-mod-bar').length, 16, '十六块都有工具条（1028 加了专辑，1031 去掉视图）');
+    assert.equal(P.$$('.lbc-mod-bar').length, 15, '十五块都有工具条（1028 加了专辑，1031 去掉视图、问收藏）');
     for (const id of ['title', 'meta', 'scope', 'search', 'recent', 'wall']) assert.ok(bar(P, id, 'drag') && bar(P, id, 'adjust') && bar(P, id, 'remove'), id + '：⠿ / 调整 / ×');
     assert.equal(P.$('.lbc-arrange-tray').nextSibling, P.$('.lbc-top'), '编排条在所有模块上面（页面最前）');
     rects(P);
@@ -109,18 +109,18 @@ const menuItem = (P, re) => P.dom.document.body.querySelectorAll('.lbc-menu-item
     assert.deepEqual(boardCols(P)[0], ['sync', 'token', 'overview']);
     assert.deepEqual(xw(P, 'recent'), [0, 16]);
     assert.equal(P.$$('.lbc-m.is-dragging').length, 0, '拖完不留拖动样式');
-    // 问收藏 → 最近导入那一排的空地（x≈1000px = 第 40 格）：就放在那儿
+    // 专辑 → 最近导入那一排的空地（x≈1000px = 第 40 格）：就放在那儿
     rects(P);
-    await dragTo(P, 'ask', 1005, 140);
-    assert.deepEqual(topRows(P)[1], [['recent'], ['ask']], '放进空地');
-    assert.deepEqual(xw(P, 'ask'), [40, 4]);
-    assert.deepEqual(topRows(P)[3], FILTER_ROW.slice(0, -1), '筛选条那一排少了问收藏，别的不动');
+    await dragTo(P, 'albums', 1005, 140);
+    assert.deepEqual(topRows(P)[1], [['recent'], ['albums']], '放进空地');
+    assert.deepEqual(xw(P, 'albums'), [40, 4]);
+    assert.deepEqual(topRows(P)[3], FILTER_ROW.filter(c => c[0] !== 'albums'), '筛选条那一排少了专辑，别的不动');
     // 再拖一点，靠近计数行的左边（第 38 格）就吸过去
     rects(P);
-    await dragTo(P, 'ask', 930, 140);   // 第 37 格
-    assert.deepEqual(xw(P, 'ask'), [37, 4], '离别的块的边 1 格以内吸住（搜索框左边第 37 格）');
+    await dragTo(P, 'albums', 930, 140);   // 第 37 格
+    assert.deepEqual(xw(P, 'albums'), [37, 4], '离别的块的边 1 格以内吸住（搜索框左边第 37 格）');
     await tick(450);
-    const a = L(p).modules.find(m => m.id === 'ask');
+    const a = L(p).modules.find(m => m.id === 'albums');
     assert.deepEqual([a.x, a.y, a.width], [37, 1, 4], '存成 {x, y, width}（48 格）'); assert.equal(L(p).grid, 48);
     // 从块里面按住拖（不是 ⠿）：真拖了，松手那一下 click 不落到按钮上
     rects(P);
@@ -134,7 +134,7 @@ const menuItem = (P, re) => P.dom.document.body.querySelectorAll('.lbc-menu-item
     let stopped = false; for (const fn of eat) fn({ type: 'click', target: tab, stopPropagation() { stopped = true; }, preventDefault() {} });
     assert.ok(stopped, '拖完那一下 click 被吞掉'); assert.equal(clicked, 0); tab.onclick = was;
     await tick(5);
-    assert.deepEqual(topRows(P)[1], [['recent'], ['sort'], ['ask']], '从块里面也能拖');
+    assert.deepEqual(topRows(P)[1], [['recent'], ['sort'], ['albums']], '从块里面也能拖');
     // 标题 → 边栏里「同步」上面（模块平级：标题能进边栏那一列）
     rects(P);
     await dragTo(P, 'title', 100, 570);
@@ -157,7 +157,7 @@ const menuItem = (P, re) => P.dom.document.body.querySelectorAll('.lbc-menu-item
     await tick(450);
     const Q = await openCatalog({ data: catalogData(base()), plugin: p });
     assert.deepEqual(topRows(Q).map(r => r[0][0]), ['meta', 'cats', 'recent', 'scope']);
-    assert.deepEqual(xw(Q, 'meta'), [33, 14]); assert.deepEqual(xw(Q, 'ask'), [37, 4]);
+    assert.deepEqual(xw(Q, 'meta'), [33, 14]); assert.deepEqual(xw(Q, 'albums'), [37, 4]);
     assert.deepEqual(boardCols(Q)[0], ['sync', 'title', 'token', 'overview'], '往返一致');
   }
 
@@ -354,7 +354,7 @@ const menuItem = (P, re) => P.dom.document.body.querySelectorAll('.lbc-menu-item
     // 1022 / 1026 的旧布局：筛选项收起 = 左边四小块移除，排序 / 视图 / 搜索 / 问收藏还在
     const old = mkPlugin({ settings: { catalogLayout: { side: [{ id: 'overview' }, { id: 'sync', hidden: true }, 'bogus', { id: 'recent' }], top: [{ id: 'title' }, { id: 'filters', hidden: true }, { id: 'cats' }], sideRight: true, sideW: 'l', gap: 's', density: 's' } } });
     const O = await openCatalog({ data: catalogData(base()), plugin: old });
-    assert.deepEqual(topRows(O), [[['title'], ['meta']], [['sort'], ['search'], ['ask']], [['cats']]]);
+    assert.deepEqual(topRows(O), [[['title'], ['meta']], [['sort'], ['search']], [['cats']]]);
     assert.ok(mod(O, 'scope').classList.contains('is-gone') && mod(O, 'picks').classList.contains('is-gone'));
     assert.deepEqual(boardCols(O), [['wall'], ['overview', 'token', 'recent']], '边栏放右边、同步隐藏、Token 补在同步后面');
     assert.equal(O.$('.lbc-board').style.getPropertyValue('--lbc-board-cols'), 'minmax(0,28fr) minmax(0,20fr)', '宽侧栏 = 5/12 → 20/48');

@@ -56,7 +56,7 @@ function fixture() {
           titleFamily: getComputedStyle(title).fontFamily, dataText: title.dataset.text, titleText: title.textContent,
           title: R('.lbc-titlerow'), sub: R('.lbc-subline'), manage: R('.lb-manage'), wrap: R('.lbc-wrap'),
           catsScroll: cats.scrollWidth - cats.clientWidth, catsJustify: getComputedStyle(cats).justifyContent, catsWrap: getComputedStyle(cats).flexWrap,
-          ctl: ['.lbc-time', '.lbc-searchbox', '.lbc-jumps'].map(s => Math.round(R(s).height)),
+          ctl: ['.lbc-time', '.lbc-searchbox'].map(s => Math.round(R(s).height)),
           hOverflow: scroller.scrollWidth - scroller.clientWidth,
         };
       });
@@ -69,7 +69,8 @@ function fixture() {
       assert.ok(m.hOverflow <= 1, `${tag}：没有横向滚动 ${m.hOverflow}`);
       if (width >= 1000) {
         assert.ok(m.sub.left >= m.title.right - 1, `${tag}：篇数 / 更新在标题右侧 ${JSON.stringify([m.title, m.sub])}`);
-        assert.ok(Math.abs(m.sub.bottom - m.title.bottom) <= 24, `${tag}：和标题底部对齐 ${JSON.stringify([m.title, m.sub])}`);
+        // 1031 她「和问收藏对齐」：标题改成小号一行、和右上角按钮顶对齐，计数行在按钮下面
+        assert.ok(m.sub.top >= m.manage.bottom - 2, `${tag}：计数行在「管理」下面 ${JSON.stringify([m.manage, m.sub])}`);
         assert.ok(m.manage.right >= m.wrap.right - 40 && m.manage.top <= m.title.top + 10, `${tag}：「管理」在右上角 ${JSON.stringify(m.manage)}`);
       } else {
         assert.ok(m.manage.bottom <= m.title.top + 4, `${tag}：窄屏「管理」在标题上面一行 ${JSON.stringify([m.manage, m.title])}`);
