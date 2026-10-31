@@ -718,6 +718,12 @@ body.lb-actions-on .xhs-note .lb-tags .lb-tag:hover { text-decoration: underline
 /* F6：循环 / 连播和倍速同字号（不被上面 button:first-child / :last-child 的 18px 放大） */
 .xhs-note .lb-media-tools .lb-video-loop, .xhs-note .lb-media-tools .lb-video-playlist { font-size: 13px !important; }
 .xhs-note .lb-media-tools .lb-video-loop[aria-pressed="true"] { color: var(--text-normal); font-weight: 600; }
+/* 1101 作者「这个怎么跑下面去了，应该在视频左上角，播放时隐藏」：没钉住也一样——倍速 / 循环 / 全屏 / 连播浮在视频左上角（悬停才出）；
+   播放中收起，鼠标在画面上动才露 2 秒（media-nav 挂 .lb-playing / .lb-tools-awake；10-31 那条只写进了 note.css 副本，同步时丢了） */
+.xhs-note .lb-media:has(video) .lb-media-tools { position: absolute; left: 8px; top: 8px; z-index: 6; margin: 0; gap: 4px; padding: 0 6px; border-radius: 999px; background: rgb(0 0 0 / .45); }
+.xhs-note .lb-media:has(video) .lb-media-tools button { color: #fff; }
+.xhs-note .lb-media:has(video) .lb-media-tools .lb-video-loop[aria-pressed="true"], .xhs-note .lb-media:has(video) .lb-media-tools .lb-video-full[aria-pressed="true"] { color: #fff; }
+.xhs-note .lb-media.lb-playing:not(.lb-tools-awake) .lb-media-tools { opacity: 0 !important; pointer-events: none; }
 /* N10：划重点先乐观包上的那层（写上之前淡一点；没写上会退回） */
 .xhs-note mark.lb-mark-pending { opacity: .6; }
 /* N6：评论图预写的 width/height 只做占位（防跳），高度仍按比例由宽度算，不让 height 属性变成真高度 */
