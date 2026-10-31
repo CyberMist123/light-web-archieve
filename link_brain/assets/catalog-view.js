@@ -703,6 +703,8 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-mod-recent.has-h .lbc-rec{max-height:var(--lbc-m-h);}
 /* 1027b 作者：最近导入的帖子之间不要横线；列表框里不要浮动的滚动条（滚轮 / 触控板照样滚） */
 .lbc-mod-recent .lbc-rec li{border-top:0;}
+/* 1101 作者「recent 缩进、边距和下边的同步对齐，有点行间距」：Obsidian 给 li 的左缩进去掉，日期和 SYNC 的字左边齐；每行上下多一点空 */
+.lbc-wrap .lbc-mod-recent .lbc-rec li{margin:0!important;margin-inline-start:0!important;padding:5px 0!important;}
 .lbc-mod-recent .lbc-rec{scrollbar-width:none;}
 .lbc-mod-recent .lbc-rec::-webkit-scrollbar{display:none;}
 /* 同步：「每天 18:00 · 改」点开就地改时间 */
