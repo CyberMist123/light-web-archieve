@@ -61,7 +61,7 @@ session.pinned = idList(session.pinned);
 // 页面偏好（_archive/chat-prefs.json，跨对话）：follow = 新对话的默认（缺省 'search'）；keepThread = 新问题接着这段问（缺省 false = 每问开新对话，上一段已自动进历史）
 const PREFS_PATH = lbPath('_archive/chat-prefs.json');
 let prefs = { follow: 'search', keepThread: false, report: false };
-try { const raw = JSON.parse(await app.vault.adapter.read(PREFS_PATH)); prefs = { follow: raw.follow === 'sources' ? 'sources' : 'search', keepThread: !!raw.keepThread, report: !!raw.report }; } catch {}
+try { const raw = JSON.parse(await app.vault.adapter.read(PREFS_PATH)); prefs = { follow: raw.follow === 'sources' ? 'sources' : 'search', keepThread: !!raw.keepThread, report: !!raw.report, zoom: Number(raw.zoom) || 1 }; } catch {}
 // 读进来的会话（文件 / 历史 / 别页写的）统一过它：她没点过开关的一律按偏好默认
 const followOf = o => (o && o.followPicked && (o.follow === 'search' || o.follow === 'sources') ? o.follow : prefs.follow);
 session.follow = followOf(session);
@@ -954,7 +954,7 @@ button.lbchat-toc-h{max-width:100%;white-space:nowrap;overflow:hidden;text-overf
 .lbchat-toc.is-float:hover,.lbchat-toc.is-float:focus-within,.lbchat-toc.is-float.is-pin{width:fit-content;min-width:6rem;max-width:18rem;overflow-y:auto;padding:.5rem 0 1.5rem;background:transparent;border:0;box-shadow:none;}
 .lbchat-toc.is-float.is-pin{width:18rem;}
 /* 1031 她：没钉住、悬停展开时恢复底色（压在正文上透明会叠字）；直角、细边、无阴影；钉住的仍透明 */
-.lbchat-toc.is-float:not(.is-pin):hover,.lbchat-toc.is-float:not(.is-pin):focus-within{background:var(--lb-surface);border:1px solid var(--lb-line);}
+.lbchat-toc.is-float:not(.is-pin):hover,.lbchat-toc.is-float:not(.is-pin):focus-within{background:var(--lb-surface);border:0;border-radius:8px;box-shadow:0 8px 28px rgba(0,0,0,.12);}
 .lbchat-bodywrap.is-ftoc-pin{padding-left:calc(18rem + 8px);box-sizing:border-box;}
 .lbchat-ftoc-bar{display:flex;align-items:center;padding:0 1rem 4px;}
 .lbchat button.lbchat-ftoc-tool{width:auto;height:22px;padding:0 10px!important;margin-right:5px;border:0!important;box-shadow:none!important;background:transparent!important;color:var(--lb-muted);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;border-radius:4px!important;}
@@ -1136,6 +1136,22 @@ ${LB.brandCss('.lbchat .lbchat-title', '.lbchat .lbchat-engr')}
 .lbchat .lbchat-tools{grid-column:3;grid-row:1;flex-wrap:nowrap;gap:8px;}
 .lbchat .lbchat-head .lb-manage{width:32px;height:32px;font-size:20px!important;}
 @media(max-width:560px){.lbchat .lbchat-head{grid-template-columns:1fr auto;}.lbchat .lbchat-head .lb-page-nav{grid-column:1/-1;grid-row:2;}.lbchat .lbchat-tools{grid-column:2;}}
+/* 1031 她（二）：页头不再多出一个角——整块和正文同宽（850）、同一条中线；COLLECTIONS 下面一行小字「目录 · Wiki」，右边 … · 历史 · 已保存。
+   目录钉住时：正文不再被推到右边去留一大片空，目录贴着正文左边（宽窗）；窄到放不下才把正文往右让，页头 / 输入框跟着让同样的距离（100cqw = 这一页的宽） */
+.lbchat{container-type:inline-size;}
+.lbchat .lbchat-head{width:100%;max-width:850px;box-sizing:border-box;margin:0 auto 14px;padding:0 8px;grid-template-columns:minmax(0,1fr) auto;align-items:start;gap:2px 18px;}
+.lbchat .lbchat-titleblock{grid-column:1;grid-row:1;}
+.lbchat .lbchat-head .lb-page-nav{grid-column:1;grid-row:2;justify-self:start;display:flex;gap:16px;padding:0;background:transparent;border:0;box-shadow:none;}
+.lbchat .lbchat-head .lb-page-nav button{height:auto;padding:0!important;border:0!important;border-radius:0!important;background:transparent!important;box-shadow:none!important;color:var(--lb-muted);font:inherit;font-size:13px;cursor:pointer;}
+.lbchat .lbchat-head .lb-page-nav button:hover{color:var(--lb-ink);}
+.lbchat .lbchat-tools{grid-column:2;grid-row:1;align-self:center;}
+@media(max-width:560px){.lbchat .lbchat-head .lb-page-nav{grid-column:1;grid-row:2;}.lbchat .lbchat-tools{grid-column:2;}}
+.lbchat-bodywrap.is-ftoc-pin{padding-left:max(44px,calc(36rem + 926px - 100cqw));padding-right:44px;}
+.lbchat-bodywrap.is-ftoc-pin > .lbchat-toc.is-float{left:max(4px,calc(50cqw - 437px - 18rem))!important;}
+.lbchat.ftoc-pinned .lbchat-composer,.lbchat.ftoc-pinned .lbchat-ctlrow,.lbchat.ftoc-pinned .lbchat-head{transform:translateX(max(0px,calc((36rem + 882px - 100cqw) / 2)));}
+.lbchat.ftoc-pinned .lbchat-composer{max-width:min(850px,calc(100cqw - 88px),calc(200cqw - 36rem - 970px));}
+/* 1031 她：Ctrl + 加号 / 减号（Ctrl + 滚轮）调问答区的字——只缩放对话那一列，页头和输入框不动 */
+.lbchat .lbchat-body{zoom:var(--lbchat-zoom,1);}
 /* 1026 第三轮（她录屏 04 / 05 / 06）：问这篇小条、生成状态、后台在答、报告顶上的动作、存上之后的「已保存 · 打开」、右栏证据条 */
 .lbchat .lbchat-scopechip{display:flex;align-items:center;gap:6px;align-self:flex-start;max-width:100%;margin:0 0 4px;padding:2px 4px 2px 10px;border-radius:var(--lb-radius-pill);background:var(--lb-soft);font-size:12.5px;line-height:1.6;color:var(--lb-muted);}
 .lbchat .lbchat-scopechip[hidden]{display:none;}
@@ -1229,9 +1245,9 @@ function paintSub() {
 }
 paintSub();
 const pageNav = head.createEl('nav', { cls: 'lb-page-nav' });
-const browse = pageNav.createEl('button', { text: '浏览收藏' });
+// 1031 她：COLLECTIONS 下面一行小字「目录 · Wiki」（和笔记页「← 目录 原文 机读版」一个样子）；这一页自己（问收藏）不再列
+const browse = pageNav.createEl('button', { text: '目录' });
 browse.onclick = () => { const p = provider(); if (p?.openLibraryPage) p.openLibraryPage('catalog'); else LB.openPage('catalog'); };
-const ask = pageNav.createEl('button', { text: '问收藏', cls: 'is-current' }); ask.setAttribute('aria-current', 'page');
 // 10-29 个人 Wiki：和问收藏平级的第三页（样子先沿用胶囊，统一见 docs/WIKI-UNIFY-LATER.md）
 pageNav.createEl('button', { text: 'Wiki' }).onclick = () => { const p = provider(); if (p?.openLibraryPage) p.openLibraryPage('wiki'); else LB.openPage('wiki'); };
 if (!readOnly) { const manage = tools.createEl('button', { cls: 'lb-manage', text: '…' }); manage.onclick = e => provider()?.openAISettingsMenu(e); }
@@ -1364,7 +1380,8 @@ composer.onsubmit = e => {
 };
 
 // 第二行：对话 / 已保存 切换
-const tabChat = tools.createEl('button', { cls: 'lbchat-tab', text: '对话' });
+// 1031 她：「对话」不要，只留「已保存」——再点一下「已保存」回到对话（对话钮留着不显示：切栏逻辑照旧用它）
+const tabChat = tools.createEl('button', { cls: 'lbchat-tab', text: '对话' }); tabChat.hidden = true;
 const tabArch = tools.createEl('button', { cls: 'lbchat-tab', text: '已保存' });
 // 隐私模式开着时，时钟左边一枚小字「隐私模式」（点它 = 打开历史面板，开关在面板顶上）
 const privTag = tools.createEl('button', { cls: 'lbchat-privtag', text: '隐私模式', attr: { title: '隐私模式：这段对话不进历史（点开历史面板可关掉）' } });
@@ -1397,6 +1414,36 @@ async function setPrivate(on) {
 
 // F5 / A8：对话区外包一层 bodywrap；目录左栏和右下浮钮绝对定位在它里面
 const bodyWrap = wrap.createEl('div', { cls: 'lbchat-bodywrap' });
+// 1031 她：问答的字也能 Ctrl + 加号 / 减号（Ctrl + 滚轮）整体调——只缩放对话那一列（--lbchat-zoom），80%–160%，记在 chat-prefs.json（zoom）
+const ZOOM_MIN = 0.8, ZOOM_MAX = 1.6;
+const clampZoom = z => Math.round(Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Number(z) || 1)) * 10) / 10;
+const paintZoom = () => { const z = clampZoom(prefs.zoom); if (z === 1) wrap.style.removeProperty('--lbchat-zoom'); else wrap.style.setProperty('--lbchat-zoom', String(z)); };
+paintZoom();
+let zoomSave = null;
+function stepZoom(dir) {
+  const z = clampZoom(clampZoom(prefs.zoom) + (dir > 0 ? 0.1 : -0.1));
+  if (z === clampZoom(prefs.zoom)) return;
+  prefs.zoom = z; paintZoom(); notice(`问答字号 ${Math.round(z * 100)}%`, 1500);
+  clearTimeout(zoomSave); zoomSave = setTimeout(() => { savePrefs().catch(e => notice(NOT_SAVED + errText(e))); }, 600);
+}
+const zoomPageActive = () => wrap.isConnected && !!(wrap.closest('.workspace-leaf.mod-active') || LB.activeLeafHas(wrap));
+LB.listen('zoom-key', typeof window !== 'undefined' && window.addEventListener ? window : document, 'keydown', e => {
+  if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+  const k = e.key, c = e.code;
+  const bigger = k === '=' || k === '+' || c === 'Equal' || c === 'NumpadAdd', smaller = k === '-' || k === '_' || c === 'Minus' || c === 'NumpadSubtract';
+  if ((!bigger && !smaller) || !zoomPageActive()) return;
+  e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation?.();   // 这一页上不让 Obsidian 整窗缩放
+  stepZoom(bigger ? 1 : -1);
+}, { capture: true });
+let zoomWheel = 0, zoomWheelAt = 0;
+bodyWrap.addEventListener('wheel', e => {
+  if (!(e.ctrlKey || e.metaKey)) return;
+  e.preventDefault();
+  const now = Date.now(); if (now - zoomWheelAt > 500) zoomWheel = 0; zoomWheelAt = now;
+  zoomWheel += Number(e.deltaY) || 0;
+  if (Math.abs(zoomWheel) < 100) return;   // 鼠标滚轮一格约 100；触控板捏合是小步，攒够一格再动
+  const dir = zoomWheel < 0 ? 1 : -1; zoomWheel = 0; stepZoom(dir);
+}, { passive: false });
 // 1020 她：「toc 没看到」——窄窗时目录只剩页头右上角一个小「目录」。对话区左边贴一个竖排浮签，点了弹出目录浮动板
 const tocFab = bodyWrap.createEl('button', { cls: 'lbchat-tocfab', text: '目录', attr: { title: '目录：问题 / 分类 / 条目，点了跳过去', 'aria-label': '目录' } });
 tocFab.type = 'button'; tocFab.hidden = true;
@@ -2651,7 +2698,7 @@ async function setLane(next) {
   if (lane === 'chat') await drawChat(was !== 'chat' ? { restore: stick ? 'bottom' : lastTop } : {}); else await drawArchive();
 }
 tabChat.onclick = () => setLane('chat');
-tabArch.onclick = () => setLane('archive');
+tabArch.onclick = () => setLane(lane === 'archive' ? 'chat' : 'archive');
 
 // ── F5 问收藏目录 ──
 const TOC_MIN_QUESTIONS = 2;
