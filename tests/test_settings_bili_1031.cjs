@@ -47,7 +47,7 @@ const DRY = { ok: true, message: '预演：会下载 515 条', counts: { multi_p
     basis: { size: '已入库 487 条 1080p 的实测', speed: '单连接 130–430 KB/s（10-29 实测）× 2 路' }, workers: 2, estimated: true } };
 const LAST0 = { ok: true, exists: true, state: 'interrupted', code: 'INTERRUPTED', downloaded: 340, failed: 9, multi_p: 73,
   details: { long: 11, invalid: 66 }, pending_note: 'Web/Bilibili/B站待选清单.md',
-  message: '上次同步停在第 349/849 条：进程被结束了（关机 / 注销 / 点了「停止」/ Obsidian 关掉），没来得及收尾。已经下好的都在，再点「立即同步」只补没下的（停下时正在下的那条会重下）' };
+  message: '上次同步没跑完：下到第 349 条（一共 849 条）时停了，多半是关了电脑或 Obsidian。已经下好的都在，点「立即同步」会接着下剩下的。' };
 const LAST1 = { ok: true, exists: true, state: 'done', downloaded: 515, failed: 0, multi_p: 73, details: { long: 11, invalid: 66 },
   pending_note: 'Web/Bilibili/B站待选清单.md', message: '同步完：新下 515 条、已在库 487 条、失败 0 条；多 P 的 73 条只记了链接' };
 
@@ -101,8 +101,8 @@ function makePlugin() {
   assert.equal(B.estimateText(DRY.estimate), '要下 515 条 · 总时长 85 小时 50 分 · 约 50.0 GB–90.0 GB · 约 20 小时–50 小时');
   assert.equal(B.estimateText({ count: 0 }), '没有要下的：收藏里的视频都已经在库里了');
   const lt = B.lastText(LAST0);
-  assert.match(lt.main, /停在第 349\/849 条.*关机/);
-  assert.equal(lt.sub, '新下 340 条 · 失败 9 条 · 多 P 待选 73 条（另有 超时长 11、已失效 66 条只记在明细里，不用管）', '超时长 / 失效不算待处理');
+  assert.match(lt.main, /下到第 349 条（一共 849 条）时停了，多半是关了电脑/);
+  assert.equal(lt.sub, '这次新下了 340 条；9 条没下成（下次同步会再试）；73 个分集很多的视频等你挑要不要下。另外 11 条太长、66 条已经被删 / 失效，先没下，不用管。', '1101 说人话；超时长 / 失效不算待处理');
   assert.equal(B.lastText(null).main, '还没同步过 B 站收藏');
 
   // —— 画卡：登录状态、选项、上次摘要 ——
@@ -117,11 +117,10 @@ function makePlugin() {
   assert.match(card.querySelector('.lb-acct-row').textContent, /12\*\*\*34 · ✓ 已登录（大会员）/);
   assert.match(text(), /重新扫码登录」扫一次能拿无水印片源/);
   assert.equal(card.querySelectorAll('.lb-acct-row button').filter(b => !b.hidden).length, 0, '网页端登着：没有大按钮');
-  assert.match(text(), /上次：上次同步停在第 349\/849 条/, '被打断的那次：停在第几条、为什么');
+  assert.match(text(), /上次：上次同步没跑完：下到第 349 条/, '被打断的那次：停在第几条、为什么');
   const btn = t => card.querySelectorAll('button').find(b => b.textContent === t);
   assert.equal(tab.stops.length, 1, '任务监听在设置页关掉时注销');
-  btn('打开 B站待选清单').onclick();
-  assert.equal(plugin.opened, LAST0.pending_note);
+  assert.ok(btn('挑要下的视频…'), '1101：不再打开待选清单笔记，直接给「挑要下的视频…」（打开挑选弹窗）');
 
   // —— 选项改了就存；存失败拨回 ——
   const rowOf = n => card.querySelectorAll('.setting-item').find(r => r.querySelector('.setting-item-name').textContent === n);
@@ -153,7 +152,7 @@ function makePlugin() {
   const run = plugin.runs.at(-1);
   assert.equal(run.label, '下载 B 站收藏') ; assert.ok(!/同步/.test(run.label) && run.quiet && !run.args.includes('--dry-run'));
   const fin = plugin.notices.at(-1);
-  assert.match(fin.m, /新下 515 条/); assert.equal(fin.kind, 'ok'); assert.equal(fin.actions[0].label, '打开待选清单');
+  assert.match(fin.m, /新下 515 条/); assert.equal(fin.kind, 'ok'); assert.equal(fin.actions[0].label, '挑要下的视频…');
   assert.match(text(), /上次：同步完：新下 515 条/);
   assert.ok(btn('停止').hidden, '跑完「停止」收起');
 

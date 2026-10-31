@@ -765,8 +765,9 @@ def last_summary() -> dict[str, Any]:
     if state == "interrupted":
         out["stop_reason"] = INTERRUPTED_REASON
         out["code"] = "INTERRUPTED"
-        out["message"] = (f"上次同步停在第 {prog.get('done', '?')}/{prog.get('total', '?')} 条：{INTERRUPTED_REASON}。"
-                          f"已经下好的都在，再点「立即同步」只补没下的（停下时正在下的那条会重下）")
+        # 1101 作者「最好是没有电脑经验的小白看得懂的话」
+        out["message"] = (f"上次同步没跑完：下到第 {prog.get('done', '?')} 条（一共 {prog.get('total', '?')} 条）时停了，"
+                          f"多半是关了电脑或 Obsidian。已经下好的都在，点「立即同步」会接着下剩下的。")
     elif running:
         out["message"] = f"正在同步：第 {prog.get('done', 0)}/{prog.get('total', '?')} 条"
     elif state == "stopped":

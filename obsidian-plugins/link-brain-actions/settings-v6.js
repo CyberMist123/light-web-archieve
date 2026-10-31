@@ -327,12 +327,13 @@ module.exports = function (obsidian, plugin) {
   }
   function lastText(l) {
     if (!l || !l.exists) return { main: '还没同步过 B 站收藏', sub: '' };
-    const bits = [`新下 ${l.downloaded} 条`, `失败 ${l.failed} 条`];
-    if (l.multi_p) bits.push(`多 P 待选 ${l.multi_p} 条`);
+    // 1101 作者「小白看得懂」：说人话——下了几条、几条没下成、几个分集很多的视频等你挑；超长 / 失效的一句带过
+    const bits = [`这次新下了 ${l.downloaded} 条`];
+    if (l.failed) bits.push(`${l.failed} 条没下成（下次同步会再试）`);
+    if (l.multi_p) bits.push(`${l.multi_p} 个分集很多的视频等你挑要不要下`);
     const d = l.details || {};
-    const quiet = [d.long ? `超时长 ${d.long}` : '', d.invalid ? `已失效 ${d.invalid}` : ''].filter(Boolean);
-    // 1031 作者：超时长 / 失效的不用管——不算待处理，只在括号里给个数（明细在待选清单最下面）
-    return { main: l.message || '', sub: bits.join(' · ') + (quiet.length ? `（另有 ${quiet.join('、')} 条只记在明细里，不用管）` : '') };
+    const quiet = [d.long ? `${d.long} 条太长` : '', d.invalid ? `${d.invalid} 条已经被删 / 失效` : ''].filter(Boolean);
+    return { main: l.message || '', sub: bits.join('；') + '。' + (quiet.length ? `另外 ${quiet.join('、')}，先没下，不用管。` : '') };
   }
   function openVaultNote(rel) {
     if (!rel) { plugin.notify('还没有待选清单：同步一次就有'); return; }
@@ -648,11 +649,11 @@ module.exports = function (obsidian, plugin) {
     const opts = card.createDiv({ cls: 'lb-bili-opts', attr: { 'data-section': 'bili-options' } });
     const o = biliOpts();
     select(row(opts, tab, '画质'), BILI_QUALITY, () => biliOpts().quality, v => saveBili('quality', v), { label: 'B 站画质' });
-    opts.createDiv({ cls: 'setting-item-description lb-bili-note', text: '最高 = 能拿到的最高清晰度（大会员可到 4K / 8K），不要杜比视界（Obsidian 里放不了）。' });
+    opts.createDiv({ cls: 'setting-item-description lb-bili-note', text: '最高 = 你的账号能拿到的最高清晰度：普通账号最高 1080P，大会员能到 4K / 8K。不要杜比视界（Obsidian 里放不了）。' });
     const durSel = select(row(opts, tab, '超过多长先不下'), BILI_DURATION, () => String(biliOpts().maxDuration), v => saveBili('maxDuration', parseInt(v, 10) || 0), { label: 'B 站时长上限' });
     opts.createDiv({ cls: 'setting-item-description lb-bili-note', text: '超过的先只记链接；想下哪几条，在下面「挑选要同步的…」里勾。' });
     select(row(opts, tab, '同时下几路'), BILI_WORKERS, () => String(biliOpts().workers), v => saveBili('workers', parseInt(v, 10) || 1), { label: 'B 站并行路数' });
-    opts.createDiv({ cls: 'setting-item-description lb-bili-note', text: '路数多下得快；B 站一限流就自动退回一路接着下。' });
+    opts.createDiv({ cls: 'setting-item-description lb-bili-note', text: '路数多下得快，网络和硬盘也更忙；B 站一限流就自动退回一路接着下。电脑不太稳（比如下着下着蓝屏）就先用 1–2 路。' });
     const tg = (name, key) => row(opts, tab, name).addToggle(t => {
       let quiet = false;
       t.setValue(o[key] !== false).onChange(async v => {
@@ -690,7 +691,8 @@ module.exports = function (obsidian, plugin) {
       const t = lastText(l);
       last.createDiv({ cls: 'lb-bili-last-main', text: '上次：' + t.main });
       if (t.sub) last.createDiv({ cls: 'lb-bili-last-sub', text: t.sub });
-      if (l && l.exists) { const a = last.createEl('button', { cls: 'lb-link', text: '打开 B站待选清单' }); a.onclick = () => openVaultNote(l.pending_note); }
+      // 1101 作者：待选清单那篇笔记（打勾 = 划掉、让人用命令行）太迷惑——直接打开「挑选要同步的…」弹窗勾要下的
+      if (l && l.exists && (l.multi_p || (l.details || {}).long)) { const a = last.createEl('button', { cls: 'lb-link', text: '挑要下的视频…' }); a.onclick = () => pickBtn.onclick(); }
     };
     // 1031 作者：跑的时候还挂着上一趟的报错，看着像没在跑——开跑就换成进度，跑完再读回「上次」
     const paintLive = text => { last.empty(); last.createDiv({ cls: 'lb-bili-last-main', text }); };
@@ -744,7 +746,7 @@ module.exports = function (obsidian, plugin) {
         const r = await pending;
         const j = r && r.json;
         if (j) {
-          const acts = j.counts && j.counts.multi_p ? [{ label: '打开待选清单', run: () => openVaultNote(j.pending_note) }] : null;
+          const acts = j.counts && j.counts.multi_p ? [{ label: '挑要下的视频…', run: () => pickBtn.onclick() }] : null;
           plugin.notify(j.message || (j.ok ? '同步完成' : '同步没做完'), { kind: j.ok ? 'ok' : 'warn', ms: 8000, actions: acts });
         } else if (r && r.code !== 6) plugin.notify('B 站同步停了：已经下好的都在，再点「立即同步」只补没下的', { kind: 'warn' });
       } finally { stopWatch(); done(); paintRunning(); await loadLast(); }
