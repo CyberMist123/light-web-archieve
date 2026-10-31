@@ -1136,20 +1136,25 @@ ${LB.brandCss('.lbchat .lbchat-title', '.lbchat .lbchat-engr')}
 .lbchat .lbchat-tools{grid-column:3;grid-row:1;flex-wrap:nowrap;gap:8px;}
 .lbchat .lbchat-head .lb-manage{width:32px;height:32px;font-size:20px!important;}
 @media(max-width:560px){.lbchat .lbchat-head{grid-template-columns:1fr auto;}.lbchat .lbchat-head .lb-page-nav{grid-column:1/-1;grid-row:2;}.lbchat .lbchat-tools{grid-column:2;}}
-/* 1031 她（二）：页头不再多出一个角——整块和正文同宽（850）、同一条中线；COLLECTIONS 下面一行小字「目录 · Wiki」，右边 … · 历史 · 已保存。
-   目录钉住时：正文不再被推到右边去留一大片空，目录贴着正文左边（宽窗）；窄到放不下才把正文往右让，页头 / 输入框跟着让同样的距离（100cqw = 这一页的宽） */
-.lbchat{container-type:inline-size;}
-.lbchat .lbchat-head{width:100%;max-width:850px;box-sizing:border-box;margin:0 auto 14px;padding:0 8px;grid-template-columns:minmax(0,1fr) auto;align-items:start;gap:2px 18px;}
+/* 1101 她：页头和目录框对齐、正文贴着目录（1031 那版用了 container-type / cqw，在 Obsidian 里把整页挤成一窄条，撤掉）。
+   一律按这一页的宽（W，百分比都相对 .lbchat 内容宽 = 对话区宽）算：
+   没钉住：正文 850 居中；目录那条竖线贴在正文左边 40px（不再在整页最左）；页头左边和目录对齐、右边和正文对齐。
+   钉住：目录 18rem + 24px + 正文 850 当一组居中（窄了组从左边 4px 开始、正文让到目录右边）；页头 / 输入框 / 输入框上面那几条跟着这一组走。 */
+.lbchat .lbchat-head{width:auto;max-width:none;box-sizing:border-box;margin:0 max(44px,calc(50% - 425px)) 14px max(4px,calc(50% - 465px));padding:0;grid-template-columns:minmax(0,1fr) auto;align-items:start;gap:2px 18px;}
 .lbchat .lbchat-titleblock{grid-column:1;grid-row:1;}
 .lbchat .lbchat-head .lb-page-nav{grid-column:1;grid-row:2;justify-self:start;display:flex;gap:16px;padding:0;background:transparent;border:0;box-shadow:none;}
 .lbchat .lbchat-head .lb-page-nav button{height:auto;padding:0!important;border:0!important;border-radius:0!important;background:transparent!important;box-shadow:none!important;color:var(--lb-muted);font:inherit;font-size:13px;cursor:pointer;}
 .lbchat .lbchat-head .lb-page-nav button:hover{color:var(--lb-ink);}
 .lbchat .lbchat-tools{grid-column:2;grid-row:1;align-self:center;}
 @media(max-width:560px){.lbchat .lbchat-head .lb-page-nav{grid-column:1;grid-row:2;}.lbchat .lbchat-tools{grid-column:2;}}
-.lbchat-bodywrap.is-ftoc-pin{padding-left:max(44px,calc(36rem + 926px - 100cqw));padding-right:44px;}
-.lbchat-bodywrap.is-ftoc-pin > .lbchat-toc.is-float{left:max(4px,calc(50cqw - 437px - 18rem))!important;}
-.lbchat.ftoc-pinned .lbchat-composer,.lbchat.ftoc-pinned .lbchat-ctlrow,.lbchat.ftoc-pinned .lbchat-head{transform:translateX(max(0px,calc((36rem + 882px - 100cqw) / 2)));}
-.lbchat.ftoc-pinned .lbchat-composer{max-width:min(850px,calc(100cqw - 88px),calc(200cqw - 36rem - 970px));}
+.lbchat-bodywrap > .lbchat-toc.is-float{left:max(4px,calc(50% - 465px))!important;}
+.lbchat-bodywrap.is-ftoc-pin{justify-content:flex-start;padding-left:max(316px,calc(50% - 269px));padding-right:max(16px,calc(50% - 581px));}
+.lbchat-bodywrap.is-ftoc-pin > .lbchat-toc.is-float{left:max(4px,calc(50% - 581px))!important;}
+.lbchat.ftoc-pinned .lbchat-head{margin-left:max(4px,calc(50% - 581px));margin-right:max(16px,calc(50% - 581px));}
+.lbchat button.lbchat-tab[hidden]{display:none!important;}
+/* 有目录（没钉住）时：输入框和上面那几条也只占正文那一栏（窄窗时以前比正文宽出一截） */
+.lbchat:has(> .lbchat-bodywrap.has-ftoc) :is(.lbchat-composer,.lbchat-srcbar,.lbchat-queue,.lbchat-followbar,.lbchat-bgbar,.lbchat-cfgbar,.lbchat-ro){width:auto;max-width:850px;margin-left:max(44px,calc(50% - 425px));margin-right:max(44px,calc(50% - 425px));}
+.lbchat.ftoc-pinned:has(> .lbchat-bodywrap.has-ftoc) :is(.lbchat-composer,.lbchat-ctlrow,.lbchat-srcbar,.lbchat-queue,.lbchat-followbar,.lbchat-bgbar,.lbchat-cfgbar,.lbchat-ro){transform:none;width:auto;max-width:850px;margin-left:max(316px,calc(50% - 269px));margin-right:max(16px,calc(50% - 581px));}
 /* 1031 她：Ctrl + 加号 / 减号（Ctrl + 滚轮）调问答区的字——只缩放对话那一列，页头和输入框不动 */
 .lbchat .lbchat-body{zoom:var(--lbchat-zoom,1);}
 /* 1026 第三轮（她录屏 04 / 05 / 06）：问这篇小条、生成状态、后台在答、报告顶上的动作、存上之后的「已保存 · 打开」、右栏证据条 */

@@ -33,7 +33,7 @@ const state = () => JSON.parse(globalThis.__lbState['lb:catalog']);
     plugin.settings.catalogTitle = '我的收藏';
     P.app.workspace.trigger('link-brain:catalog-prefs');
     assert.equal(t.textContent, '我的收藏'); assert.equal(t.dataset.text, '我的收藏', '改标题设置时刻线层一起换');
-    assert.equal(P.$('.lb-manage .lbc-manage-dots').textContent, '···', '1031「编排 / 管理」并成「···」');
+    assert.ok(P.$('.lb-manage') && P.$('.lb-manage').textContent === '编排和管理', '1031「编排 / 管理」并成「···」（1101 起三个点用 SVG 画）');
     assert.ok(P.$('.lbc-tools').contains(P.$('.lb-manage')));
     assert.equal(P.$('.lbc-head .lb-page-nav'), null, '1031 作者（二）：标题旁不再有三页切换');
     // 1031 作者「和问收藏对齐」：标题后面三页切换，当前页「浏览收藏」；筛选行不再有「问收藏 →」
@@ -43,7 +43,7 @@ const state = () => JSON.parse(globalThis.__lbState['lb:catalog']);
     assert.equal(P.$('.lbc-search').placeholder, '搜索收藏 · #标签');
     assert.ok(P.$('.lbc-searchbox').contains(P.$('.lbc-search')), '搜索框在胶囊里');
     // 篇数：数字加粗，字照旧
-    assert.equal(P.$('.lbc-count').textContent, '4 篇'); assert.equal(P.$('.lbc-count b').textContent, '4');
+    assert.equal(P.$('.lbc-count').textContent, '共 4 篇'); assert.equal(P.$('.lbc-count b').textContent, '4');
     // 分类行只放「全部 + 分类」
     assert.deepEqual(P.$$('.lbc-cats .lbc-cat').map(b => b.textContent), ['全部', '城市', '吃的']);
     assert.deepEqual(P.$$('.lbc-scope-tab').map(b => [b.textContent, b.dataset.n]),

@@ -72,9 +72,10 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-wrap .lbc-title button.lbc-import:hover{transform:rotate(90deg);}
 .lbc-wrap .lbc-title button.lbc-import[aria-busy="true"]{opacity:.5;cursor:progress;}
 .lbc-tools{position:absolute;top:0;right:0;z-index:1;display:flex;align-items:center;gap:8px;}
-.lbc-wrap .lbc-tools button.lb-manage{width:auto!important;height:40px!important;min-width:40px;padding:0 13px!important;border:1px solid var(--lb-line)!important;border-radius:10px!important;background:var(--lb-surface)!important;color:var(--lb-ink)!important;box-shadow:0 1px 4px #0000000c!important;font:500 var(--lb-fs-body)/1 var(--lb-font-body)!important;display:inline-flex;align-items:center;justify-content:center;gap:7px;cursor:pointer;white-space:nowrap;}
+.lbc-wrap .lbc-tools button.lb-manage{width:40px!important;height:40px!important;min-width:40px;padding:0!important;border:0!important;border-radius:10px!important;background:transparent!important;color:var(--lb-ink)!important;box-shadow:none!important;font:500 var(--lb-fs-body)/1 var(--lb-font-body)!important;display:inline-flex;align-items:center;justify-content:center;gap:7px;cursor:pointer;white-space:nowrap;}
 .lbc-wrap .lbc-tools button.lb-manage:hover{background:var(--lb-soft)!important;color:var(--lb-ink)!important;}
-.lbc-wrap .lbc-tools .lbc-manage-dots{font-size:20px;letter-spacing:-.06em;line-height:1;transform:translateY(-3px);}
+/* 1101：「···」不要框（和 Wiki / 问收藏页头一样），三个点用 SVG 画，左右上下都对称 */
+.lbc-wrap .lbc-tools .lbc-manage-dots{display:block;width:18px;height:4px;}
 .lbc-subline{display:flex;gap:2px 8px;align-items:baseline;justify-content:flex-start;flex-wrap:wrap;min-width:0;padding-bottom:14px;font:16px/1.3 var(--f-latin);color:var(--c-muted);letter-spacing:.02em;font-variant-numeric:lining-nums tabular-nums;}
 .lbc-sub{font:inherit;color:var(--c-muted);white-space:nowrap;}
 /* 1027b 计数行不写 italic：随包的 Cormorant 只有斜体那一面，数字照样是斜的；中文（篇 / 全部 / 更新）落到衬线中文就是直立的，不被硬斜 */
@@ -590,8 +591,10 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-wrap .lbc-pagenav{flex:none;display:inline-flex;align-items:center;gap:8px;margin-left:14px;white-space:nowrap;}
 .lbc-wrap .lbc-pagenav button{height:auto!important;padding:0!important;border:0!important;border-radius:0!important;background:transparent!important;box-shadow:none!important;color:var(--c-muted);font:inherit;font-size:14px;cursor:pointer;}
 .lbc-wrap .lbc-pagenav button:hover{color:var(--c-ink);}
-.lbc-wrap .lbc-pagenav .lbc-pnav-dot{color:var(--c-faint);}
-.lbc-wrap .lbc-type-tab.lbc-type-sep{position:relative;margin-left:12px;}
+/* 1101：搜索框和「问收藏 | Wiki」并排一行（不再折到下面）；两个之间一道细竖线，和「视频 | 附件」一样 */
+.lbc-wrap .lbc-ctl.lbc-ctl-piece.lbc-blk-search{flex-wrap:nowrap;}
+.lbc-wrap .lbc-pagenav .lbc-pnav-dot{width:0;height:1em;border-left:1px solid var(--c-line);margin:0 2px;}
+.lbc-wrap .lbc-type-tab.lbc-type-sep{position:relative;margin-left:-8px;}
 .lbc-wrap .lbc-type-tab.lbc-type-sep::before{content:"";position:absolute;left:-7px;top:50%;height:1em;margin-top:-.5em;border-left:1px solid var(--c-line);}
 /* 1031 作者「搜索框是否需要扩大点，方便选到」：搜索那一列吃掉这一排剩下的宽度（最窄 150px，挤的时候 120px），整颗胶囊都能点进去 */
 .lbc-row.is-free>.lbc-rcol.is-grow{flex:1 1 150px;width:auto!important;min-width:150px;max-width:340px;margin-left:auto!important;}
@@ -1210,7 +1213,7 @@ if (app.vault.on && dv.component?.registerEvent) {
 // 1031 作者：「编排」和「管理」并成一颗「···」——菜单里 编排 · 每行几列 · 管理那几样
 const manage = mobile ? null : tools.createEl('button', { cls: 'lb-manage lbc-manage' });
 if (manage) {
-  manage.type = 'button'; manage.createEl('span', { cls: 'lbc-manage-dots', text: '···' });
+  manage.type = 'button'; manage.innerHTML = '<svg class="lbc-manage-dots" viewBox="0 0 18 4" aria-hidden="true"><g fill="currentColor"><circle cx="2" cy="2" r="1.8"/><circle cx="9" cy="2" r="1.8"/><circle cx="16" cy="2" r="1.8"/></g></svg>';
   manage.createEl('span', { cls: 'lb-visually-hidden', text: '编排和管理' });   // 不设 aria-label / title：Obsidian 会渲染成悬浮框
 }
 // 1026 作者（16:55「它甚至没有回收站」；分类删了内容去哪不清楚）：「管理」按用途分组——
@@ -1308,7 +1311,7 @@ search.type = 'search'; search.placeholder = '搜索收藏 · #标签';
 const searchX = searchBox.createEl('button', { cls: 'lbc-search-x', text: '×' }); searchX.type = 'button'; searchX.hidden = true;
 const pageNav = blocks.search.createEl('nav', { cls: 'lbc-pagenav' });
 for (const [role, label] of [...(starredPage ? [['catalog', '目录']] : []), ['chat', '问收藏'], ['wiki', 'Wiki']]) {
-  if (pageNav.childNodes.length) pageNav.createEl('span', { cls: 'lbc-pnav-dot', text: '·' });
+  if (pageNav.childNodes.length) pageNav.createEl('span', { cls: 'lbc-pnav-dot', attr: { 'aria-hidden': 'true' } });
   const b = pageNav.createEl('button', { text: label, cls: 'lbc-pnav-' + role }); b.type = 'button';
   b.onclick = () => (role === 'chat' ? LB.openPage('chat') : openLib(role));
 }
@@ -1532,30 +1535,11 @@ function renderScope() {
     const plat = activePlat || platsTab[0]?.[0] || '';
     const none = /^(xhs|xiaohongshu)$/.test(plat) ? '还没读过小红书专辑（夜跑「读专辑」没开）'
       : /^(bili|bilibili|bv)$/.test(plat) ? '还没读到 B 站收藏夹（同步一次就有）' : '这个来源没有专辑';
-    // 1031 她「收藏的 tag 拎出来 / diy 就拎出来」：常用的专辑直接摆在下拉后面（默认篇数最多的 5 个；下拉最后「挑摆出来的…」自己定，存本机）
-    const pinned = (pinAlbums[plat] || []).filter(n => albums.some(([a]) => a === n));
-    const shown = pinned.length ? pinned : albums.slice(0, 5).map(([n]) => n);
-    let at = chip.nextSibling;
-    for (const name of shown) {
-      const t = albumHost.createEl('button', { cls: 'lbc-cat lbc-album-tab' + (activeAlbum === name ? ' is-active' : ''), text: name });
-      t.type = 'button'; t.dataset.scope = 'album:' + name; t.setAttribute('aria-pressed', String(activeAlbum === name));
-      t.onclick = () => pickAlbum(activeAlbum === name ? '' : name);
-      albumHost.insertBefore(t, at);
-    }
-    const pinMenu = e => popMenu([
-      { title: '摆在栏上的专辑（勾几个都行；都不勾 = 篇数最多的 5 个）', disabled: true, onClick: () => {} },
-      { separator: true },
-      ...albums.map(([n, c]) => ({ title: `${n}（${c}）`, checked: pinned.includes(n), onClick: () => {
-        const cur = new Set(pinAlbums[plat] || []); if (cur.has(n)) cur.delete(n); else cur.add(n);
-        pinAlbums = { ...pinAlbums, [plat]: albums.map(([a]) => a).filter(a => cur.has(a)) }; saveState(); renderCatBar();
-      } })),
-    ], e, chip);
+    // 1101 作者：专辑都收在「专辑 ▾」里，不再摆几个在栏上（1031 那版「常用专辑拎出来」撤掉）；选中的那个照旧写在按钮上「专辑：xx」
     chip.onclick = e => popMenu(albums.length ? [
       { title: '全部专辑', checked: !activeAlbum, onClick: () => pickAlbum('') },
       { separator: true },
       ...albums.map(([n, c]) => ({ title: `${n}（${c}）`, checked: n === activeAlbum, onClick: () => pickAlbum(n === activeAlbum ? '' : n) })),
-      { separator: true },
-      { title: '挑摆在栏上的专辑…', onClick: () => pinMenu(e) },
     ] : [{ title: none, disabled: true, onClick: () => {} }], e, chip);
   }
   if (focusedKey != null) { const again = scopeBoxes.flatMap(x => [...x.querySelectorAll('button')]).find(b => (b.dataset?.scope ?? b.dataset?.type) === focusedKey); try { again?.focus({ preventScroll: true }); } catch { again?.focus?.(); } }
@@ -3046,12 +3030,12 @@ function paintSub() {
   // 含后来取消收藏的；回收站里的不算）。和同步进度的「收藏已入库 A/T」不是一个数，悬停写明
   // 1023：默认只看「我的收藏」时，旁边带上全部几篇（问收藏页显示的是全部，两边对得上；ARCH-AUDIT §7）
   const allNote = !starredPage && allItems.length !== items.length ? ` · 全部 ${allItems.length}` : '';
-  const countText = (filtered && r ? `筛出 ${r.exact.length} 篇（共 ${items.length}）` : `${items.length} 篇`) + allNote;
+  // 1101 作者：只要「共 N 篇 · 更新 …」一行（「筛出 N 篇（共 M）· 全部 K」折成两行、不对称，不要）；N = 全部（和问收藏页「全部 N 篇」对得上），筛出几篇看下面的卡片
+  void allNote;
+  const countText = `共 ${(starredPage ? items : allItems).length} 篇`;
   if (countEl.textContent !== countText) {
     countEl.empty();
-    if (filtered && r) { countEl.append('筛出 '); countEl.createEl('b', { text: String(r.exact.length) }); countEl.append(` 篇（共 ${items.length}）`); }
-    else { countEl.createEl('b', { text: String(items.length) }); countEl.append(' 篇'); }
-    if (allNote) countEl.append(allNote);
+    countEl.append('共 '); countEl.createEl('b', { text: String((starredPage ? items : allItems).length) }); countEl.append(' 篇');
   }
   countEl.title = (filtered && r ? `当前筛选${filterLabel() ? '（' + filterLabel() + '）' : ''}命中 ${r.exact.length} 篇；` : '')
     + `目录里一共 ${items.length} 篇：收藏同步进来的 + 分享 / 导入单篇的（含后来取消收藏的，回收站里的不算）。收藏夹同步到哪了（收藏已入库几篇 / 还差几篇）点右边「更新」看同步记录`;

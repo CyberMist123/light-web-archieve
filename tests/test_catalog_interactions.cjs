@@ -128,7 +128,7 @@ async function runCatalogPage(data,{view=fs.readFileSync('link_brain/assets/cata
   assert.ok(page.chips()[0].classList.contains('is-active'));assert.equal(page.chips()[0].getAttribute('aria-pressed'),'true');
   assert.ok(quick()[0].classList.contains('is-active'));
   assert.ok(!scopeAll().classList.contains('is-active'));
-  assert.equal(page.root.querySelector('.lbc-count').textContent,'筛出 2 篇（共 3）');
+  assert.equal(page.root.querySelector('.lbc-count').textContent,'共 3 篇');
   page.chips()[0].onclick();
   assert.equal(page.cards().length,3);assert.ok(scopeAll().classList.contains('is-active'));
   assert.equal(page.root.querySelectorAll('.lbc-topics').length,0,'再点当前主题 = 回到全部，主题行收起');
@@ -157,11 +157,8 @@ async function runCatalogPage(data,{view=fs.readFileSync('link_brain/assets/cata
     const pg=await runCatalogPage(alb);
     const chip=()=>pg.root.querySelector('.lbc-albpick');
     const item=t=>pg.dom.document.body.querySelectorAll('.lbc-menu-item').find(e=>e.textContent.replace(/^✓ /,'')===t);
-    // 1031 她「收藏的 tag 拎出来」：下拉后面再摆篇数最多的几个专辑，点一下筛、再点取消
-    assert.deepEqual(pg.root.querySelectorAll('.lbc-album-tab').map(b=>b.textContent),['做饭','睡前'],'常用专辑摆在下拉后面');
-    pg.root.querySelectorAll('.lbc-album-tab')[1].onclick();assert.deepEqual(pg.cards(),['睡前记忆整理']);
-    assert.ok(pg.root.querySelectorAll('.lbc-album-tab')[1].classList.contains('is-active'));
-    pg.root.querySelectorAll('.lbc-album-tab')[1].onclick();assert.equal(pg.cards().length,3,'再点取消');
+    // 1101 作者：专辑都收在「专辑 ▾」里，栏上不再摆
+    assert.equal(pg.root.querySelectorAll('.lbc-album-tab').length,0,'栏上不摆专辑');
     assert.ok(pg.root.querySelector('.lbc-m-albums').contains(chip()),'在「专辑」那一块里');
     assert.equal(chip().textContent,'专辑');assert.ok(chip().classList.contains('lbc-album'));
     chip().onclick(ev);

@@ -227,7 +227,7 @@ const run = async (name, fn) => { try { await fn(); console.log('  ok   ' + name
     assert.ok(A.q('.lbw-dock .lbw-ai[data-scope="part"]'), '页头「AI」：底部对话框，范围 = 光标所在那一节');
     assert.ok(A.q('.lbw-dock-head').textContent.includes('改「在意什么」这一节'));
     assert.ok(!A.q('.lbw-edbar [data-ai]'), '格式条上没有「AI 改」了');
-    assert.deepEqual(texts(A, '.lbw-ai [data-preset]'), ['润色', '精简', '说清楚一点', '改成列表', '只改错字']);
+    assert.deepEqual(texts(A, '.lbw-ai [data-preset]'), ['润色', '精简', '说清楚一点']);
     assert.equal(A.qa('.lbw-blk.is-ai-lock').length, 4, '这一节（小标题 + 三条）锁住');
     blk(A, '干净').click(); await tick(1);
     assert.equal(A.q('.lbw-ed'), null, '锁住的段点了不开编辑'); assert.ok(A.notices.at(-1).includes('在让 AI 改'));
@@ -267,7 +267,7 @@ const run = async (name, fn) => { try { await fn(); console.log('  ok   ' + name
     // 原文被改了 → 作废
     blk(A, '为什么记').click(); A.q('.lbw-hbtn[data-ai]').click(); await tick(5);
     P.aiText = '为什么记：改过。';
-    A.q('.lbw-ai [data-preset="fix"]').click(); await tick(15);
+    A.q('.lbw-ai [data-preset="concise"]').click(); await tick(15);
     V.set('PersonalWiki/住宿偏好.md', V.get('PersonalWiki/住宿偏好.md').replace('为什么记：每次都从头翻。', '在 Obsidian 里改了这句。')); await tick(700);
     const n0 = P.calls.filter(c => c.op === 'save').length;
     A.q('.lbw-ai [data-ai="apply"]').click(); await tick(10);
@@ -277,10 +277,10 @@ const run = async (name, fn) => { try { await fn(); console.log('  ok   ' + name
     // 没配 AI
     blk(A, '结尾改了').click(); A.q('.lbw-hbtn[data-ai]').click(); await tick(5);
     P.aiFail = 'AI 没改成：没有能用的文本 AI（没配）';
-    A.q('.lbw-ai [data-preset="fix"]').click(); await tick(15);
+    A.q('.lbw-ai [data-preset="concise"]').click(); await tick(15);
     assert.ok(A.q('.lbw-ai').textContent.includes('没有能用的文本 AI'), '原因写在面板上');
     P.aiFail = null; P.aiText = input => input.text;   // 原样回来
-    A.q('.lbw-ai [data-preset="fix"]').click(); await tick(15);
+    A.q('.lbw-ai [data-preset="concise"]').click(); await tick(15);
     assert.ok(A.q('.lbw-ai').textContent.includes('一个字都没改'));
   });
 
@@ -290,7 +290,7 @@ const run = async (name, fn) => { try { await fn(); console.log('  ok   ' + name
     A.q('.lbw-hbtn.is-more').click();
     A.qa('.lbw-pop button').find(b => b.textContent.startsWith('让 AI 改整页')).click(); await tick(2);
     assert.ok(A.q('.lbw-dock .lbw-ai[data-scope="page"]') && A.q('.lbw-side').hidden, '底部对话框（不占右侧栏）');
-    assert.deepEqual(texts(A, '.lbw-dock [data-preset]'), ['理顺结构', '精简', '从引用补要点', '搭个框架', '润色']);
+    assert.deepEqual(texts(A, '.lbw-dock [data-preset]'), ['理顺结构', '精简', '从引用补要点']);
     assert.ok(A.qa('.lbw-blk.is-ai-lock').length >= 1, '整页锁住');
     P.aiText = '## 为什么\n种草先挂着，町屋民宿。\n\n## 想住\n- 町屋';
     A.q('.lbw-dock [data-preset="structure"]').click(); await tick(15);

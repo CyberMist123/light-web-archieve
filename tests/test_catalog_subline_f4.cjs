@@ -12,7 +12,7 @@ const { DATA, tick, item, catalogData, openCatalog } = require('./_fake_l1.cjs')
   const P = await openCatalog({ data, plugin });
   const { A, V, dom } = P;
   // 计数：不可点、没有 role；没有可能相关时不渲染那块
-  assert.equal(P.$('.lbc-count').textContent, '2 篇');
+  assert.equal(P.$('.lbc-count').textContent, '共 2 篇');
   assert.equal(P.$('.lbc-count').onclick, undefined); assert.equal(P.$('.lbc-count').getAttribute('role'), null);
   assert.equal(P.$('.lbc-possible-link').hidden, true);
   // 「更新」→ openSyncLog
@@ -32,7 +32,7 @@ const { DATA, tick, item, catalogData, openCatalog } = require('./_fake_l1.cjs')
   // 新鲜度：catalog-data 被改写（条数和 built_at 都变）+ modify 事件 → 900ms 后「更新」和计数跟上
   V.set(DATA, JSON.stringify(catalogData([...items, item('c', '新同步进来的')], { built_at: '2026-10-09T06:30:00+10:00' })));
   await tick(900);
-  assert.equal(P.$('.lbc-count').textContent, '3 篇');
+  assert.equal(P.$('.lbc-count').textContent, '共 3 篇');
   assert.match(P.$('.lbc-updated').textContent, /^更新 10\/09 \d\d:30$/);
   assert.equal(A.container.__lbView.version, `${(await V.vault.adapter.stat(DATA)).mtime}:${(await V.vault.adapter.stat(DATA)).size}`, '版本跟上');
   // 看不见时发 modify：不读文件；露出来（活动标签页切过来）才读
@@ -44,7 +44,7 @@ const { DATA, tick, item, catalogData, openCatalog } = require('./_fake_l1.cjs')
   A.leafObj.view.containerEl.hidden = false;
   A.activate(); await tick(10);
   assert.equal(V.reads[DATA], 1, '切回来才读');
-  assert.equal(P.$('.lbc-count').textContent, '2 篇');
+  assert.equal(P.$('.lbc-count').textContent, '共 2 篇');
   // update 失败：不推进版本，下次重跑重试成功
   const realRead = V.vault.adapter.read; let fail = 1;
   V.vault.adapter.read = async p => { if (p === DATA && fail-- > 0) throw new Error('EBUSY'); return realRead(p); };
@@ -54,9 +54,9 @@ const { DATA, tick, item, catalogData, openCatalog } = require('./_fake_l1.cjs')
   await A.rerun();
   assert.equal(A.container.__lbView.version, vBefore, 'update 失败不推进版本');
   assert.ok(A.container.__lbView.lastError, '记下 lastError');
-  assert.equal(P.$('.lbc-count').textContent, '2 篇');
+  assert.equal(P.$('.lbc-count').textContent, '共 2 篇');
   await A.rerun();
-  assert.equal(P.$('.lbc-count').textContent, '3 篇', '第二次重跑成功');
+  assert.equal(P.$('.lbc-count').textContent, '共 3 篇', '第二次重跑成功');
   V.handlers.modify = handlers; V.vault.adapter.read = realRead;
   // 跨设备：同步记录 last_success 比 built_at 晚 2 小时、本机 stat 没变 → 「这台设备上的目录数据较旧」
   const Q = await openCatalog({ data: catalogData(items, { built_at: '2026-10-08T05:00:00+10:00' }), plugin,

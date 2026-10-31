@@ -149,7 +149,7 @@ const calls = async (S, name) => (await S.calls()).filter(c => c[0] === name);
       const head = await page.evaluate(() => document.querySelector('.lbi-head').textContent);
       assert.match(head, /做饭 › 家常菜.*篇.*天天吃的那种/, `${theme}：网格上面一行说清选的是什么 + 用户写的说明 ${head}`);
       assert.ok(await inIndex(page), `${theme}：点节点不跳出索引视图`);
-      assert.match(await page.evaluate(() => document.querySelector('.lbc-count').textContent), new RegExp(`^筛出 ${count('做饭/家常菜')} 篇（共 120）`));
+      assert.match(await page.evaluate(() => document.querySelector('.lbc-count').textContent), /^共 120 篇/);
       // ④ 上面一行（1031 作者「懒人，不要出现这么多东西」）：整理分类 · 已归类 · 未归类 · 要用户点的状态 · ⋯ 更多 · 完成
       const bar = await page.evaluate(() => ({ text: document.querySelector('.lbi-bar').textContent, chips: document.querySelectorAll('.lbi-chip').length }));
       assert.match(bar.text, /整理分类已归类 \d+ \/ 120未归类 \d+/, `${theme}：顶条 ${bar.text}`);

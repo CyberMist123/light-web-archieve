@@ -48,12 +48,13 @@ style.textContent = `
 /* 1031 作者：摘录和批注同一个格式——上面一行「人 · 时间」，下面原文放进灰色细框（左边一道颜色条 = 划的颜色），字体字号同批注 */
 .lba-mark-item{font-size:14px;line-height:1.75;color:var(--text-normal);word-break:break-word;}
 .lba-mark-item .lba-ts{display:block;font-size:11px;color:var(--text-faint);margin-bottom:3px;}
-.lba-mark-row{display:block;padding:6px 12px;border:1px solid var(--background-modifier-border);border-left:3px solid rgb(255,214,10);border-radius:6px;color:var(--text-normal);cursor:pointer;white-space:pre-wrap;}
-.lba-mark-row:hover{border-color:var(--text-faint);border-left-color:rgb(255,214,10);}
-.lba-mark-row.lb-hl-green,.lba-mark-row.lb-hl-green:hover{border-left-color:rgb(80,200,120);}
-.lba-mark-row.lb-hl-blue,.lba-mark-row.lb-hl-blue:hover{border-left-color:rgb(80,160,255);}
-.lba-mark-row.lb-hl-pink,.lba-mark-row.lb-hl-pink:hover{border-left-color:rgb(255,120,170);}
-.lba-mark-row.lb-hl-purple,.lba-mark-row.lb-hl-purple:hover{border-left-color:rgb(170,120,255);}
+/* 1101 作者：不要灰框——就是 Obsidian 平常的引用（左边一道竖线 + 缩进）；竖线用正文里那支荧光笔的颜色（JS 读那处 <mark> 的底色写进来，下面几行是读不到时的兜底） */
+.lba-mark-row{display:block;margin:0;padding:0 0 0 var(--size-4-4,16px);border:0;border-left:var(--blockquote-border-thickness,3px) solid var(--text-highlight-bg,rgb(255,214,10));border-radius:0;background:none;color:var(--text-normal);cursor:pointer;white-space:pre-wrap;}
+.lba-mark-row:hover{color:var(--text-accent);}
+.lba-mark-row.lb-hl-green{border-left-color:rgb(80,200,120);}
+.lba-mark-row.lb-hl-blue{border-left-color:rgb(80,160,255);}
+.lba-mark-row.lb-hl-pink{border-left-color:rgb(255,120,170);}
+.lba-mark-row.lb-hl-purple{border-left-color:rgb(170,120,255);}
 .lba-mark-flash{outline:2px solid var(--interactive-accent);outline-offset:2px;}
 .lba-star:hover{opacity:.85;}
 .lba-star-hint{font-size:11px;color:var(--text-muted);}
@@ -205,17 +206,32 @@ function paintMarks(view, box) {
   wrap.dataset.key = key;
   wrap.empty ? wrap.empty() : (wrap.textContent = '');
   wrap.hidden = !marks.length;
+  // 1101 作者：一次选中划的几行（正文一行一个 <mark>）放在一条摘录里，不再一行一条。
+  //   同一次划的 = 同色 + 同一个时刻（Python 一次 highlight 记同一个 ts）；以前没记时刻的：同色、中间只隔着换行 / 空白，也算一次
+  const colorOf = m => (/(?:^|\s)(lb-hl-[a-z]+)/.exec(m.className || '') || [])[1] || '';
+  const onlyGap = (a, b) => {
+    try { const r = document.createRange(); r.setStartAfter(a); r.setEndBefore(b); return !r.toString().trim(); } catch { return false; }
+  };
+  const groups = [];
   for (const m of marks) {
-    const color = (/(?:^|\s)(lb-hl-[a-z]+)/.exec(m.className || '') || [])[1] || '';
-    const text = String(m.textContent).trim(), at = tsOf.get(text), who = markAuthor();
+    const g = groups[groups.length - 1], at = tsOf.get(String(m.textContent).trim()) || '';
+    const prev = g && g.marks[g.marks.length - 1];
+    if (g && g.color === colorOf(m) && (at ? at === g.at : !g.at && onlyGap(prev, m))) g.marks.push(m);
+    else groups.push({ marks: [m], color: colorOf(m), at });
+  }
+  for (const g of groups) {
+    const first = g.marks[0], who = markAuthor();
     const item = wrap.createEl('div', { cls: 'lba-mark-item' });
-    const meta = [who, at ? fmtTs(at) : ''].filter(Boolean).join(' · ');
+    const meta = [who, g.at ? fmtTs(g.at) : ''].filter(Boolean).join(' · ');
     if (meta) item.createEl('span', { cls: 'lba-ts', text: meta });
-    const row = item.createEl('div', { cls: 'lba-mark-row' + (color ? ' ' + color : ''), text });
+    const row = item.createEl('div', { cls: 'lba-mark-row' + (g.color ? ' ' + g.color : ''), text: g.marks.map(m => String(m.textContent).trim()).join('\n') });
+    // 竖线 = 那支荧光笔在正文里的颜色（主题改了荧光色也跟着）
+    try { const bg = getComputedStyle(first).backgroundColor; if (bg && !/^(transparent|rgba\(0, 0, 0, 0\))$/.test(bg)) row.style.borderLeftColor = bg; } catch {}
     row.title = '重点：点一下跳到原文那一处';
     row.onclick = () => {
-      try { m.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch {}
-      m.classList.add('lba-mark-flash'); setTimeout(() => m.classList.remove('lba-mark-flash'), 1200);
+      try { first.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch {}
+      for (const m of g.marks) m.classList.add('lba-mark-flash');
+      setTimeout(() => { for (const m of g.marks) m.classList.remove('lba-mark-flash'); }, 1200);
     };
   }
 }

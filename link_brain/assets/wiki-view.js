@@ -77,7 +77,8 @@ LB.style('lb-wiki-style', LB.brandFontCss() + fontFace('LB Digits Inline', FONT_
 .lbw .lbw-hrow .lb-page-nav{justify-self:auto;background:transparent;padding:0;}
 .lbw .lbw-hrow .lb-page-nav button{font-size:15px;padding:9px 14px;}
 .lbw-acts{display:flex;align-items:center;gap:10px;margin-left:auto;}
-.lbw .lbw-hbtn{width:40px;height:40px;display:grid;place-items:center;border:1px solid var(--lb-line);border-radius:10px;background:var(--lb-surface);box-shadow:0 1px 4px #0000000c;color:var(--lb-ink);}
+/* 1101 作者：右上角 AI / 历史不要框——和问收藏页头一样只是图标，悬停才有浅底 */
+.lbw .lbw-hbtn{width:40px;height:40px;display:grid;place-items:center;border:0;border-radius:10px;background:transparent;box-shadow:none;color:var(--lb-ink);}
 .lbw .lbw-hbtn.is-ai{font:600 14px/1 var(--lbw-sans);letter-spacing:.02em;}
 .lbw .lbw-hbtn.is-more{width:32px;border-color:transparent;background:transparent;box-shadow:none;font:500 20px/1 var(--lbw-sans);letter-spacing:.06em;}
 .lbw .lbw-hbtn:hover,.lbw .lbw-hbtn.is-on{background:var(--lb-soft);color:var(--lb-ink);}
@@ -302,6 +303,11 @@ LB.style('lb-wiki-style', LB.brandFontCss() + fontFace('LB Digits Inline', FONT_
 .lbw-ai-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px;}
 .lbw .lbw-ai-row button{height:26px;padding:0 10px;border:1px solid var(--lb-line);border-radius:999px;color:var(--lb-ink);font:inherit;}
 .lbw .lbw-ai-row button:hover{border-color:var(--lb-ink);}
+/* 1101：现成说法是一行字，用 | 隔开（不是一排胶囊） */
+.lbw .lbw-ai-presets{gap:4px 10px;}
+.lbw .lbw-ai-presets button{height:auto;padding:2px 0;border:0;border-radius:0;background:transparent;color:var(--lb-ink);}
+.lbw .lbw-ai-presets button:hover{border:0;color:var(--lb-accent,var(--lb-ink));text-decoration:underline;text-underline-offset:3px;}
+.lbw .lbw-ai-pipe{color:var(--lb-faint);user-select:none;}
 .lbw .lbw-ai-row button.is-solid{background:var(--lb-ink);border-color:var(--lb-ink);color:var(--lb-surface);}
 .lbw .lbw-ai input[type=text]{flex:1 1 220px;min-width:0;height:28px;border:0;border-bottom:1px solid var(--lb-ink);border-radius:0;padding:0 2px;background:transparent;box-shadow:none;color:var(--lb-ink);font:400 13px var(--lbw-sans);}
 .lbw .lbw-ai input[type=text]:focus{outline:none;box-shadow:none;}
@@ -2493,8 +2499,9 @@ function saveVersion(p, note) {
 // 结果：按字 / 词比（中文按字、英文按词，先按行对齐再细比），每一处改动单独勾选，「用选中的」一次拼好经 pwiki save（kind=ai）存——一步 Ctrl+Z 能撤；
 //   回来时那截原文在页里找不到了（别处改过它）就作废，不套用。模型 = 插件设置里的文本 AI；提示词在 link_brain/wiki_ai.py（<replacement> 外框）。
 const AI_PRESETS = {
-  part: [['polish', '润色'], ['concise', '精简'], ['expand', '说清楚一点'], ['list', '改成列表'], ['fix', '只改错字']],
-  page: [['structure', '理顺结构'], ['concise', '精简'], ['from_cites', '从引用补要点'], ['draft', '搭个框架'], ['polish', '润色']],
+  // 1101 作者：选择太多了——每种最多 3 个，用 | 隔开（「搭个框架」和顶上「按我的思路搭框架」重复，去掉）；别的说法在下面输入框自己说
+  part: [['polish', '润色'], ['concise', '精简'], ['expand', '说清楚一点']],
+  page: [['structure', '理顺结构'], ['concise', '精简'], ['from_cites', '从引用补要点']],
 };
 const aiRecent = () => { try { const v = typeof app.loadLocalStorage === 'function' ? app.loadLocalStorage('lb-wiki-ai-recent') : null; return Array.isArray(v) ? v.filter(x => typeof x === 'string').slice(0, 6) : []; } catch (e) { return []; } };
 function rememberAsk(text) {
@@ -2669,10 +2676,11 @@ function aiBody(A) {
     inp.value = A.ask || '';
     const go2 = () => { const v = inp.value.trim(); if (v) runAi(A, '', v); else inp.focus(); };
     inp.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); go2(); } else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeAi(); } });
-    out.push(h('div', { cls: 'lbw-ai-row' }, AI_PRESETS[A.scope].map(([k, t]) => btn({ text: t, data: { preset: k }, on: { click: () => runAi(A, k, '') } }))));
-    if (A.scope === 'page') out.push(h('div', { cls: 'lbw-ai-row', attr: { style: 'margin-top:6px' } }, btn({ text: '按我的思路搭框架（去收藏里找材料）→', data: { plan: 'open' }, on: { click: () => { const p = PAGES.get(A.id); if (p) openAiPlan(p); } } })));
-    const recent = aiRecent();
-    if (recent.length) out.push(h('div', { cls: 'lbw-ai-row', attr: { style: 'margin-top:6px' } }, h('span', { cls: 'lbw-ai-note', attr: { style: 'margin:0' }, text: '用过的：' }), recent.map(t => btn({ text: t.length > 14 ? t.slice(0, 14) + '…' : t, on: { click: () => runAi(A, '', t) } }))));
+    const pipes = list => list.flatMap((b, i) => i ? [h('span', { cls: 'lbw-ai-pipe', text: '|', attr: { 'aria-hidden': 'true' } }), b] : [b]);
+    out.push(h('div', { cls: 'lbw-ai-row lbw-ai-presets' }, pipes(AI_PRESETS[A.scope].map(([k, t]) => btn({ text: t, data: { preset: k }, on: { click: () => runAi(A, k, '') } })))));
+    // 「按我的思路搭框架」只留顶上那一个切换（这里不再重复一颗）
+    const recent = aiRecent().slice(0, 3);
+    if (recent.length) out.push(h('div', { cls: 'lbw-ai-row lbw-ai-presets', attr: { style: 'margin-top:4px' } }, h('span', { cls: 'lbw-ai-note', attr: { style: 'margin:0' }, text: '用过的：' }), pipes(recent.map(t => btn({ text: t.length > 14 ? t.slice(0, 14) + '…' : t, on: { click: () => runAi(A, '', t) } })))));
     out.push(h('div', { cls: 'lbw-ai-row', attr: { style: 'margin-top:8px' } }, inp, btn({ cls: 'is-solid', text: '改', on: { click: go2 } }), btn({ text: '关', on: { click: closeAi } })));
     if (A.state === 'error') out.push(h('p', { cls: 'lbw-ai-note is-warn', text: A.error }));
     else out.push(h('p', { cls: 'lbw-ai-note', text: '用插件设置里的文本 AI；回来后每处改动你自己勾，点「用选中的」才改进去。' }));
