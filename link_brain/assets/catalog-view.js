@@ -133,9 +133,9 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-wrap .lbc-ctl button.lbc-topic-new-tab{color:var(--c-faint);}
 .lbc-wrap .lbc-ctl button.lbc-sidetoggle{width:var(--ctl-h)!important;height:var(--ctl-h)!important;padding:0!important;margin-right:-8px;border:0!important;background:transparent!important;box-shadow:none!important;color:var(--c-muted);display:inline-grid;place-items:center;cursor:pointer;border-radius:999px!important;}
 .lbc-wrap .lbc-ctl button.lbc-sidetoggle:hover{color:var(--c-ink);}
-.lbc-wrap .lbc-ctl button.lbc-sidetoggle svg{width:15px;height:15px;}
-.lbc-side-col{fill:currentColor;}
-.lbc-wrap.is-side-collapsed .lbc-side-col{fill:none;}
+.lbc-wrap .lbc-ctl button.lbc-sidetoggle svg{width:17px;height:17px;}
+.lbc-side-col{opacity:1;}
+.lbc-wrap.is-side-collapsed .lbc-side-col{opacity:.35;}
 .lbc-wrap .lbc-ctl button.lbc-pill{height:var(--ctl-h)!important;box-sizing:border-box;display:inline-flex;align-items:center;gap:6px;padding:0 14px!important;border:1px solid var(--c-line)!important;border-radius:999px!important;background:var(--c-bg)!important;box-shadow:none!important;color:var(--c-ink);font:13.5px/1 var(--f-sans);font-weight:400;cursor:pointer;white-space:nowrap;transition:border-color .15s;}
 .lbc-wrap .lbc-ctl button.lbc-pill:hover,.lbc-wrap .lbc-ctl button.lbc-pill.is-active{border-color:var(--c-ink)!important;}
 .lbc-wrap .lbc-ctl button.lbc-time::after{content:"↓";font:15px/1 var(--f-latin);}
@@ -763,6 +763,11 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 /* 1101 作者「编排了一下字体就变了」：小字下边多 2px，和 17px 分页同一条基线（底边都压在那道线上）；主题那一块后面多空一点，不和「全部来源」挤在一起。
    1101 作者「拿到 design 后第一版（0055a14）的式样是对的」：字照那一版——分页和来源 / 视频 / 文件都是 15.5px 衬线，排序 13.5px、搜索 14px 无衬线 */
 .lbc-wrap .lbc-ctl button.lbc-thq .lbc-topic-star{font-size:12px;margin-right:2px;}
+/* 1101 作者「图 3 这个有点远」：排序（近 7 天 · 最近导入）挨着搜索框——排序那一列把中间的空推到它前面，搜索框紧跟它后面 */
+.lbc-wrap:not(.is-side-narrow):not(.is-arranging) .lbc-top .lbc-row.is-free:has(> .lbc-rcol > .lbc-m-scope) > .lbc-rcol.lbc-rcol:has(> .lbc-m-sort){margin-left:auto!important;}
+.lbc-wrap:not(.is-side-narrow):not(.is-arranging) .lbc-top .lbc-row.is-free:has(> .lbc-rcol > .lbc-m-sort) > .lbc-rcol:has(> .lbc-m-sort) ~ .lbc-rcol.is-grow{margin-left:0!important;flex:0 1 var(--lbc-search-w,180px)!important;}
+.lbc-wrap .lbc-top.is-squeeze-1{--lbc-search-w:160px;}
+.lbc-wrap .lbc-top.is-squeeze-3{--lbc-search-w:130px;}
 /* 1101 作者「这里也没对齐」：筛选这一行不按编排格子的起点留空（已收藏和★主题之间空一大截）——块和块之间一律 28px，搜索那一列照旧靠右 */
 .lbc-wrap:not(.is-side-narrow):not(.is-arranging) .lbc-top .lbc-row.is-free:has(> .lbc-rcol > .lbc-m-scope) > .lbc-rcol:not(.is-grow){margin-left:var(--lbc-wall-ml,0px)!important;padding-right:var(--lbc-ctl-gap,26px)!important;}
 .lbc-wrap .lbc-top.is-squeeze-1{--lbc-ctl-gap:12px;}
@@ -1403,7 +1408,8 @@ const CTL_IDS = ['scope', 'topics', 'types', 'albums', 'picks', 'sort', 'search'
 const blocks = {};
 for (const id of TOP_IDS) { const b = top.createEl('div', { cls: 'lbc-blk lbc-blk-' + id + ' lbc-m lbc-m-' + id + ' is-core' + (CTL_IDS.includes(id) ? ' lbc-ctl lbc-ctl-piece' : '') }); b.dataset.blk = id; b.dataset.m = id; blocks[id] = b; }
 blocks.title.append(head); blocks.cats.append(catBar);   // 1101 作者：篇数行就在标题下面一行（留在标题块里），「计数行」模块空着、平时不显示
-const SIDE_SVG = '<svg viewBox="0 0 14 14" aria-hidden="true"><rect x="1" y="1.5" width="12" height="11" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.4"/><rect class="lbc-side-col" x="1.7" y="2.2" width="3.6" height="9.6" stroke="currentColor" stroke-width="1"/></svg>';
+// 1101 作者「logo 精致点」：细线圆角框 + 一道竖线隔出左栏，左栏里两道短横（边栏开着是实线，收起是淡的）
+const SIDE_SVG = '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2.25" fill="none" stroke="currentColor" stroke-width="1.15"/><path d="M6.25 2.75v10.5" fill="none" stroke="currentColor" stroke-width="1.15"/><path class="lbc-side-col" d="M3.6 5.6h1.1M3.6 7.6h1.1" fill="none" stroke="currentColor" stroke-width="1.15" stroke-linecap="round"/></svg>';
 const sideBtn = mobile || simplePage ? null : blocks.scope.createEl('button', { cls: 'lbc-sidetoggle' });   // 星标页 / 手机没有边栏，也就没有这颗钮
 if (sideBtn) {
   sideBtn.type = 'button'; sideBtn.innerHTML = SIDE_SVG;
@@ -4683,7 +4689,9 @@ function alignCtlToWall() {
   let want = 0;
   if (next && !wallAlignOff && !next.classList.contains('is-grow') && sideOpen && !wallCol.hidden && !wrap.classList.contains('is-side-narrow') && typeof getComputedStyle === 'function') {
     const cur = parseFloat(getComputedStyle(next).marginLeft) || 0;
-    want = Math.round((wallCol.getBoundingClientRect?.().left || 0) - ((next.getBoundingClientRect?.().left || 0) - cur));
+    // 1101 作者「再往右边取一点，还有点凸出来」：对齐第一张卡片的左边（收藏墙那一栏里卡片前面还有一点边距），没卡片就对齐那一栏
+    const edge = grid.querySelector?.('.lbc-card') || wallCol;
+    want = Math.round((edge.getBoundingClientRect?.().left || 0) - ((next.getBoundingClientRect?.().left || 0) - cur));
   }
   for (const c of cols) { const v = c === next && want > 0 ? want + 'px' : ''; if (c.style.getPropertyValue('--lbc-wall-ml') !== v) { if (v) c.style.setProperty('--lbc-wall-ml', v); else c.style.removeProperty('--lbc-wall-ml'); } }
 }
