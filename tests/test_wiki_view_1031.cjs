@@ -139,9 +139,9 @@ const run = async (name, fn) => { try { await fn(); console.log('  ok   ' + name
 
   await run('原地改：段落 / 列表一条 / 标题，记号不显示；首页没有历史钮', async () => {
     const P = fakePlugin(); const { A, V } = await open({ plugin: P });
-    assert.ok(A.q('.lbw-hbtn:not(.is-more)').hidden, '首页不显示历史钮');
+    assert.ok(A.q('.lbw-hbtn[data-hist]').hidden, '首页不显示历史钮');
     await openPage(A, 'pw-stay');
-    assert.ok(!A.q('.lbw-hbtn:not(.is-more)').hidden);
+    assert.ok(!A.q('.lbw-hbtn[data-hist]').hidden);
     blk(A, '干净').click();
     let ta = A.q('.lbw-ed');
     assert.equal(ta.value, '干净', '点一条只开这一条，「- 」不显示');
@@ -223,9 +223,10 @@ const run = async (name, fn) => { try { await fn(); console.log('  ok   ' + name
     const P = fakePlugin(); const { A, V } = await open({ plugin: P });
     await openPage(A, 'pw-stay');
     blk(A, '干净').click();                                   // 光标在「在意什么」那一节的一条里
-    A.q('.lbw-edbar [data-ai]').click(); await tick(5);
-    assert.ok(A.q('.lbw-ai[data-scope="part"]'), '那一节下面出 AI 面板');
-    assert.ok(A.q('.lbw-ai').textContent.includes('「在意什么」这一节'));
+    A.q('.lbw-hbtn[data-ai]').click(); await tick(5);
+    assert.ok(A.q('.lbw-dock .lbw-ai[data-scope="part"]'), '页头「AI」：底部对话框，范围 = 光标所在那一节');
+    assert.ok(A.q('.lbw-dock-head').textContent.includes('改「在意什么」这一节'));
+    assert.ok(!A.q('.lbw-edbar [data-ai]'), '格式条上没有「AI 改」了');
     assert.deepEqual(texts(A, '.lbw-ai [data-preset]'), ['润色', '精简', '说清楚一点', '改成列表', '只改错字']);
     assert.equal(A.qa('.lbw-blk.is-ai-lock').length, 4, '这一节（小标题 + 三条）锁住');
     blk(A, '干净').click(); await tick(1);
@@ -253,7 +254,7 @@ const run = async (name, fn) => { try { await fn(); console.log('  ok   ' + name
   await run('让 AI 改：等的时候别处加了行 → 跟着挪照样套用；那截原文被改了 → 作废；没配 AI 说清楚；AI 没改说没改', async () => {
     const P = fakePlugin(); const { A, V } = await open({ plugin: P });
     await openPage(A, 'pw-stay');
-    blk(A, '结尾一段').click(); A.q('.lbw-edbar [data-ai]').click(); await tick(5);
+    blk(A, '结尾一段').click(); A.q('.lbw-hbtn[data-ai]').click(); await tick(5);
     P.aiDelay = 40; P.aiText = '结尾改了一段。';
     const inp = A.q('.lbw-ai input'); inp.value = '语气轻一点'; key(A, inp, 'Enter'); await tick(5);
     assert.ok(A.q('.lbw-ai').textContent.includes('AI 在改'));
@@ -264,7 +265,7 @@ const run = async (name, fn) => { try { await fn(); console.log('  ok   ' + name
     A.q('.lbw-ai [data-ai="apply"]').click(); await tick(20);
     assert.ok(body(V, '住宿偏好.md').includes('上面新插的一段') && body(V, '住宿偏好.md').includes('结尾改了一段。') && !body(V, '住宿偏好.md').includes('结尾一段。'), '行号挪了也套在对的地方');
     // 原文被改了 → 作废
-    blk(A, '为什么记').click(); A.q('.lbw-edbar [data-ai]').click(); await tick(5);
+    blk(A, '为什么记').click(); A.q('.lbw-hbtn[data-ai]').click(); await tick(5);
     P.aiText = '为什么记：改过。';
     A.q('.lbw-ai [data-preset="fix"]').click(); await tick(15);
     V.set('PersonalWiki/住宿偏好.md', V.get('PersonalWiki/住宿偏好.md').replace('为什么记：每次都从头翻。', '在 Obsidian 里改了这句。')); await tick(700);
@@ -274,7 +275,7 @@ const run = async (name, fn) => { try { await fn(); console.log('  ok   ' + name
     assert.ok(A.notices.at(-1).includes('改过了，没套用'));
     A.qa('.lbw-ai button').find(b => b.textContent === '不要').click(); await tick(2);
     // 没配 AI
-    blk(A, '结尾改了').click(); A.q('.lbw-edbar [data-ai]').click(); await tick(5);
+    blk(A, '结尾改了').click(); A.q('.lbw-hbtn[data-ai]').click(); await tick(5);
     P.aiFail = 'AI 没改成：没有能用的文本 AI（没配）';
     A.q('.lbw-ai [data-preset="fix"]').click(); await tick(15);
     assert.ok(A.q('.lbw-ai').textContent.includes('没有能用的文本 AI'), '原因写在面板上');
@@ -288,18 +289,18 @@ const run = async (name, fn) => { try { await fn(); console.log('  ok   ' + name
     await openPage(A, 'pw-kyoto');
     A.q('.lbw-hbtn.is-more').click();
     A.qa('.lbw-pop button').find(b => b.textContent.startsWith('让 AI 改整页')).click(); await tick(2);
-    assert.ok(!A.q('.lbw-side').hidden && A.q('.lbw-side .lbw-ai[data-scope="page"]'), '右侧栏');
-    assert.deepEqual(texts(A, '.lbw-side [data-preset]'), ['理顺结构', '精简', '从引用补要点', '搭个框架', '润色']);
+    assert.ok(A.q('.lbw-dock .lbw-ai[data-scope="page"]') && A.q('.lbw-side').hidden, '底部对话框（不占右侧栏）');
+    assert.deepEqual(texts(A, '.lbw-dock [data-preset]'), ['理顺结构', '精简', '从引用补要点', '搭个框架', '润色']);
     assert.ok(A.qa('.lbw-blk.is-ai-lock').length >= 1, '整页锁住');
     P.aiText = '## 为什么\n种草先挂着，町屋民宿。\n\n## 想住\n- 町屋';
-    A.q('.lbw-side [data-preset="structure"]').click(); await tick(15);
-    assert.ok(A.qa('.lbw-side .lbw-hk').length >= 2, '逐处');
-    A.q('.lbw-side [data-ai="none"]').click(); await tick(1);
-    assert.ok(A.q('.lbw-side [data-ai="apply"]').getAttribute('disabled') != null, '全不要时「用」点不了');
-    A.q('.lbw-side [data-ai="all"]').click(); await tick(1);
-    A.q('.lbw-side [data-ai="apply"]').click(); await tick(20);
+    A.q('.lbw-dock [data-preset="structure"]').click(); await tick(15);
+    assert.ok(A.qa('.lbw-dock .lbw-hk').length >= 2, '逐处');
+    A.q('.lbw-dock [data-ai="none"]').click(); await tick(1);
+    assert.ok(A.q('.lbw-dock [data-ai="apply"]').getAttribute('disabled') != null, '全不要时「用」点不了');
+    A.q('.lbw-dock [data-ai="all"]').click(); await tick(1);
+    A.q('.lbw-dock [data-ai="apply"]').click(); await tick(20);
     assert.ok(body(V, '京都.md').startsWith('## 为什么\n种草先挂着，町屋民宿。\n\n## 想住'), body(V, '京都.md'));
-    assert.ok(A.q('.lbw-side').hidden, '用完收起');
+    assert.ok(!A.q('.lbw-dock'), '用完收起');
   });
 
   await run('按我的思路搭框架：写思路 → 出计划 → 改计划 → 去收藏里找 → 逐处勾选存；原话没对上的标红', async () => {
@@ -307,30 +308,56 @@ const run = async (name, fn) => { try { await fn(); console.log('  ok   ' + name
     await openPage(A, 'pw-kyoto');
     A.q('.lbw-hbtn.is-more').click();
     A.qa('.lbw-pop button').find(b => b.textContent.startsWith('按我的思路搭框架')).click(); await tick(2);
-    assert.ok(A.q('.lbw-side .lbw-ai[data-mode="plan"] textarea'), '右侧栏先写思路');
-    A.q('.lbw-side [data-plan="make"]').click(); await tick(2);
+    assert.ok(A.q('.lbw-dock .lbw-ai[data-mode="plan"] textarea'), '右侧栏先写思路');
+    A.q('.lbw-dock [data-plan="make"]').click(); await tick(2);
     assert.ok(A.notices.at(-1).includes('先写几句'), '空思路不发');
-    const ta = A.q('.lbw-side textarea'); ta.value = '想住町屋，想要两节：住哪、怎么订'; ta.dispatchEvent(new A.window.Event('input'));
+    const ta = A.q('.lbw-dock textarea'); ta.value = '想住町屋，想要两节：住哪、怎么订'; ta.dispatchEvent(new A.window.Event('input'));
     P.planReply = { sections: [{ title: '住哪', query: '京都 町屋 民宿', why: '' }, { title: '怎么订', query: '京都 订房', why: '' }, { title: '多余的一节', query: 'x', why: '' }] };
-    A.q('.lbw-side [data-plan="make"]').click(); await tick(15);
+    A.q('.lbw-dock [data-plan="make"]').click(); await tick(15);
     assert.equal(P.calls.find(c => c.op === 'plan').input.idea, '想住町屋，想要两节：住哪、怎么订');
-    assert.equal(A.qa('.lbw-side .lbw-plan-sec').length, 3, '计划三节');
-    A.q('.lbw-side [data-del="2"]').click(); await tick(1);              // 删掉多余的
-    const q0 = A.q('.lbw-side input[data-f="query"]'); q0.value = '京都 町屋 一个人'; q0.dispatchEvent(new A.window.Event('input'));
+    assert.equal(A.qa('.lbw-dock .lbw-plan-sec').length, 3, '计划三节');
+    A.q('.lbw-dock [data-del="2"]').click(); await tick(1);              // 删掉多余的
+    const q0 = A.q('.lbw-dock input[data-f="query"]'); q0.value = '京都 町屋 一个人'; q0.dispatchEvent(new A.window.Event('input'));
     P.fillReply = { text: '种草先挂着，町屋民宿。\n\n## 住哪\n\n- 町屋安静。 [示例咖啡地图](lwa:xhs-aa1)\n  > 「几家店」\n\n## 怎么订\n\n- 提前两个月。 [示例咖啡地图](lwa:xhs-aa1)\n  > 「瞎编的」（⚠ 原帖里没找到这句，别直接信）',
       sources: [{ n: 'S1', id: 'xhs-aa1', title: '示例咖啡地图' }], bad_quotes: [{ src: 'S1', title: '示例咖啡地图', quote: '瞎编的' }], dropped: 1, model: 'demo' };
-    A.q('.lbw-side [data-plan="fill"]').click(); await tick(15);
+    A.q('.lbw-dock [data-plan="fill"]').click(); await tick(15);
     const fc = P.calls.find(c => c.op === 'fill');
     assert.deepEqual(fc.input.sections.map(s => [s.title, s.query]), [['住哪', '京都 町屋 一个人'], ['怎么订', '京都 订房']], '改过的计划原样交给后端');
     assert.equal(fc.input.text, '种草先挂着，町屋民宿。\n', '交的是这页现在的正文');
-    assert.ok(A.qa('.lbw-side .lbw-hk').length >= 1, '逐处勾选');
-    assert.ok(A.q('.lbw-side .lbw-ai-bad').textContent.includes('瞎编的'), '原话没对上的标出来');
-    assert.ok(A.q('.lbw-side .lbw-ai-srcs').textContent.includes('S1 示例咖啡地图'));
-    assert.ok(A.q('.lbw-side').textContent.includes('1 条引了不存在的编号'));
-    A.q('.lbw-side [data-ai="apply"]').click(); await tick(20);
+    assert.ok(A.qa('.lbw-dock .lbw-hk').length >= 1, '逐处勾选');
+    assert.ok(A.q('.lbw-dock .lbw-ai-bad').textContent.includes('瞎编的'), '原话没对上的标出来');
+    assert.ok(A.q('.lbw-dock .lbw-ai-srcs').textContent.includes('S1 示例咖啡地图'));
+    assert.ok(A.q('.lbw-dock').textContent.includes('1 条引了不存在的编号'));
+    A.q('.lbw-dock [data-ai="apply"]').click(); await tick(20);
     const sv = P.calls.filter(c => c.op === 'save').at(-1);
     assert.equal(sv.input.kind, 'ai'); assert.match(sv.input.note, /按思路搭框架/);
     assert.ok(body(V, '京都.md').startsWith('种草先挂着，町屋民宿。\n\n## 住哪'), body(V, '京都.md'));
+  });
+
+  await run('页头和问收藏对齐：一行（标题 + 三页切换 + 右边 AI · 历史 · …）；页头「AI」默认改哪一截', async () => {
+    const P = fakePlugin(); const { A } = await open({ plugin: P });
+    const row = A.q('.lbw-hrow');
+    assert.ok(row.querySelector('.lb-page-nav'), '三页切换和标题在同一行');
+    assert.deepEqual(A.qa('.lbw-acts .lbw-hbtn').map(b => b.dataset.ai ? 'AI' : b.dataset.hist ? '历史' : b.classList.contains('is-more') ? '…' : '?'), ['AI', '历史', '…'], '从左到右 AI · 历史 · …');
+    A.q('.lbw-hbtn[data-ai]').click(); await tick(1);
+    assert.ok(A.notices.at(-1).includes('先打开一页'), '首页点 AI：先打开一页');
+    await openPage(A, 'pw-kyoto');
+    A.q('.lbw-hbtn[data-ai]').click(); await tick(2);
+    assert.ok(A.q('.lbw-dock .lbw-ai[data-scope="page"]'), '没点过哪段：改整页');
+    assert.ok(A.q('.lbw-dock-head [data-scope="page"]').classList.contains('is-on'));
+    A.q('.lbw-dock-head [data-scope="plan"]').click(); await tick(2);
+    assert.ok(A.q('.lbw-dock .lbw-ai[data-mode="plan"]'), '对话框顶上切到「按我的思路搭框架」');
+    A.q('.lbw-hbtn[data-ai]').click(); await tick(2);
+    assert.ok(!A.q('.lbw-dock'), '再点一次页头 AI = 收起');
+    blk(A, '种草').click(); key(A, A.q('.lbw-ed'), 'Escape'); await tick(10);   // 点过一段
+    A.q('.lbw-hbtn[data-ai]').click(); await tick(2);
+    assert.ok(A.q('.lbw-dock .lbw-ai[data-scope="part"]'), '点过某段：改那一节');
+    key(A, A.window.document, 'Escape'); await tick(2);
+    assert.ok(!A.q('.lbw-dock'), 'Esc 收起');
+    const P2 = fakePlugin(); const { A: B } = await open({ plugin: P2, files: { 'PersonalWiki/空页.md': page('pw-empty', '空页', {}) } });
+    await openPage(B, 'pw-empty');
+    B.q('.lbw-hbtn[data-ai]').click(); await tick(2);
+    assert.ok(B.q('.lbw-dock .lbw-ai[data-mode="plan"]'), '空页：直接按思路搭框架');
   });
 
   await run('空页：「让 AI 先搭个框架」', async () => {
@@ -338,7 +365,7 @@ const run = async (name, fn) => { try { await fn(); console.log('  ok   ' + name
     await openPage(A, 'pw-empty');
     const d = A.q('[data-ai="draft"]'); assert.ok(d);
     d.click(); await tick(2);
-    assert.ok(A.q('.lbw-side .lbw-ai[data-mode="plan"] textarea'), '空页：写思路搭框架');
+    assert.ok(A.q('.lbw-dock .lbw-ai[data-mode="plan"] textarea'), '空页：写思路搭框架');
   });
 
   await run('Ctrl+F 搜正文，回车开第一「页」（以前开成文件夹）', async () => {

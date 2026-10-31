@@ -71,15 +71,17 @@ LB.style('lb-wiki-style', LB.brandFontCss() + fontFace('LB Digits Inline', FONT_
 .lbw-legend{display:flex;align-items:center;gap:14px;font:400 12px/1 var(--lbw-sans);color:var(--lb-muted);white-space:nowrap;}
 .lbw-legend i{display:inline-block;width:22px;height:0;border-top:1px solid var(--lb-muted);vertical-align:middle;margin-right:6px;}
 .lbw-legend i.is-x{border-top-style:dashed;}
-/* 页头：刻线大标题 + … + 历史；下面现有的三页胶囊 + 篇数行，压一条墨线 */
-.lbw-hrow{display:flex;align-items:flex-end;gap:14px;}
-.lbw .lbw-brand{font-size:84px;line-height:.92;transform-origin:left bottom;padding-left:.06em;}
-.lbw-acts{display:flex;align-items:center;gap:6px;padding-bottom:6px;}
-.lbw .lbw-hbtn{width:36px;height:36px;display:grid;place-items:center;border:1px solid var(--lb-line);border-radius:999px;color:var(--lb-muted);}
-.lbw .lbw-hbtn.is-more{border-color:transparent;font:500 20px/1 var(--lbw-sans);letter-spacing:.06em;}
+/* 页头（10-31 晚和问收藏对齐）：一行——小号刻线标题 + 三页切换（透明底，当前那页白底小卡）；右边「AI · 历史 · …」方形带框按钮；下面篇数行压一条墨线 */
+.lbw-hrow{display:flex;align-items:center;flex-wrap:wrap;gap:12px 28px;}
+.lbw .lbw-brand{font-size:34px;line-height:1;transform-origin:left center;padding-left:.04em;}
+.lbw .lbw-hrow .lb-page-nav{justify-self:auto;background:transparent;padding:0;}
+.lbw .lbw-hrow .lb-page-nav button{font-size:15px;padding:9px 14px;}
+.lbw-acts{display:flex;align-items:center;gap:10px;margin-left:auto;}
+.lbw .lbw-hbtn{width:40px;height:40px;display:grid;place-items:center;border:1px solid var(--lb-line);border-radius:10px;background:var(--lb-surface);box-shadow:0 1px 4px #0000000c;color:var(--lb-ink);}
+.lbw .lbw-hbtn.is-ai{font:600 14px/1 var(--lbw-sans);letter-spacing:.02em;}
+.lbw .lbw-hbtn.is-more{width:32px;border-color:transparent;background:transparent;box-shadow:none;font:500 20px/1 var(--lbw-sans);letter-spacing:.06em;}
 .lbw .lbw-hbtn:hover,.lbw .lbw-hbtn.is-on{background:var(--lb-soft);color:var(--lb-ink);}
-.lbw-hnav{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px 24px;margin-top:22px;padding-bottom:12px;border-bottom:1px solid var(--lb-ink);}
-.lbw .lbw-hnav .lb-page-nav{justify-self:auto;}
+.lbw-hnav{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:8px 24px;margin-top:14px;padding-bottom:10px;border-bottom:1px solid var(--lb-ink);}
 .lbw-sub{font:400 12.5px/1.2 var(--lbw-sans);color:var(--lb-muted);}
 .lbw-sub .lbw-num{color:var(--lb-ink);font-size:15px;}
 .lbw-ro{margin:14px 0 0;font:400 12.5px/1.6 var(--lbw-sans);color:var(--lb-muted);}
@@ -326,6 +328,17 @@ LB.style('lb-wiki-style', LB.brandFontCss() + fontFace('LB Digits Inline', FONT_
 .lbw-ai-bad{margin:8px 0;padding:8px 10px;border:1px solid var(--lb-warn);border-radius:2px;color:var(--lb-warn);font:400 12.5px/1.7 var(--lbw-sans);}
 .lbw-ai-bad > div{color:var(--lb-ink);}
 .lbw-ai-srcs{display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:8px;font:400 12.5px/1.7 var(--lbw-sans);}
+/* 底部 AI 对话框：方框、浮在正文那一栏底部（和问收藏底部输入框一个样子） */
+.lbw-dock{position:fixed;z-index:25;box-sizing:border-box;padding:10px 14px 12px;border:1px solid var(--lb-line);border-radius:14px;background:var(--lb-surface);box-shadow:0 8px 28px rgba(0,0,0,.18);font:400 13px/1.6 var(--lbw-sans);color:var(--lb-ink);}
+.lbw-dock-head{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;padding-bottom:8px;margin-bottom:8px;border-bottom:1px solid var(--lb-line);}
+.lbw-dock-head .lbw-kick{margin-right:4px;}
+.lbw .lbw-dock-head button{height:26px;padding:0 10px;border-radius:8px;color:var(--lb-muted);font:inherit;font-size:12.5px;}
+.lbw .lbw-dock-head button:hover{color:var(--lb-ink);background:var(--lb-soft);}
+.lbw .lbw-dock-head button.is-on{color:var(--lb-ink);background:var(--lb-soft);font-weight:600;}
+.lbw-dock-head .lbw-sp{flex:1;}
+.lbw-dock-body{max-height:52vh;overflow:auto;}
+.lbw-dock .lbw-ai{margin:0;padding:0;border:0;background:transparent;}
+.lbw-dock .lbw-ai-diff{max-height:none;}
 .lbw .lbw-selai{position:fixed;z-index:30;height:28px;padding:0 12px;border:1px solid var(--lb-ink);border-radius:999px;background:var(--lb-surface);color:var(--lb-ink);font:500 12.5px/1 var(--lbw-sans);box-shadow:2px 2px 0 var(--lb-ink);}
 .lbw-ai-out p{margin:0 0 6px;}
 /* 目录首页 */
@@ -422,7 +435,7 @@ LB.style('lb-wiki-style', LB.brandFontCss() + fontFace('LB Digits Inline', FONT_
 .lbw-modal .lbw-acts2{display:flex;justify-content:flex-end;align-items:center;gap:8px;}
 /* 中等宽（右边开着原文格）：目录变窄；再窄：目录收成左下角「目录」，点开从底部升起 */
 .lbw.is-mid{padding:24px 32px 0;}
-.lbw.is-mid .lbw-brand{font-size:64px;}
+.lbw.is-mid .lbw-brand{font-size:30px;}
 .lbw.is-mid .lbw-main,.lbw.is-mid.is-home .lbw-main{grid-template-columns:200px minmax(0,1fr);column-gap:40px;padding-top:36px;}
 .lbw.is-mid .lbw-ptitle{font-size:32px;}
 .lbw.is-mid .lbw-ov .lbw-big{font-size:72px;}
@@ -431,7 +444,7 @@ LB.style('lb-wiki-style', LB.brandFontCss() + fontFace('LB Digits Inline', FONT_
 .lbw.is-mid.has-side .lbw-body{grid-template-columns:minmax(0,1fr);}
 .lbw.is-mid .lbw-side{position:fixed;top:0;right:0;bottom:0;width:min(400px,100%);max-height:none;z-index:20;margin:0;padding:26px 24px 40px;background:var(--lb-surface);border-left:1px solid var(--lb-ink);}
 .lbw.is-narrow{padding:18px 18px 0;}
-.lbw.is-narrow .lbw-brand{font-size:46px;}
+.lbw.is-narrow .lbw-brand{font-size:26px;}
 .lbw.is-narrow .lbw-hrow{gap:8px;}
 .lbw.is-narrow .lbw-acts{padding-bottom:2px;gap:2px;}
 .lbw.is-narrow .lbw-hnav{flex-direction:column-reverse;align-items:flex-start;gap:10px;margin-top:14px;}
@@ -475,9 +488,9 @@ LB.style('lb-wiki-style', LB.brandFontCss() + fontFace('LB Digits Inline', FONT_
 .lbw.is-mid.is-tocoff.is-home:not(.is-narrow) .lbw-main{grid-template-columns:minmax(0,1fr);}
 @media (prefers-reduced-motion: reduce){.lbw-fold-sheet,.lbw-fold-face,.lbw-tw,.lbw-chev{transition:none;}}
 ${LB.brandCss('.lbw .lbw-brand', '.lbw .lbw-engr')}
-.lbw .lbw-brand{font-size:84px;line-height:.92;transform-origin:left bottom;}
-.lbw.is-mid .lbw-brand{font-size:64px;}
-.lbw.is-narrow .lbw-brand{font-size:46px;}
+.lbw .lbw-brand{font-size:34px;line-height:1;transform-origin:left center;}
+.lbw.is-mid .lbw-brand{font-size:30px;}
+.lbw.is-narrow .lbw-brand{font-size:26px;}
 `);
 
 // ═════════════ 小工具 ═════════════
@@ -790,20 +803,23 @@ const hrow = h('div', { cls: 'lbw-hrow' });
 head.append(hrow);
 const brand = LB.brandTitle(hrow, 'lbw-brand', 'lbw-engr');
 { const ref = app.workspace.on?.('link-brain:catalog-prefs', () => brand.set()); if (ref) LB.onUnload(() => { try { app.workspace.offref(ref); } catch (e) { console.debug(e); } }); }
-const acts = h('div', { cls: 'lbw-acts' });
-hrow.append(acts);
-if (!readOnly) {
-  R.more = btn({ cls: 'lbw-hbtn is-more', on: { click: e => showMoreMenu(e, R.more) } }, h('span', { text: '…', attr: { 'aria-hidden': 'true' } }), sr('更多'));
-  R.histBtn = btn({ cls: 'lbw-hbtn', on: { click: () => toggleHistory() } }, icon('hist'), sr('这一页的历史版本'));
-  add(acts, [R.more, R.histBtn]);
-}
-const hnav = h('div', { cls: 'lbw-hnav' });
+// 10-31 晚她：页头和问收藏对齐——一行：小号刻线标题 + 三页切换；右边从左到右「AI · 历史钟 · …」，方形带框的按钮（不要圆圈）
 const nav = h('nav', { cls: 'lb-page-nav' },
   btn({ text: '浏览收藏', on: { click: () => LB.openPage('catalog') } }),
   btn({ text: '问收藏', on: { click: () => LB.openPage('chat') } }),
   btn({ text: 'Wiki', cls: 'is-current', attr: { 'aria-current': 'page' }, on: { click: () => go('home') } }));
+hrow.append(nav);
+const acts = h('div', { cls: 'lbw-acts' });
+hrow.append(acts);
+if (!readOnly) {
+  R.aiBtn = btn({ cls: 'lbw-hbtn is-ai', data: { ai: 'open' }, on: { click: () => openAiFromHead() } }, h('span', { text: 'AI', attr: { 'aria-hidden': 'true' } }), sr('让 AI 整理'));
+  R.histBtn = btn({ cls: 'lbw-hbtn', data: { hist: '1' }, on: { click: () => toggleHistory() } }, icon('hist'), sr('这一页的历史版本'));
+  R.more = btn({ cls: 'lbw-hbtn is-more', on: { click: e => showMoreMenu(e, R.more) } }, h('span', { text: '…', attr: { 'aria-hidden': 'true' } }), sr('更多'));
+  add(acts, [R.aiBtn, R.histBtn, R.more]);
+}
+const hnav = h('div', { cls: 'lbw-hnav' });
 R.sub = h('div', { cls: 'lbw-sub' });
-add(hnav, [nav, R.sub]);
+add(hnav, [R.sub]);
 head.append(hnav);
 wrap.append(head);
 if (readOnly) wrap.append(h('p', { cls: 'lbw-ro', text: LB.mobile ? '手机上只能看：Wiki 回电脑上改' : 'Link Brain Actions 插件没启用，Wiki 只能看' }));
@@ -828,7 +844,7 @@ let lastW = 0;
 const BAND = (w, cur) => { const g = 24; const mid = cur.mid ? w < 1040 + g : w < 1040 - g; const narrow = cur.narrow ? w < 680 + g : w < 680 - g; return { mid, narrow }; };
 function paintWidth(w) {
   w = Number(w) || wrap.clientWidth || 0;
-  fitToc();
+  fitToc(); placeDock();
   if (w <= 0) return;
   const cur = { mid: wrap.classList.contains('is-mid'), narrow: wrap.classList.contains('is-narrow') };
   const b = lastW ? BAND(w, cur) : { mid: w < 1040, narrow: w < 680 };
@@ -850,7 +866,7 @@ function go(view, arg) {
   commitEditor(false); closePop(); flushSrc();
   const same = view === UI.view && (view === 'page' ? arg === UI.id : view === 'tag' ? arg === UI.tag : true);
   UI.view = view; UI.id = view === 'page' ? arg : null; UI.tag = view === 'tag' ? arg : null;
-  if (!same) { UI.src = false; UI.tagEdit = false; UI.mapOpen = false; if (UI.ai && UI.ai.id !== arg) UI.ai = null; }
+  if (!same) { UI.src = false; UI.tagEdit = false; UI.mapOpen = false; if (UI.ai && UI.ai.id !== arg) { UI.ai = null; renderDock(); } }
   saveUi(); setDrawer(false);
   if (UI.hist) { if (view === 'page') UI.hist = { id: arg, versions: null, sel: null, texts: {} }; else UI.hist = null; loadHistory(); }
   render();
@@ -1176,6 +1192,18 @@ function spyHeads() {
   let here = null;
   for (const el of R.center.querySelectorAll('[data-hline]')) { if (el.getBoundingClientRect().top <= top) here = el.dataset.hline; else break; }
   for (const r of R.tree.querySelectorAll('.lbw-thead')) r.classList.toggle('is-here', here != null && r.dataset.toc === here);
+}
+// 目录吸住（10-31 晚她：「目录往下拉，目录没有固定住」）：先靠 CSS sticky；她的 Obsidian 里某层祖先让 sticky 失效时，
+// 量一下目录顶边是不是已经滚出阅读区，是的话用 translateY 把它拉回来（不超过正文那一栏的底）
+function pinToc() {
+  const t = R.toc; if (!t) return;
+  t.style.transform = '';
+  if (wrap.classList.contains('is-narrow') || PREFS.tocOff) return;
+  const sc = LB.scroller(); if (!sc) return;
+  const top = sc.getBoundingClientRect().top + 12, tr = t.getBoundingClientRect(), mr = main.getBoundingClientRect();
+  if (tr.top >= top - 1) return;
+  const shift = Math.min(top - tr.top, Math.max(0, mr.bottom - tr.bottom));
+  if (shift > 0) t.style.transform = `translateY(${Math.round(shift)}px)`;
 }
 // 目录的高度跟着 Obsidian 的阅读区，不跟着整个窗口（100vh 会把目录底部压到屏幕外）
 function fitToc() { const sc = LB.scroller(); if (sc && sc.clientHeight > 200) R.toc.style.maxHeight = (sc.clientHeight - 40) + 'px'; }
@@ -1756,7 +1784,6 @@ function docNodes(p, placeholder) {
   const docEl = h('div', { cls: 'lbw-doc' });
   const A = UI.ai && UI.ai.id === p.id ? UI.ai : null;
   if (A && A.scope === 'part') { const at = relocate(A, p); if (at) Object.assign(A, at); }   // 别处加删了行：跟着挪
-  const lastIn = A && A.scope === 'part' ? blocks.reduce((k, b, j) => (b.s < A.end && b.e > A.start ? j : k), -1) : -1;
   blocks.forEach((b, i) => {
     const blk = add(h('div', { cls: 'lbw-blk' + (b.type === 'li' ? ' is-li' : '') + (aiLocked(p, b) ? (A && A.scope === 'page' ? ' is-ai-lock is-page' : ' is-ai-lock') : ''), data: { i } }), renderBlock(b, lines, p));
     if (!readOnly) {
@@ -1765,7 +1792,6 @@ function docNodes(p, placeholder) {
       blk.append(btn({ cls: 'lbw-ins', text: '+', on: { click: e => { e.stopPropagation(); openEditor(-1, 0, true, { kind: 'p', pre: '', at: b.e }); } } }, sr('在这段后面插一段')));
     }
     docEl.append(blk);
-    if (i === lastIn) docEl.append(aiPanel(A));
   });
   R.doc = docEl;
   if (readOnly) return [docEl, blocks.length ? null : h('p', { cls: 'lbw-rnone', text: '这一页还是空的' })];
@@ -1916,6 +1942,7 @@ function openEditor(i, caret = null, isNew = false, ins = null) {
   } else {
     const b = blocks[i]; if (!b) return;
     s = b.s; e = b.e; src = lines.slice(s, e).join('\n'); holder = R.doc.querySelector(`.lbw-blk[data-i="${i}"]`); if (!holder) return;
+    UI.lastLine = { page: p.id, line: s };   // 页头「AI」默认改这一节
     shape = shapeOf(b.type, lines[s]);
     if (shape.kind === 'h') { const k = (p._heads || []).findIndex(x => x.line === s); if (k >= 0) shape.hn = String(k + 1); }
   }
@@ -1927,7 +1954,7 @@ function openEditor(i, caret = null, isNew = false, ins = null) {
   ta.placeholder = isNew && !p.body.trim() ? (p.role === 'topic' ? '一句话说说这个文件夹放什么' : '写下第一句：为什么关注这件事？') : '';
   const lv = (t, v) => btn({ text: t, data: { lv: v } });
   const bar = h('div', { cls: 'lbw-edbar' }, lv('正文', 0), lv('H1', 1), lv('H2', 2), lv('H3', 3), h('span', { cls: 'lbw-sep' }), lv('列表', 'ul'), lv('待办', 'task'),
-    h('span', { cls: 'lbw-sep' }), btn({ cls: 'is-ai', text: 'AI 改', data: { ai: '1' }, on: { click: () => aiFromEditor() } }));
+  );
   bar.addEventListener('mousedown', ev => ev.preventDefault());
   for (const x of bar.querySelectorAll('[data-lv]')) x.addEventListener('click', () => setLevel(ta, x.dataset.lv));
   E.bar = bar;
@@ -2384,12 +2411,11 @@ function lineDiff(a, b) {
   return out;
 }
 function renderSide() {
-  const H = UI.hist, side = R.side, A = UI.ai && UI.ai.scope === 'page' ? UI.ai : null, T = UI.trash;
-  const on = !!(H || A || T);
+  const H = UI.hist, side = R.side, T = UI.trash;
+  const on = !!(H || T);
   wrap.classList.toggle('has-side', on);
   if (R.histBtn) R.histBtn.classList.toggle('is-on', !!H);
   side.hidden = !on; side.textContent = '';
-  if (A) { renderAiSide(side); return; }
   if (T) { renderTrashSide(side); return; }
   if (!H) return;
   const p = PAGES.get(H.id);
@@ -2504,10 +2530,8 @@ function openAiPart(p, start, end, what) {
   if (readOnly || !p) return;
   const text = p.body.split('\n').slice(start, end).join('\n');
   if (!text.trim()) { LB.say('这一截是空的，先写一点再让 AI 改'); return; }
-  if (UI.ai && UI.ai.scope === 'page') UI.ai = null;
   UI.ai = { scope: 'part', id: p.id, start, end, text, what, state: 'ask', ask: '' };
-  renderSide(); renderKeepScroll();
-  const inp = R.center.querySelector('.lbw-ai input'); if (inp) inp.focus();
+  showAi();
 }
 // 编辑时工具条上的「AI 改」：先收好正在改的这段，再取它所在的那一节
 function aiFromEditor() {
@@ -2541,12 +2565,13 @@ function showSelAi() {
 function openAiPage(p, preset = '') {
   if (readOnly || !p) return;
   commitHere(p);
-  UI.hist = null; UI.trash = null;
   UI.ai = { scope: 'page', id: p.id, text: p.body, what: '整页', state: 'ask', ask: '' };
-  renderSide(); renderKeepScroll();
+  showAi();
   if (preset) runAi(UI.ai, preset, '');
 }
-function closeAi() { UI.ai = null; renderSide(); renderKeepScroll(); }
+function closeAi() { UI.ai = null; renderKeepScroll(); renderDock(); }
+// 开 / 换范围：正文重画（锁住的段加框），底部对话框画出来，光标进输入框
+function showAi() { hideSelAi(); renderKeepScroll(); renderDock(); const f = R.dock && R.dock.querySelector('textarea, input'); if (f) f.focus(); }
 async function runAi(A, preset, ask) {
   if (A !== UI.ai) return;
   const p = PAGES.get(A.id); if (!p) { closeAi(); return; }
@@ -2566,7 +2591,7 @@ async function runAi(A, preset, ask) {
   } catch (e) { if (A !== UI.ai) return; Object.assign(A, { state: 'error', error: errText(e) }); }
   paintAi(A);
 }
-const paintAi = A => { if (A.scope === 'page') renderSide(); else if (!ED) renderKeepScroll(); };
+const paintAi = A => { if (A === UI.ai) renderDock(); };
 // ── 按字 / 词比 ──
 // 切词：英文 / 数字按词，空白一段，其余（中文、标点）一个字一个
 const toks = s => String(s).match(/[A-Za-z0-9_]+(?:['’.-][A-Za-z0-9_]+)*|[^\S\n]+|\n|[\s\S]/gu) || [];
@@ -2622,7 +2647,7 @@ function applyAi(A) {
   const n = A.pick.size, all = A.segs.filter(x => x.t === 'ch').length;
   const ok = A.scope === 'page' ? mutate(p, x => { x.body = next; }, { kind: 'ai', note: `AI：${A.label}（用了 ${n}/${all} 处）` })
     : mutate(p, x => { x.body = spliceBody(x.body, at.start, at.end, next).body; }, { kind: 'ai', note: `AI：${A.label}（用了 ${n}/${all} 处）` });
-  if (ok) { UI.ai = null; renderSide(); renderKeepScroll(); LB.say(`用了 AI 改的 ${n} 处；不满意按 Ctrl+Z 撤销`, { kind: 'ok' }); }
+  if (ok) { UI.ai = null; renderKeepScroll(); renderDock(); LB.say(`用了 AI 改的 ${n} 处；不满意按 Ctrl+Z 撤销`, { kind: 'ok' }); }
 }
 // 逐处勾选的那块：没改的字照常显示，改动处 = 划掉的原文 + 新字，点一下切换「要 / 不要」
 function diffView(A) {
@@ -2672,16 +2697,58 @@ function aiBody(A) {
   }
   return out;
 }
-function aiPanel(A) {
-  const el = h('div', { cls: 'lbw-ai', data: { scope: 'part' } }, h('div', { cls: 'lbw-ai-row', attr: { style: 'margin-bottom:8px' } }, h('span', { cls: 'lbw-kick', text: 'AI' }), h('span', { cls: 'lbw-ai-note', attr: { style: 'margin:0' }, text: '改' + A.what + '（上面虚线框里的）' })), aiBody(A));
-  el.addEventListener('click', e => e.stopPropagation());
-  return el;
+// ── 底部对话框（10-31 晚她：「ai 整理应该有一个比较舒服的对话框出现在底下」「和问收藏对齐，都是方型的框」）──
+// 页头「AI」打开：有选中的字 → 改选中的那几段；正在改某段 / 刚点过某段 → 那一节；都没有 → 整页（空页 → 按思路搭框架）。
+// 顶上一排切换范围（改这一节 / 改整页 / 按我的思路搭框架）。对话框 position:fixed 浮在正文那一栏底部，滚动 / 变宽时按阅读区重新摆
+// （placeFixed 会抵掉 Obsidian 祖先 contain / transform 造成的偏移）
+function openAiFromHead() {
+  const p = current();
+  if (!p || readOnly) { LB.say('先打开一页，再让 AI 整理'); return; }
+  if (UI.ai) { closeAi(); return; }
+  const sel = selectedRange();
+  if (sel) { openAiPart(sel.p, sel.start, sel.end, sel.what); return; }
+  if (ED && ED.p === p) { aiFromEditor(); return; }
+  const at = UI.lastLine && UI.lastLine.page === p.id ? UI.lastLine.line : null;
+  if (at != null && p.body.trim()) { const r = sectionRange(p, at); openAiPart(p, r.start, r.end, r.what); return; }
+  if (p.body.trim()) openAiPage(p); else openAiPlan(p);
 }
-function renderAiSide(side) {
-  const A = UI.ai, p = PAGES.get(A.id);
-  side.append(h('div', { cls: 'lbw-rbar' }, btn({ text: '← 收起', on: { click: closeAi } }), h('span', { cls: 'is-on', text: A.mode === 'plan' ? '按我的思路搭框架' : '让 AI 改整页' }), h('span', { text: p ? p.title : '' })));
-  if (!p) { side.append(h('p', { cls: 'lbw-note', text: '这一页找不到了。' })); return; }
-  side.append(h('div', { cls: 'lbw-ai', data: { scope: 'page', mode: A.mode || 'edit' } }, A.mode === 'plan' ? planBody(A) : aiBody(A)));
+function switchScope(k) {
+  const A = UI.ai, p = A && PAGES.get(A.id); if (!p) return;
+  if (A.state === 'run' || A.state === 'planning' || A.state === 'filling') { LB.say('AI 还在改：等它回来，或者先点「不等了」'); return; }
+  if (k === 'page') openAiPage(p);
+  else if (k === 'plan') openAiPlan(p);
+  else if (k === 'sec') {
+    if (!p.body.trim()) { LB.say('这页还是空的：用「按我的思路搭框架」'); return; }
+    const line = UI.lastLine && UI.lastLine.page === p.id ? UI.lastLine.line : (A.scope === 'part' ? A.start : 0);
+    const r = sectionRange(p, line); openAiPart(p, r.start, r.end, r.what);
+  }
+}
+function renderDock() {
+  const A = UI.ai, p = A && PAGES.get(A.id);
+  if (!A || !p || UI.view !== 'page' || UI.id !== A.id) { if (R.dock) { R.dock.remove(); R.dock = null; } if (R.aiBtn) R.aiBtn.classList.remove('is-on'); return; }
+  const keep = R.dock && R.dock.querySelector('.lbw-dock-body'), top = keep ? keep.scrollTop : 0;
+  const d = h('div', { cls: 'lbw-dock', data: { scope: A.scope, mode: A.mode || 'edit' } });
+  const tab = (k, text, on) => btn({ cls: on ? 'is-on' : '', text, data: { scope: k }, on: { click: () => switchScope(k) } });
+  d.append(h('div', { cls: 'lbw-dock-head' }, h('span', { cls: 'lbw-kick', text: 'AI' }),
+    A.scope === 'part' ? tab('sec', '改' + A.what, true) : tab('sec', '改这一节', false),
+    tab('page', '改整页', A.scope === 'page' && A.mode !== 'plan'), tab('plan', '按我的思路搭框架', A.mode === 'plan'),
+    h('span', { cls: 'lbw-sp' }), btn({ cls: 'lbw-dock-x', text: '收起', data: { dock: 'close' }, on: { click: closeAi } })));
+  const bodyEl = h('div', { cls: 'lbw-dock-body' }, h('div', { cls: 'lbw-ai', data: { scope: A.scope, mode: A.mode || 'edit' } }, A.mode === 'plan' ? planBody(A) : aiBody(A)));
+  d.append(bodyEl);
+  d.addEventListener('click', e => e.stopPropagation());
+  if (R.dock) R.dock.replaceWith(d); else wrap.append(d);
+  R.dock = d;
+  if (R.aiBtn) R.aiBtn.classList.add('is-on');
+  bodyEl.scrollTop = top;
+  placeDock();
+}
+function placeDock() {
+  const d = R.dock; if (!d) return;
+  const sc = LB.scroller(), col = R.center.getBoundingClientRect();
+  const vb = sc ? sc.getBoundingClientRect() : { top: 0, bottom: (WIN && WIN.innerHeight) || 800 };
+  const w = Math.max(320, Math.min(780, col.width || 680));
+  d.style.width = w + 'px';
+  placeFixed(d, Math.max(8, (col.left || 0) + ((col.width || w) - w) / 2), Math.max((vb.top || 0) + 8, (vb.bottom || 800) - (d.offsetHeight || 220) - 14));
 }
 // ═════════════ 按我的思路搭框架（10-31 第二块，她：「我给一段文字，但我有我的思路，ai 根据我的思路，把资料、wiki 框架配齐」） ═════════════
 // 右侧栏：写思路 → AI 出计划（每节标题 + 去收藏里搜什么）→ 她改 / 删 / 加节 → 「按这个去收藏里找」：每节用问收藏同一套检索，
@@ -2690,10 +2757,8 @@ function renderAiSide(side) {
 function openAiPlan(p) {
   if (readOnly || !p) return;
   commitHere(p);
-  UI.hist = null; UI.trash = null;
   UI.ai = { scope: 'page', mode: 'plan', id: p.id, text: p.body, what: '整页', label: '按思路搭框架', state: 'idea', idea: '', sections: [] };
-  renderSide(); renderKeepScroll();
-  const ta = R.side.querySelector('.lbw-ai textarea'); if (ta) ta.focus();
+  showAi();
 }
 async function runPlan(A) {
   if (A !== UI.ai) return;
@@ -2948,7 +3013,7 @@ R.center.addEventListener('mouseup', () => setTimeout(showSelAi, 0));
 R.center.addEventListener('keyup', e => { if (e.shiftKey) showSelAi(); });
 LB.listen('wiki-selai', D, 'mousedown', e => { if (R.selAi && e.target !== R.selAi) hideSelAi(); });
 // 目录跟着读到哪（滚动时每帧最多算一次）
-{ const sc = LB.scroller(); let spyQ = 0; if (sc) LB.listen('wiki-spy', sc, 'scroll', () => { if (spyQ) return; spyQ = 1; (WIN && WIN.requestAnimationFrame ? WIN.requestAnimationFrame : f => setTimeout(f, 16))(() => { spyQ = 0; spyHeads(); }); }, { passive: true }); }
+{ const sc = LB.scroller(); let spyQ = 0; if (sc) LB.listen('wiki-spy', sc, 'scroll', () => { if (spyQ) return; spyQ = 1; (WIN && WIN.requestAnimationFrame ? WIN.requestAnimationFrame : f => setTimeout(f, 16))(() => { spyQ = 0; spyHeads(); pinToc(); placeDock(); }); }, { passive: true }); }
 // 登记这一版 DOM（§5.1 / §5.9）：catalog-data 变了只换收藏（引用编号 / 缺失标记）；Dataview 重跑时按磁盘签名看 PersonalWiki 有没有变
 LB.keep(wrap, { version: await LB.data.version(), update: async () => { await loadItems(); if (!ED && !(UI.src && R.srcEd && D.activeElement === R.srcEd)) { const sc = LB.scroller(), top = sc ? sc.scrollTop : 0; renderCenter(); if (sc) sc.scrollTop = top; } },
   onReuse: () => { paintWidth(); for (const g of GRAPHS) g.resume(); refresh().catch(e => console.debug('[lb] wiki refresh', e)); } });

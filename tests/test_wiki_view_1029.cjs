@@ -238,7 +238,7 @@ const tocPage = (A, title) => A.qa('.lbw-tpage').find(b => b.textContent === tit
   A.qa('.lbw-blk')[0].click();
   let ta = A.q('.lbw-ed');
   assert.ok(ta && A.q('.lbw-edbar'), '点一段出编辑框和层级工具条');
-  assert.deepEqual(texts(A, '.lbw-edbar button'), ['正文', 'H1', 'H2', 'H3', '列表', '待办', 'AI 改'], '10-31：浅色小工具条，AI 改接上了');
+  assert.deepEqual(texts(A, '.lbw-edbar button'), ['正文', 'H1', 'H2', 'H3', '列表', '待办'], '10-31：浅色小工具条（AI 从页头进，格式条上不放）');
   assert.ok(!A.q('.lbw-edbar button[disabled]'));
   assert.equal(ta.parentElement.tagName, 'P', '原地改：编辑框套在和阅读时同一个元素里');
   assert.equal(ta.value, '为什么记：每次订酒店都从头翻收藏。');
@@ -307,7 +307,7 @@ const tocPage = (A, title) => A.qa('.lbw-tpage').find(b => b.textContent === tit
   assert.ok(saves.at(-1).input.body.includes('- [x] 预算上限？'));
 
   // ── 历史侧栏：版本列表、选一版看差异 ──
-  A.q('.lbw-hbtn:not(.is-more)').click(); await tick(10);
+  A.q('.lbw-hbtn[data-hist]').click(); await tick(10);
   assert.ok(!A.q('.lbw-side').hidden, '历史在本页右侧栏');
   assert.equal(A.qa('.lbw-ver').length, 2);
   A.qa('.lbw-ver')[1].click(); await tick(10);
@@ -459,7 +459,7 @@ const tocPage = (A, title) => A.qa('.lbw-tpage').find(b => b.textContent === tit
   await reviewCase('审查3 恢复进行中点段落', async () => {
     const P = fakePlugin(); const { A: B, V: VB } = await open({ plugin: P });
     tocPage(B, '住宿偏好').click();
-    B.q('.lbw-hbtn:not(.is-more)').click(); await tick(10);
+    B.q('.lbw-hbtn[data-hist]').click(); await tick(10);
     B.qa('.lbw-ver')[1].click(); await tick(10);
     P.delay = 60;
     B.q('.lbw-side [data-restore]').click(); await tick(5);
@@ -525,7 +525,7 @@ const tocPage = (A, title) => A.qa('.lbw-tpage').find(b => b.textContent === tit
     const src = B.q('.lbw-srced'); assert.ok(src, '整页 Markdown 编辑框'); return src;
   };
   const openRestore = async B => {
-    B.q('.lbw-hbtn:not(.is-more)').click(); await tick(10);
+    B.q('.lbw-hbtn[data-hist]').click(); await tick(10);
     B.qa('.lbw-ver')[1].click(); await tick(10);
     return B.q('.lbw-side [data-restore]');
   };
@@ -616,7 +616,7 @@ const tocPage = (A, title) => A.qa('.lbw-tpage').find(b => b.textContent === tit
   await reviewCase('补测 Wiki 外的输入框里按 Esc / Ctrl+F', async () => {
     const P = fakePlugin(); const { A: B, dom: d2 } = await open({ plugin: P });
     tocPage(B, '住宿偏好').click();
-    B.q('.lbw-hbtn:not(.is-more)').click(); await tick(10);
+    B.q('.lbw-hbtn[data-hist]').click(); await tick(10);
     assert.equal(B.q('.lbw-side').hidden, false);
     const outside = d2.document.body.createEl('input');
     outside.dispatchEvent(new B.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
