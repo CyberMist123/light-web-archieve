@@ -1523,7 +1523,7 @@ index abed0f7..5861f9e 100644
  
 diff --git a/linkbrain_api.go b/linkbrain_api.go
 new file mode 100644
-index 0000000..491c97e
+index 0000000..7297d4c
 --- /dev/null
 +++ b/linkbrain_api.go
 @@ -0,0 +1,1236 @@
@@ -3096,7 +3096,7 @@ index b38164a..00d36b0 100644
  	return gin.CustomRecovery(func(c *gin.Context, recovered any) {
 diff --git a/note_verify.go b/note_verify.go
 new file mode 100644
-index 0000000..dd2e9a5
+index 0000000..43a92a8
 --- /dev/null
 +++ b/note_verify.go
 @@ -0,0 +1,282 @@
@@ -3384,7 +3384,7 @@ index 0000000..dd2e9a5
 +}
 diff --git a/note_verify_test.go b/note_verify_test.go
 new file mode 100644
-index 0000000..53381c4
+index 0000000..9ec5f7b
 --- /dev/null
 +++ b/note_verify_test.go
 @@ -0,0 +1,238 @@
@@ -3628,7 +3628,7 @@ index 0000000..53381c4
 +}
 diff --git a/risk_autoprobe.go b/risk_autoprobe.go
 new file mode 100644
-index 0000000..206107e
+index 0000000..92f7bac
 --- /dev/null
 +++ b/risk_autoprobe.go
 @@ -0,0 +1,262 @@
@@ -4146,7 +4146,7 @@ index 0000000..7386e9f
 +}
 diff --git a/risk_evidence_localbrowser_test.go b/risk_evidence_localbrowser_test.go
 new file mode 100644
-index 0000000..27b2f2e
+index 0000000..93c3cea
 --- /dev/null
 +++ b/risk_evidence_localbrowser_test.go
 @@ -0,0 +1,362 @@
@@ -4514,7 +4514,7 @@ index 0000000..27b2f2e
 +}
 diff --git a/risk_guard_test.go b/risk_guard_test.go
 new file mode 100644
-index 0000000..1854369
+index 0000000..c2a556d
 --- /dev/null
 +++ b/risk_guard_test.go
 @@ -0,0 +1,388 @@
@@ -4908,10 +4908,10 @@ index 0000000..1854369
 +}
 diff --git a/risk_hold.go b/risk_hold.go
 new file mode 100644
-index 0000000..aa43022
+index 0000000..822d62b
 --- /dev/null
 +++ b/risk_hold.go
-@@ -0,0 +1,507 @@
+@@ -0,0 +1,508 @@
 +package main
 +
 +// 风控熔断（1001）：撞到验证码 / 安全跳转页 / 需要登录却是游客之后，拒绝一切会开浏览器的请求，
@@ -5101,6 +5101,7 @@ index 0000000..aa43022
 +	}
 +	r := riskHold{Code: code, Since: now.Format(time.RFC3339), Detail: detail}
 +	revertSubLimit(filepath.Dir(h.path), code) // 1017：任何熔断都把调高的楼中楼额度退回默认
++	noteLastRisk(filepath.Dir(h.path), code, now) // 1101：熔断解除后楼中楼还要再歇一阵
 +	if code == xiaohongshu.RiskRateLimited {
 +		n := h.readStrikes(now) + 1
 +		if b, err := json.Marshal(rateStrikes{Strikes: n, Last: now.Format(time.RFC3339)}); err == nil {
@@ -5421,7 +5422,7 @@ index 0000000..aa43022
 +}
 diff --git a/risk_hold_test.go b/risk_hold_test.go
 new file mode 100644
-index 0000000..a7b36d2
+index 0000000..dea1113
 --- /dev/null
 +++ b/risk_hold_test.go
 @@ -0,0 +1,572 @@
@@ -6856,10 +6857,10 @@ index f40bb5d..78e9bd0 100644
  
 diff --git a/sub_budget.go b/sub_budget.go
 new file mode 100644
-index 0000000..404e584
+index 0000000..d18a164
 --- /dev/null
 +++ b/sub_budget.go
-@@ -0,0 +1,159 @@
+@@ -0,0 +1,165 @@
 +package main
 +
 +// 1016 楼中楼闸：10-12 以来 7 次跳安全页全是展开楼中楼（comment/sub/page）触发的——6 次 300013 访问频繁，
@@ -7014,9 +7015,15 @@ index 0000000..404e584
 +		if until := subCooldownUntil(dir); now.Before(until) {
 +			return "楼中楼暂时受限，自动等待到 " + until.Format("01-02 15:04") + "；正文正常保存，无需重新登录"
 +		}
++		if why := subRiskPauseWhy(dir, now); why != "" {
++			return why
++		}
 +		n, last := s.hold.lastStrike(now)
 +		return subGateWhy(s.hold.get(), n, last, b.used(now), now, subLimitAt(dir))
 +	}, func() { b.note(holdNow()) })
++	xiaohongshu.SetSubPace(func() time.Duration { // 1101：两次点击隔开
++		return subSpacing(b.last(), subLimitAt(dir), holdNow(), subJitter())
++	})
 +	return b
 +}
 diff --git a/sub_budget_1016_test.go b/sub_budget_1016_test.go
@@ -7079,12 +7086,157 @@ index 0000000..d2c0c1a
 +	h.trip(xiaohongshu.RiskRateLimited, "300013", nil)
 +	assert.Equal(t, subPerHour, subLimitAt(dir), "撞限频自动退回")
 +}
+diff --git a/sub_pace.go b/sub_pace.go
+new file mode 100644
+index 0000000..a9a089a
+--- /dev/null
++++ b/sub_pace.go
+@@ -0,0 +1,85 @@
++package main
++
++// 1101 楼中楼的两处漏洞（11-01 08:48 读收藏撞拼图验证，5 分钟后熔断解除；09:46 楼中楼又全速开点，6 分钟点满 30 次，
++// 10:46 额度一回来点第 1 次就被回 300011）：
++//   - 撞过验证 / 风控之后熔断一解除，楼中楼照常全速点——号正被盯着，最容易升级处罚。现在任何风控（掉登录除外）
++//     都落一笔 last-risk.json，之后 subPauseAfterRisk 内楼中楼不点（人点了 risk/clear 也不清这一笔）；
++//   - 一小时额度是总数，没要求隔开：6 分钟连点 30 下再空等 50 分钟。现在两次点击至少隔「一小时 ÷ 额度」（±30% 抖动），
++//     这趟请求剩的时间不够等就把没展开的楼留给续读（sub_paused）。
++
++import (
++	"encoding/json"
++	"math/rand"
++	"os"
++	"path/filepath"
++	"time"
++
++	"github.com/xpzouying/xiaohongshu-mcp/xiaohongshu"
++)
++
++const lastRiskFile = "last-risk.json"
++
++// subPauseAfterRisk 撞过验证 / 风控之后楼中楼歇多久。
++var subPauseAfterRisk = 12 * time.Hour
++
++type lastRisk struct {
++	Code string `json:"code"`
++	At   string `json:"at"` // RFC3339
++}
++
++// noteLastRisk 记下最近一次风控（掉登录不算：那不是被盯上）。
++func noteLastRisk(dir, code string, now time.Time) {
++	if code == "" || code == xiaohongshu.RiskNotLoggedIn {
++		return
++	}
++	_ = os.MkdirAll(dir, 0o700)
++	_ = writeFileAtomic(filepath.Join(dir, lastRiskFile), lastRisk{Code: code, At: now.Format(time.RFC3339)})
++}
++
++// subRiskPauseWhy 最近撞过风控、还在歇的话返回原因，否则 ""。
++func subRiskPauseWhy(dir string, now time.Time) string {
++	data, err := os.ReadFile(filepath.Join(dir, lastRiskFile))
++	if err != nil {
++		return ""
++	}
++	var r lastRisk
++	if json.Unmarshal(data, &r) != nil {
++		return ""
++	}
++	at, err := time.Parse(time.RFC3339, r.At)
++	if err != nil {
++		return ""
++	}
++	if until := at.Add(subPauseAfterRisk); now.Before(until) {
++		return at.Format("01-02 15:04") + " 撞过验证 / 风控（" + r.Code + "），楼中楼歇到 " + until.Format("01-02 15:04")
++	}
++	return ""
++}
++
++// subSpacing 离下一次能点「展开回复」还要等多久（纯逻辑）：两次至少隔 一小时 ÷ perHour × jitter。
++func subSpacing(last time.Time, perHour int, now time.Time, jitter float64) time.Duration {
++	if last.IsZero() || perHour <= 0 {
++		return 0
++	}
++	gap := time.Duration(float64(time.Hour/time.Duration(perHour)) * jitter)
++	if w := gap - now.Sub(last); w > 0 {
++		return w
++	}
++	return 0
++}
++
++// subJitter 0.7–1.3 的均匀抖动。
++func subJitter() float64 { return 0.7 + rand.Float64()*0.6 }
++
++// last 最近一次点击的时刻（没有 = 零值）。
++func (b *subBudget) last() time.Time {
++	b.mu.Lock()
++	defer b.mu.Unlock()
++	var t time.Time
++	for _, c := range b.Clicks {
++		if x, err := time.Parse(time.RFC3339, c); err == nil && x.After(t) {
++			t = x
++		}
++	}
++	return t
++}
+diff --git a/sub_pace_test.go b/sub_pace_test.go
+new file mode 100644
+index 0000000..78898be
+--- /dev/null
++++ b/sub_pace_test.go
+@@ -0,0 +1,48 @@
++package main
++
++import (
++	"strings"
++	"testing"
++	"time"
++
++	"github.com/stretchr/testify/require"
++	"github.com/xpzouying/xiaohongshu-mcp/xiaohongshu"
++)
++
++func TestSubSpacing1101(t *testing.T) {
++	now := time.Date(2026, 11, 1, 9, 47, 0, 0, time.UTC)
++	require.Zero(t, subSpacing(time.Time{}, 30, now, 1))
++	// 30 次 / 小时 = 每 2 分钟一次：上一次 10 秒前 → 还要等 110 秒
++	require.Equal(t, 110*time.Second, subSpacing(now.Add(-10*time.Second), 30, now, 1))
++	require.Zero(t, subSpacing(now.Add(-3*time.Minute), 30, now, 1))
++	// 抖动按比例放大
++	require.Equal(t, 146*time.Second, subSpacing(now.Add(-10*time.Second), 30, now, 1.3))
++}
++
++func TestSubRiskPause1101(t *testing.T) {
++	dir := t.TempDir()
++	at := time.Date(2026, 11, 1, 8, 48, 0, 0, time.Local)
++	require.Empty(t, subRiskPauseWhy(dir, at))
++	noteLastRisk(dir, xiaohongshu.RiskNotLoggedIn, at) // 掉登录不算
++	require.Empty(t, subRiskPauseWhy(dir, at.Add(time.Minute)))
++	noteLastRisk(dir, xiaohongshu.RiskCaptcha, at)
++	why := subRiskPauseWhy(dir, at.Add(time.Hour))
++	require.True(t, strings.Contains(why, "楼中楼歇到 11-01 20:48"), why)
++	require.Empty(t, subRiskPauseWhy(dir, at.Add(subPauseAfterRisk)))
++}
++
++func TestTripNotesLastRiskEvenAfterClear1101(t *testing.T) {
++	dir := t.TempDir()
++	h := loadHoldStore(dir + "/risk-hold.json")
++	h.trip(xiaohongshu.RiskCaptcha, "拼图", nil)
++	h.clear("人处理过")
++	require.NotEmpty(t, subRiskPauseWhy(dir, holdNow().Add(time.Hour)))
++}
++
++func TestSubCommentRiskDetailNoRelogin1101(t *testing.T) {
++	sub := xiaohongshu.ClassifyRiskQuery("/website-login/error", "?error_code=300011&rejectUrl=edith.xiaohongshu.com/api/sns/web/v2/comment/sub/page", false)
++	require.NotContains(t, sub.Detail, "要重新登录")
++	require.Contains(t, sub.Detail, "不用重新登录")
++	other := xiaohongshu.ClassifyRiskQuery("/website-login/error", "?error_code=300011&rejectUrl=edith.xiaohongshu.com/api/sns/web/v2/feed", false)
++	require.Contains(t, other.Detail, "要重新登录")
++}
 diff --git a/sub_recovery.go b/sub_recovery.go
 new file mode 100644
-index 0000000..6d90694
+index 0000000..4b2aeab
 --- /dev/null
 +++ b/sub_recovery.go
-@@ -0,0 +1,57 @@
+@@ -0,0 +1,58 @@
 +package main
 +
 +import (
@@ -7122,6 +7274,7 @@ index 0000000..6d90694
 +		return err
 +	}
 +	revertSubLimit(dir, "sub_comments")
++	noteLastRisk(dir, h.Code, t)
 +	return nil
 +}
 +
@@ -7144,10 +7297,10 @@ index 0000000..6d90694
 +}
 diff --git a/sub_recovery_test.go b/sub_recovery_test.go
 new file mode 100644
-index 0000000..c75bb85
+index 0000000..b2e4d35
 --- /dev/null
 +++ b/sub_recovery_test.go
-@@ -0,0 +1,46 @@
+@@ -0,0 +1,48 @@
 +package main
 +
 +import (
@@ -7179,6 +7332,8 @@ index 0000000..c75bb85
 +		s.hold.clear("manual clear must not reset reply cooldown")
 +		require.Contains(t, xiaohongshu.SubExpandGate(), "楼中楼暂时受限")
 +		require.NoError(t, writeFileAtomic(filepath.Join(dir, subCooldownFile), riskHold{Until: time.Now().Add(-time.Second).Format(time.RFC3339)}))
++		require.Contains(t, xiaohongshu.SubExpandGate(), "楼中楼歇到") // 1101：冷却到期但撞风控还不满 12 小时
++		require.NoError(t, writeFileAtomic(filepath.Join(dir, lastRiskFile), lastRisk{Code: xiaohongshu.RiskAccount, At: time.Now().Add(-subPauseAfterRisk).Format(time.RFC3339)}))
 +		require.Empty(t, xiaohongshu.SubExpandGate())
 +	}
 +}
@@ -7982,10 +8137,10 @@ index 0000000..7bb358c
 +}
 diff --git a/xiaohongshu/comment_floors.go b/xiaohongshu/comment_floors.go
 new file mode 100644
-index 0000000..ab1209a
+index 0000000..c3e4c9e
 --- /dev/null
 +++ b/xiaohongshu/comment_floors.go
-@@ -0,0 +1,1186 @@
+@@ -0,0 +1,1208 @@
 +package xiaohongshu
 +
 +// 评论楼层加载（1004d）：一次请求、一个预算里「滚评论区加载楼层 + 把楼层上限内每楼的回复展开到底」。
@@ -8076,6 +8231,12 @@ index 0000000..ab1209a
 +
 +// SubExpandNote 1016：每点下去一次「展开回复」记一笔（服务层注入，计每小时额度）。
 +var SubExpandNote func()
++
++// SubExpandPace 1101：离下一次能点「展开回复」还要等多久（服务层注入：两次至少隔 一小时 ÷ 额度）。nil = 不管。
++var SubExpandPace func() time.Duration
++
++// SetSubPace 服务层注入楼中楼间隔（main 包调）。
++func SetSubPace(pace func() time.Duration) { SubExpandPace = pace }
 +
 +// ReplyGap 楼层上限内某一楼的回复没拿全。
 +type ReplyGap struct {
@@ -8170,6 +8331,8 @@ index 0000000..ab1209a
 +	// 1016：ExpandAllow 点之前问一次（"" = 放行）；ExpandNote 点下去记一笔。nil = 不管。
 +	ExpandAllow func() string
 +	ExpandNote  func()
++	// 1101：ExpandPace 点之前至少还要等多久（和 ExpandGap 取大的）；这趟剩的时间不够等就当闸关了。nil = 不管。
++	ExpandPace func() time.Duration
 +	// 1017 断点续展：comment_id → 上次存到哪（游标 = 存下的最后一条回复 id、已存条数）。页面每次打开楼中楼都从第 1 条起，
 +	// 不续的话每次都得把存过的重新点一遍——一小时 30 次额度（约 300 条）永远够不着 300 条以后。点这楼之前先把页面状态里
 +	// 这楼的 subCommentCursor 改成存下的游标（站点「展开回复」就拿它请求 comment/sub/page），点一下就接着往后拉。
@@ -8261,7 +8424,7 @@ index 0000000..ab1209a
 +		ThrottleStreak: 4, ThrottlePause: throttlePause, MaxThrottlePauses: 2,
 +		ScrollSettle: commentFloorSettle, ProbeFailLimit: 10, RiskEvery: commentRiskEvery, Tick: commentTick,
 +		ExpandFloorLimit: subFloors(), ExpandGap: expandGap,
-+		ExpandAllow: SubExpandGate, ExpandNote: SubExpandNote,
++		ExpandAllow: SubExpandGate, ExpandNote: SubExpandNote, ExpandPace: SubExpandPace,
 +	}
 +}
 +
@@ -8520,26 +8683,40 @@ index 0000000..ab1209a
 +					fs.gaveUp = ReplyGapCap
 +					logrus.Warnf("评论第 %d 楼：点了 %d 次（上限）还没展开完（%d/%d），先放下", f.Index+1, fs.clicks, f.Loaded, f.Shown)
 +				default:
++					why := ""
 +					if cfg.ExpandAllow != nil {
-+						if why := cfg.ExpandAllow(); why != "" { // 1016：楼中楼闸关着：剩下要展开的楼全部留给续读，接着只读一级评论
-+							for _, g := range s.Floors {
-+								if gs := get(floorKey(g)); wantFloor(cfg, g) && !floorDone(g) && !floorBeyondExpandCap(cfg, g) && gs.gaveUp == "" {
-+									gs.gaveUp, gs.detail = ReplyGapPaused, why
-+								}
++						why = cfg.ExpandAllow()
++					}
++					var wait time.Duration
++					if why == "" {
++						if cfg.ExpandGap != nil && res.Clicks > 0 { // 1015：楼中楼单独放慢（第一次点不歇，之后每次都歇）
++							wait = cfg.ExpandGap()
++						}
++						if cfg.ExpandPace != nil { // 1101：和上一次点击（含上一趟请求）至少隔开
++							if p := cfg.ExpandPace(); p > wait {
++								wait = p
 +							}
-+							cfg.Expand = false
-+							logrus.Warnf("楼中楼暂停：%s（没展开的楼留给下次续读）", why)
-+							if len(cfg.ExpandFloors) > 0 {
-+								// 1018：续展这趟只为展开而来，闸关了就收手——以前接着往下滚找目标楼，把剩下的预算全花在翻一级评论上
-+								return finish(CommentStopSubPaused)
-+							}
-+							continue
++						}
++						if wait > 0 && time.Until(deadline) < wait {
++							why = fmt.Sprintf("楼中楼放慢：下一次要等 %s，这趟剩的时间不够", wait.Round(time.Second))
 +						}
 +					}
-+					if cfg.ExpandGap != nil && res.Clicks > 0 { // 1015：楼中楼单独放慢（第一次点不歇，之后每次都歇）
-+						if !sleep(cfg.ExpandGap()) {
-+							continue
++					if why != "" { // 1016：楼中楼闸关着：剩下要展开的楼全部留给续读，接着只读一级评论
++						for _, g := range s.Floors {
++							if gs := get(floorKey(g)); wantFloor(cfg, g) && !floorDone(g) && !floorBeyondExpandCap(cfg, g) && gs.gaveUp == "" {
++								gs.gaveUp, gs.detail = ReplyGapPaused, why
++							}
 +						}
++						cfg.Expand = false
++						logrus.Warnf("楼中楼暂停：%s（没展开的楼留给下次续读）", why)
++						if len(cfg.ExpandFloors) > 0 {
++							// 1018：续展这趟只为展开而来，闸关了就收手——以前接着往下滚找目标楼，把剩下的预算全花在翻一级评论上
++							return finish(CommentStopSubPaused)
++						}
++						continue
++					}
++					if wait > 0 && !sleep(wait) {
++						continue
 +					}
 +					if r := ops.risk(); r != nil { // 点「展开回复」之前必查
 +						return riskStop(&res, start, last, cfg, st, r)
@@ -9174,10 +9351,10 @@ index 0000000..ab1209a
 +}
 diff --git a/xiaohongshu/comment_floors_1015_test.go b/xiaohongshu/comment_floors_1015_test.go
 new file mode 100644
-index 0000000..be488cb
+index 0000000..e5368a0
 --- /dev/null
 +++ b/xiaohongshu/comment_floors_1015_test.go
-@@ -0,0 +1,148 @@
+@@ -0,0 +1,173 @@
 +package xiaohongshu
 +
 +import (
@@ -9325,6 +9502,31 @@ index 0000000..be488cb
 +		}
 +	}
 +	assert.Equal(t, 6, firstB, "a 点满 6 次（1→30）之后才轮到 b")
++}
++
++// 1101：两次点击要隔开——这趟剩的时间不够等就把没展开的楼留给续读，不硬点。
++func TestExpandPaceLongerThanBudgetPauses(t *testing.T) {
++	fc := newFake(5, floors(5, func(i int) *fakeFloor { return &fakeFloor{id: id(i), shown: 30, loaded: 1, perClick: 5} })...)
++	cfg := fastFloorCfg(5, time.Minute)
++	cfg.ExpandFloors = []string{id(0)}
++	cfg.ExpandPace = func() time.Duration { return time.Hour }
++	res, r := loadFloors(context.Background(), cfg, fc.ops(5))
++	assert.Nil(t, r)
++	assert.Equal(t, CommentStopSubPaused, res.Reason)
++	assert.Equal(t, 0, res.Clicks)
++}
++
++// 1101：要等的时间在预算内：等完照点。
++func TestExpandPaceWithinBudgetWaitsThenClicks(t *testing.T) {
++	fc := newFake(1, &fakeFloor{id: "a", shown: 6, loaded: 1, perClick: 5})
++	fc.canScroll = false
++	cfg := fastFloorCfg(1, time.Minute)
++	waits := 0
++	cfg.ExpandPace = func() time.Duration { waits++; return time.Millisecond }
++	res, r := loadFloors(context.Background(), cfg, fc.ops(1))
++	assert.Nil(t, r)
++	assert.Equal(t, 1, res.Clicks)
++	assert.GreaterOrEqual(t, waits, 1)
 +}
 diff --git a/xiaohongshu/comment_floors_localbrowser_test.go b/xiaohongshu/comment_floors_localbrowser_test.go
 new file mode 100644
@@ -10190,7 +10392,7 @@ index 0000000..c34c295
 +}
 diff --git a/xiaohongshu/evidence.go b/xiaohongshu/evidence.go
 new file mode 100644
-index 0000000..5f0bc8d
+index 0000000..b6fddbd
 --- /dev/null
 +++ b/xiaohongshu/evidence.go
 @@ -0,0 +1,731 @@
@@ -12307,7 +12509,7 @@ index ce158e3..af09658 100644
  	if result == "" {
  		return nil, errors.ErrNoFeeds
 diff --git a/xiaohongshu/login.go b/xiaohongshu/login.go
-index 67e002d..a4f3a3e 100644
+index 67e002d..9c3b388 100644
 --- a/xiaohongshu/login.go
 +++ b/xiaohongshu/login.go
 @@ -3,10 +3,16 @@ package xiaohongshu
@@ -13099,7 +13301,7 @@ index b5c25df..3acac51 100644
  }
 diff --git a/xiaohongshu/note_restricted.go b/xiaohongshu/note_restricted.go
 new file mode 100644
-index 0000000..47b212e
+index 0000000..df9bef8
 --- /dev/null
 +++ b/xiaohongshu/note_restricted.go
 @@ -0,0 +1,161 @@
@@ -13496,10 +13698,10 @@ index 0000000..509012f
 +}
 diff --git a/xiaohongshu/risk.go b/xiaohongshu/risk.go
 new file mode 100644
-index 0000000..9496097
+index 0000000..a873f17
 --- /dev/null
 +++ b/xiaohongshu/risk.go
-@@ -0,0 +1,531 @@
+@@ -0,0 +1,535 @@
 +package xiaohongshu
 +
 +import (
@@ -13770,8 +13972,12 @@ index 0000000..9496097
 +		return &RiskError{Code: RiskRateLimited, ErrorCode: code, RejectAPI: reject,
 +			Detail: "小红书说访问太频繁（" + path + tag + "，限频不是封号），已停止操作、自动冷却"}
 +	case accountRiskErrorCodes[code]:
++		need := "，要重新登录"
++		if RejectKind(reject) == "sub_comments" { // 1101：只拦楼中楼时登录还在，只停楼中楼
++			need = "，只停楼中楼、不用重新登录"
++		}
 +		return &RiskError{Code: RiskAccount, ErrorCode: code, RejectAPI: reject,
-+			Detail: "小红书说账号异常（" + path + tag + "，要重新登录），已停止操作"}
++			Detail: "小红书说账号异常（" + path + tag + need + "），已停止操作"}
 +	case strings.HasPrefix(p, "/website-login"):
 +		return &RiskError{Code: RiskAccount, ErrorCode: code, RejectAPI: reject, Unconfirmed: true,
 +			Detail: "小红书把页面跳到了 " + path + "（登录异常/安全跳转" + tag + "），已停止操作"}
@@ -14366,7 +14572,7 @@ index 0000000..6c3ddcc
 +}
 diff --git a/xiaohongshu/risk_test.go b/xiaohongshu/risk_test.go
 new file mode 100644
-index 0000000..2cb5529
+index 0000000..96f6da4
 --- /dev/null
 +++ b/xiaohongshu/risk_test.go
 @@ -0,0 +1,457 @@
@@ -15364,7 +15570,7 @@ index 17c82ee..9385cfa 100644
  
  // UserProfileResponse 用户详情页完整响应
 diff --git a/xiaohongshu/user_profile.go b/xiaohongshu/user_profile.go
-index 61216c7..3b81e90 100644
+index 61216c7..8574ac9 100644
 --- a/xiaohongshu/user_profile.go
 +++ b/xiaohongshu/user_profile.go
 @@ -3,11 +3,15 @@ package xiaohongshu

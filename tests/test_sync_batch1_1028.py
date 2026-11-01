@@ -371,3 +371,17 @@ def test_logged_in_false_without_hold_triggers_deep_check_not_12h_wait(monkeypat
     monkeypatch.setattr(acc, "status_report", lambda **kw: ({"state": "ready"}, "logged_in"))
     clock[0] += 200
     assert cf.account_wait_reason() == ("", "")
+
+
+def test_sub_gate_stays_closed_12h_after_any_risk_even_if_hold_cleared(tmp_path, monkeypatch):
+    """1101：08:48 撞拼图、08:53 熔断解除、09:46 楼中楼又全速点 → 10:46 被 300011。撞过风控 12 小时内楼中楼不点（和读取组件 last-risk.json 同口径）。"""
+    prof = _profile(tmp_path, monkeypatch)
+    at = datetime(2026, 11, 1, 8, 48, tzinfo=TZ)
+    (prof / "last-risk.json").write_text(json.dumps({"code": "CAPTCHA_REQUIRED", "at": at.isoformat()}), "utf-8")
+    left, until = cf.sub_quota(at + timedelta(hours=1))
+    assert left == 0 and until == at + timedelta(hours=12)
+    assert "楼中楼歇到 11-01 20:48" in cf.sub_gate_closed(at + timedelta(hours=1))[0]
+    assert cf.sub_quota(at + timedelta(hours=12)) == (30, None)
+    # 掉登录不算被盯上
+    (prof / "last-risk.json").write_text(json.dumps({"code": "NOT_LOGGED_IN", "at": at.isoformat()}), "utf-8")
+    assert cf.sub_quota(at + timedelta(hours=1)) == (30, None)

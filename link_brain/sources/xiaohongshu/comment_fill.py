@@ -314,6 +314,7 @@ def sub_cooldown(now: datetime | None = None) -> datetime | None:
 
 SUB_PAUSE_PER_STRIKE = timedelta(hours=24)   # 读取组件 sub_budget.subPauseAfterStrike：每次限频楼中楼暂停 24 小时 × 次数
 RATE_STRIKE_WINDOW = timedelta(hours=24)     # 读取组件 rateLimitStrikeWindow：两次限频隔这么久以内算连续
+SUB_PAUSE_AFTER_RISK = timedelta(hours=12)   # 1101 读取组件 subPauseAfterRisk：撞过验证 / 风控（掉登录除外）之后楼中楼歇这么久
 
 
 def _profile_json(name: str) -> dict[str, Any]:
@@ -326,7 +327,7 @@ def _profile_json(name: str) -> dict[str, Any]:
 
 
 def sub_gate_closed(now: datetime | None = None) -> tuple[str, datetime | None]:
-    """读取组件的楼中楼闸现在是不是因为「熔断 / 冷却自查」或「限频后暂停」关着（Go sub_budget.subGateWhy 的前两条，
+    """读取组件的楼中楼闸现在是不是因为「熔断 / 冷却自查」「撞风控后歇 12 小时」或「限频后暂停」关着（Go sub_budget.subGateWhy，
     1028 审查 A6：以前 Python 只看每小时点击数，限频后 24–72 小时里把只展开楼中楼的篇一篇篇白开）。
     返回 (原因, 大概几点会开)；('', None) = 不因这两条关。只读 profile 目录里的文件，不碰号。"""
     now = now or _now()
@@ -337,6 +338,11 @@ def sub_gate_closed(now: datetime | None = None) -> tuple[str, datetime | None]:
             until = accounts.rate_limit_until(hold)
             return ("读取服务在限频冷却 / 到点自探中，楼中楼不点", until if until and until > now else None)
         return (f"读取服务在熔断 / 冷却自查中（{hold.get('code')}），楼中楼不点", None)
+    last = _profile_json("last-risk.json")   # 1101：熔断解除（人点了处理）也不清这一笔
+    at = _parse(last.get("at"))
+    if at and last.get("code") and last.get("code") != "NOT_LOGGED_IN" and now < at + SUB_PAUSE_AFTER_RISK:
+        until = at + SUB_PAUSE_AFTER_RISK
+        return (f"{at:%m-%d %H:%M} 撞过验证 / 风控，楼中楼歇到 {until:%m-%d %H:%M}", until)
     strikes = _profile_json("rate-limit-strikes.json")
     n = _int(strikes.get("strikes"))
     last = _parse(strikes.get("last"))
