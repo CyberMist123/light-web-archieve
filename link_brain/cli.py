@@ -199,14 +199,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--wait-lock-min", dest="wait_lock_min", type=float, default=2,
                    help="号正被同步收藏 / 附件占着时最多等几分钟（默认 2）；等不到退出码 6「正在同步收藏，稍后再收」")
 
-    p = sub.add_parser("read", help="打印一个已归档对象")
+    p = sub.add_parser("read", help="打印一个已归档对象（插件内部用，不看开放名单；给 AI 用 `tool read`）")
     p.add_argument("target", help="item_id 或 URL")
     g = p.add_mutually_exclusive_group()
     g.add_argument("--brief", action="store_true", help="只打印标题 + 概要（≤5 行）")
     g.add_argument("--full", action="store_true", help="打印整个 derived/agent.md")
     p.add_argument("--json", action="store_true", help="机器可读版（给主模型），配合 --brief/--full")
 
-    p = sub.add_parser("search", help="按关键词搜标题/正文")
+    p = sub.add_parser("search", help="按关键词搜标题/正文（旧的简单搜索，不看开放名单；给 AI 用 `tool search`）")
     p.add_argument("query")
     p.add_argument("--limit", type=int, default=20)
     p.add_argument("--json", action="store_true", help="机器可读版（给主模型）")
@@ -237,6 +237,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--offset", type=int, default=0, help="长文续读：从第几个字符开始")
     p.add_argument("--max-chars", dest="max_chars", type=int, default=30000)
     p.add_argument("--json", action="store_true")
+
+    p = sub.add_parser("tool", help="给终端里的 AI 用：调一个和 MCP 一模一样的工具（search / read / ask / recent …），受开放名单管；不带工具名列出全部")
+    p.add_argument("name", nargs="?", default="", help="工具名（不给 = 列出全部）")
+    p.add_argument("params", nargs="*", help="参数：k=v（值像 JSON 就按 JSON），或一整段 JSON")
+    p.add_argument("--stdin", action="store_true", help="从标准输入读 JSON 参数")
+    p.add_argument("--compact", action="store_true", help="JSON 压成一行")
 
     p = sub.add_parser("reindex", help="从已有 raw/ 回填 index.db（不重抓、不联网）")
 
@@ -780,6 +786,11 @@ def _dispatch(args) -> int:
         from . import mcp_tools
 
         return mcp_tools.run_item(args)
+
+    if args.command == "tool":
+        from . import mcp_tools
+
+        return mcp_tools.run_tool(args)
 
     if args.command == "reindex":
         from . import index as index_mod

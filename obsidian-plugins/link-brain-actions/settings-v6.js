@@ -1315,6 +1315,22 @@ module.exports = function (obsidian, plugin) {
     };
     loadApps().then(paint).catch(e => { if (alive) { list.empty(); plugin.failBox?.(list, '本机 AI 应用', e, () => { loadApps(true); tab.display(); }); } });
   }
+  // 给终端里的 AI 的说明：命令按这台电脑的后端拼好（仓库模式要在仓根下跑），收藏库位置带上
+  function terminalGuide() {
+    const b = plugin.currentBackend?.() || {};
+    const cmd = b.command || 'link-brain';
+    const vault = plugin.vaultDir || '';
+    const where = [b.mode === 'repo' && b.cwd ? `在「${b.cwd}」下运行` : '', vault ? `环境变量 LINK_BRAIN_VAULT 设成「${vault}」` : ''].filter(Boolean).join('，');
+    return [
+      '我的收藏库（LWA）可以用命令行读，只读：',
+      `  ${cmd} tool                               列出能用的工具和参数`,
+      `  ${cmd} tool search query=关键词 limit=10   搜收藏（不花钱）`,
+      `  ${cmd} tool recent days=7                  最近收了什么`,
+      `  ${cmd} tool read id=<search 给的 id>       读一篇全文`,
+      `  ${cmd} tool ask question=问题               让 LWA 自己回答（会花模型钱）`,
+      '参数写成 k=v，也可以给一整段 JSON；输出是 JSON。' + (where ? `运行时${where}。` : ''),
+    ].join('\n');
+  }
   function groupConnect(g, tab) {
     sub(g, '本机命令行');
     cliRow(g, tab);
@@ -1331,6 +1347,9 @@ module.exports = function (obsidian, plugin) {
     wh.createEl('strong', { text: '网页端' });
     web.createEl('p', { cls: 'setting-item-description', text: 'ChatGPT、claude.ai 网页版和手机 App，要你自己的网址。只读。' });
     safe(tab, web, '网页端', () => tab.stops.push(plugin.remoteUI?.renderConnect(web, () => tab.display(), tab, { part: 'web', toggleHost: wh })));
+    // 1101 作者「cli 也可以接问收藏」：终端里的 AI 不接 MCP，直接跑 `link_brain tool …`——和 MCP 同一张工具表、同一张开放名单
+    const term = row(g, tab, '终端里的 AI', 'Claude Code、Codex、OpenCode 这类在终端里干活的 AI，不接 MCP 也能搜、读、问收藏：复制一段说明发给它。和上面是同一套工具，也只看你开放的文件夹。', { section: 'cli-tool' });
+    tab.link(term, '复制给 AI', () => plugin.copyText(terminalGuide()), '复制一段说明，发给终端里的 AI');
     // 1028 作者：「MCP 显示实际 tg 功能（现在没有介绍）」——TG 机器人那边接的是同一套只读 MCP，再加两条只在 TG 有的路：
     //   发链接入库（机器人调 catch --origin tg，目录里记在「Fable」组）、批注 @ 它（note notify 交给通知命令，回复写回批注框）
     // 1101 作者：不是「在 Telegram 里」——这套 MCP 任何 AI 都能连，标题说连上的 AI 能做什么；发链接入库要你自己的机器人后台对接（MCP 里没有）

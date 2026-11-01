@@ -1361,6 +1361,62 @@ def run_item(args) -> int:
     return 0
 
 
+def _cli_value(text: str) -> Any:
+    """命令行 k=v 的值：像 JSON（数字 / true / [..] / {..}）就按 JSON，否则原样当字符串。"""
+    try:
+        return json.loads(text)
+    except ValueError:
+        return text
+
+
+def run_tool(args) -> int:
+    """命令行 `tool`（1101，给 Claude Code / Codex / OpenCode 这类在终端里干活的 AI）：和 MCP 同一张工具表、同一个函数、
+    同一张开放名单（设置页「外部 AI 接入」里开放的文件夹），不接 MCP 也能问收藏。
+    不给工具名 = 列出有哪些工具；参数写 k=v（值像 JSON 就按 JSON），或一整段 JSON，或 --stdin 从标准输入读 JSON。
+    输出一律 JSON；image 不吐图片字节，给本机绝对路径（终端里的 AI 自己打开看）。"""
+    if not args.name:
+        print("用法：python -m link_brain tool <工具名> [k=v ...]    例：tool search query=火锅 limit=5 · tool read id=xhs-… · tool ask question=…")
+        for t in TOOLS:
+            first = t["description"].split("。", 1)[0]
+            props = ", ".join((t.get("inputSchema") or {}).get("properties") or {})
+            print(f"- {t['name']}：{first}" + (f"（参数：{props}）" if props else ""))
+        return 0
+    call_args: dict[str, Any] = {}
+    try:
+        if args.stdin:
+            call_args = json.loads(sys.stdin.read() or "{}")
+        elif len(args.params) == 1 and args.params[0].lstrip().startswith("{"):
+            call_args = json.loads(args.params[0])
+        else:
+            for kv in args.params:
+                key, eq, val = kv.partition("=")
+                if not eq or not key:
+                    print(f"BAD_ARGS: 参数要写成 k=v：{kv}", file=sys.stderr)
+                    return 2
+                call_args[key] = _cli_value(val)
+    except ValueError as exc:
+        print(f"BAD_ARGS: JSON 读不懂：{exc}", file=sys.stderr)
+        return 2
+    if not isinstance(call_args, dict):
+        print("BAD_ARGS: 参数要是一个 JSON 对象", file=sys.stderr)
+        return 2
+    ctx = Ctx(policy=local_policy(), local=True, who="命令行")
+    try:
+        res = call(ctx, args.name, call_args)
+    except KeyError:
+        print(f"UNKNOWN_TOOL: 没有「{args.name}」，不带工具名运行可以看全部", file=sys.stderr)
+        return 2
+    except Denied as exc:
+        print(json.dumps({"status": "error", "error": exc.code, "message": exc.message}, ensure_ascii=False))
+        return 2
+    if isinstance(res, dict) and "_images" in res:
+        res = {k: v for k, v in res.items() if k != "_images"}
+        if res.get("path"):
+            res["abs_path"] = str(ctx.policy.root.joinpath(*str(res["path"]).split("/")))
+    print(json.dumps(res, ensure_ascii=False, indent=None if args.compact else 1))
+    return 0
+
+
 def local_policy() -> Policy:
     """本机 stdio 的白名单：和远程同一份设置（data.json 的 remote.folders）；设置读不到就只开收藏库。
     1101：用户把「开放收藏库」也关了（folders = []）就是什么都不开——以前 `or [XHS]` 把空名单当没设置，又开回收藏库。"""
