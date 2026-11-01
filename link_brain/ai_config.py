@@ -288,7 +288,22 @@ def sync_options() -> dict[str, Any]:
 
 
 def data_json_path() -> Path:
-    return storage.vault_root() / ".obsidian" / "plugins" / PLUGIN_ID / "data.json"
+    """插件设置文件在哪。1101：收藏库是 vault 的子文件夹时，以前只找「收藏库/.obsidian」——找不到就悄悄全按默认跑。
+    顺序同 render.snippet_targets：① 插件传来的 LINK_BRAIN_OBSIDIAN_DIR ② 收藏库自己的 .obsidian ③ 往上最多 3 层
+    （计划任务 / 命令行没有 ①）。都没有时返回 ②（写设置的地方照旧）。"""
+    rel = Path("plugins") / PLUGIN_ID / "data.json"
+    own = storage.vault_root() / ".obsidian" / rel
+    env = os.environ.get("LINK_BRAIN_OBSIDIAN_DIR")
+    if env and (Path(env) / rel).is_file():
+        return Path(env) / rel
+    if own.is_file():
+        return own
+    cur = storage.vault_root()
+    for _ in range(3):
+        cur = cur.parent
+        if (cur / ".obsidian" / rel).is_file():
+            return cur / ".obsidian" / rel
+    return own
 
 
 def _deep_merge(base: dict[str, Any], over: dict[str, Any]) -> dict[str, Any]:

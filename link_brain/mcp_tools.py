@@ -1362,11 +1362,12 @@ def run_item(args) -> int:
 
 
 def local_policy() -> Policy:
-    """本机 stdio 的白名单：和远程同一份设置（data.json 的 remote.folders）；设置读不到就只开收藏库。"""
+    """本机 stdio 的白名单：和远程同一份设置（data.json 的 remote.folders）；设置读不到就只开收藏库。
+    1101：用户把「开放收藏库」也关了（folders = []）就是什么都不开——以前 `or [XHS]` 把空名单当没设置，又开回收藏库。"""
     from .remote import config as cfg_mod
     try:
         cfg, _ = cfg_mod.load()
-        folders = cfg.get("folders") or [cfg_mod.XHS]
+        folders = cfg.get("folders", [cfg_mod.XHS])
     except Exception:  # noqa: BLE001
         folders = [cfg_mod.XHS]
     return Policy.build(storage.vault_root(), folders)
