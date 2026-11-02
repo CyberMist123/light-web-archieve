@@ -162,7 +162,9 @@ def test_check_risk_hold_waits_out_captcha_then_clears(monkeypatch):
     monkeypatch.setattr(acc, "CAPTCHA_AUTO_MAX", 1)
     monkeypatch.setattr(acc, "_auto_cleared", 0)
     acc.check_risk_hold()                                    # 不抛：歇满 5 分钟（还差 ~3 分钟）就解除
-    assert cleared == ["/api/v1/risk/clear"] and 170 < slept[0] <= 180
+    # 11-02：Windows CI 上 since 是 isoformat 再读回来的，`datetime.now()` 的微秒和时钟分辩率能让差值多出 2e-7 秒（算出 180.0000002），
+    # 上限留 1 秒余量，断的是「还差约 3 分钟」这个口径
+    assert cleared == ["/api/v1/risk/clear"] and 170 < slept[0] <= 181
     monkeypatch.setattr(acc, "risk_hold", lambda: {"code": "NOT_LOGGED_IN", "since": since.isoformat()})
     with pytest.raises(acc.ReaderError):
         acc.check_risk_hold()
