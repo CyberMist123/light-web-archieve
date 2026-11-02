@@ -115,15 +115,16 @@ function whichCommand(cmd, { env = (typeof process !== "undefined" ? process.env
   cmd = String(cmd || "").trim();
   if (!cmd) return null;
   const win = platform === "win32";
-  const exts = win ? (path.extname(cmd) ? [""] : [".exe", ".com"]) : [""];
+  const P = win ? path.win32 : path.posix;   // 路径按传进来的 platform 拼：纯函数在别的平台上跑单测结果才一致（1102 合并时 Windows 上跑 linux 用例拼出反斜杠）
+  const exts = win ? (P.extname(cmd) ? [""] : [".exe", ".com"]) : [""];
   const tryAt = base => { for (const e of exts) if (exists(base + e)) return base + e; return null; };
-  if (path.isAbsolute(cmd) || /[\\/]/.test(cmd)) return tryAt(cmd);
+  if (P.isAbsolute(cmd) || /[\\/]/.test(cmd)) return tryAt(cmd);
   const sep = win ? ";" : ":";
   const mp = managed || managedPaths({ env, platform, home });
   const dirs = [mp.scripts, mp.bin, ...String(env.PATH || env.Path || "").split(sep).filter(Boolean)];
   // Obsidian 从桌面图标启动时 PATH 可能还是装 uv 之前的：补上 uv tool 的默认 bin 目录
-  for (const d of [env.UV_TOOL_BIN_DIR, env.XDG_BIN_HOME, home && path.join(home, ".local", "bin")]) if (d && !dirs.includes(d)) dirs.push(d);
-  for (const d of dirs) { const hit = tryAt(path.join(d, cmd)); if (hit) return hit; }
+  for (const d of [env.UV_TOOL_BIN_DIR, env.XDG_BIN_HOME, home && P.join(home, ".local", "bin")]) if (d && !dirs.includes(d)) dirs.push(d);
+  for (const d of dirs) { const hit = tryAt(P.join(d, cmd)); if (hit) return hit; }
   return null;
 }
 // 仓库模式用哪个 Python（P0 1024：系统 python 可能是没装依赖的另一个版本）：设置「Python 路径」（data.json 的 pythonPath）配了用配的；
