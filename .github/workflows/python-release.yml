@@ -79,9 +79,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python -m uv pip compile pyproject.toml --python-version 3.11 --generate-hashes --no-header \
+          # --universal：按全部平台解（不加只解 Linux runner 这一种，Windows 独有的 pywin32 没进锁，--require-hashes 在 Windows 上装不了——1102 真机发现）
+          python -m uv pip compile pyproject.toml --universal --python-version 3.11 --generate-hashes --no-header \
             --output-file dist/requirements.lock
-          echo "# link-brain ${{ steps.meta.outputs.version }} 的依赖锁（Linux x64 runner 上解的；pip install --require-hashes -r requirements.lock）" | cat - dist/requirements.lock > dist/requirements.lock.tmp
+          echo "# link-brain ${{ steps.meta.outputs.version }} 的依赖锁（全平台 universal 解析；pip install --require-hashes -r requirements.lock）" | cat - dist/requirements.lock > dist/requirements.lock.tmp
           mv dist/requirements.lock.tmp dist/requirements.lock
           head -20 dist/requirements.lock
 
