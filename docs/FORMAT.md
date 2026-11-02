@@ -1495,3 +1495,17 @@ vault/
 （`cover` 是 B 站封面网址，只接受 https，不下载；`done` = 多 P 已入库几 P；`chosen` = 点过下载）。按收藏时间新的在前。
 谁写：同步收尾（`_persist`）、`bilibili choose`（带 `--max-duration` 时按它算）、`bilibili pending`（设置页每次打开这一页前跑一次）；重建目录不写它（共享代码不 import B 站模块）。
 收藏夹快照的条目从这版起多一个 `cover`（收藏夹接口的 `cover`、稍后再看接口的 `pic`），旧快照没有就画标题当封面。
+
+## 2026-11-02 一键装好的进度文件 `_archive/setup-run.json`、下载镜像与读取组件发布对的覆盖（安装审查 6 / 7 / 8）
+
+- `vault/_archive/setup-run.json`（`setup run` 每步状态一变就 `storage.write_json`，写不进去不挡安装）：
+  `{"running": true|false, "pid": 1234, "started_at": "…", "updated_at": "…", "current": "sync"|null,
+    "stages": [{"id","label","state":"ok|skipped|failed","text"}], "result": null|{setup run 的 result 原样}}`。
+  `running=true` 且 pid 活着 = 还在后台跑（插件续画）；`running=true` 而 pid 死了 = 上次没跑完（插件按 `current` / 最后一条 stage 说停在哪一步）；
+  `running=false` 时 `result` 一定在。谁写：只有 `setup.pipeline.run`；谁读：插件 home-ui（打开设置页 / 启动时）。
+- `~/.link-brain/logs/setup-run.log`：stdout 管道断了之后 `stdout_emit` 的兜底，每行「时间 + 原来那一行 JSON」，第一行是一条 `{"type":"note"}` 说明为什么改写到这里。只追加。
+- `~/.link-brain/config.json` 新键（都可选）：
+  - `download_mirrors`：列表（或逗号分隔的字符串），GitHub Release 直连地址的镜像前缀，按顺序试「前缀/原地址」再试原地址；环境变量 `LINK_BRAIN_DOWNLOAD_MIRRORS`（逗号分隔）压过它。默认空。
+  - `reader_release_url` + `reader_release_sha256`：读取组件发布包的地址和校验和，**成对**才生效（缺一半当没给）；环境变量 `LINK_BRAIN_READER_URL` + `LINK_BRAIN_READER_SHA256` 压过它；都没有用程序内置的 `reader_install.RELEASE_URL / RELEASE_SHA256`。
+- `reader install` 从这版起走 `setup/fetch.py`：下载先写 `~/.link-brain/downloads/<包>.part`（可续传、每 4 MB 一个进度事件），sha256 对上了才改成正式文件名，装完删包；
+  `setup install --component reader` 的进度事件 `component=reader`，`phase` 下载 / 校验 / 解压。

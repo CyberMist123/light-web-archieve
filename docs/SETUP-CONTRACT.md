@@ -51,9 +51,23 @@
 ```jsonc
 {"type":"progress","stage":"install|login|sync|enrich|catalog|embed|comments","label":"…","index":3,"count":7,"state":"running|ok|skipped|failed","text":"…"}
 {"type":"progress","stage":"install","component":"asr","phase":"下载","done":12345,"total":67890,"text":"…"}   // 装组件的进度（同 setup install）
-{"type":"result","ok":false,"code":"NEEDS_HUMAN","message":"先处理小红书：……；处理好再点一次「一键装好 / 跑完」","stages":[{"id","label","state","text"}],"selected":[…]}
+{"type":"result","ok":false,"code":"NEEDS_HUMAN","message":"先处理小红书：……；处理好再点一次「一键装好 / 跑完」","stages":[{"id","label","state","text"}],"selected":[…],
+ "needs_you":[{"item_id":"dataview","status":"missing","text":"还要你装 Dataview（打开第三方插件）","hint":"…"}]}
 ```
 退出码：0 都成 · 1 有步没成 · 5 号要人处理（掉登录 / 验证：碰号的步骤跳过，离线的照跑）。
+
+1102（安装审查 6 / 7 / 8）补的几条：
+- **result 的 `code` 分三种**：号的事（掉登录 / 验证 / 风控 / 开发副本）`NEEDS_HUMAN`（退 5，插件给「去扫码 / 验证」）；读取组件没起来
+  （被杀毒隔离 / 端口被占 / 刚崩了：`DISCONNECTED` / `TIMEOUT` / `BUSY`）`TRANSIENT.DISCONNECTED`（退 1，message「读取组件没起来，点重试或看 reader.log：…」，
+  插件给「重试」）；没装读取组件 `NEEDS_HUMAN.NOT_INSTALLED`（退 5，同一句话、同「重试」按钮）。后两种不引导扫码。
+- **`needs_you`**：只能检查、要用户自己在 Obsidian 里装的（`check_only` + `fix=manual`，眼下只有 Dataview）单列，不算 install 那一步失败；
+  其余都成时 `ok=true`、退 0，`message` 末尾附「还要你装 Dataview（打开第三方插件）」。Python 太旧这类非 check_only 的手动项照旧算 failed。
+- **进度落盘** `_archive/setup-run.json`（每步状态一变就写；形状见 FORMAT「2026-11-02」）：Obsidian 关掉后 stdout 管道断了，
+  `setup.common.stdout_emit` 不再抛（切到 `~/.link-brain/logs/setup-run.log` 接着写、fd 1 指到空设备免得退出时再撞一次），子进程接着跑完；
+  插件 `onunload` 不杀它、只提示「安装在后台继续」；重开 Obsidian 时 home-ui 读这份文件：还在跑（pid 活着）就续画进度（盯文件 + 3 秒一读，
+  这里停不了），进程没了又没 result 就显示「上次没跑完，停在 X 步」+「再跑一次」；跑完了的旧结果不重放。
+- **没有 result JSON**（崩了 / 被杀）：插件不弹 stderr，提示「安装程序没有返回结果，详情见日志」+「打开日志」（开 `_archive/ob-actions.log`），
+  stderr 尾巴折进结果区 `failBox` 的「详情」，同时写进 ob-actions.log。
 
 #### `python -m link_brain connect status|add|remove <claude-code|claude-desktop>`
 见 `link_brain/connect.py`：Claude Code 走 `claude mcp add lwa -s user -e … -- <python> -m link_brain mcp`（撤销 `claude mcp remove lwa -s user`）；

@@ -36,8 +36,14 @@ def add_parser(sub) -> None:
 
 
 def _say(message: str) -> None:
-    if message:
+    if not message:
+        return
+    try:
         print(message, file=sys.stderr)
+        sys.stderr.flush()
+    except OSError:
+        # 1102：Obsidian 已经关掉、stderr 管道断了——人话原因照旧进 stdout_emit 的兜底日志，这里不炸
+        pass
 
 
 def run(args) -> int:
@@ -85,6 +91,7 @@ def run(args) -> int:
         if not out["ok"]:
             _say(out["message"])
         stdout_emit(out)
-        return EXIT_OK if out["ok"] else (EXIT_NEEDS_HUMAN if out.get("code") == "NEEDS_HUMAN" else EXIT_FAILED)
+        # 1102：NEEDS_HUMAN / NEEDS_HUMAN.NOT_INSTALLED 退 5（要人做一步）；TRANSIENT.DISCONNECTED（读取组件没起来）退 1
+        return EXIT_OK if out["ok"] else (EXIT_NEEDS_HUMAN if str(out.get("code") or "").startswith("NEEDS_HUMAN") else EXIT_FAILED)
     dump_json({"ok": False, "code": "SKIPPED.NOT_CONFIGURED", "message": "要给子命令：plan / check / install / estimate / backfill"})
     return EXIT_FAILED

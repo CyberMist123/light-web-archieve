@@ -11,15 +11,18 @@ on:
 
 jobs:
   python:
-    name: pytest (${{ matrix.os }})
+    name: pytest (${{ matrix.os }}, utf8=${{ matrix.utf8 }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
+        # 1102：PYTHONUTF8 从全局 env 挪成矩阵的一维——以前一直设着 1，Windows 中文系统（cp936 控制台 / open() 默认 GBK）
+        # 的编码问题在 CI 上测不出来。off = 不设这个变量（空串对 Python 等于没设），和用户机器一样
+        utf8: [on, off]
     env:
       PYTHONIOENCODING: utf-8
-      PYTHONUTF8: "1"
+      PYTHONUTF8: ${{ matrix.utf8 == 'on' && '1' || '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
