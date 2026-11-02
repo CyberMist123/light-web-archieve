@@ -9,6 +9,13 @@
 `{"type":"progress","stage","label","index","count","state":"running|ok|skipped|failed","text"}`，最后一行 result
 （CONVENTIONS §1 形状 + stages[]）。号要人处理（掉登录 / 验证）→ 碰号的步骤跳过、离线的照跑，结果里一句话说清先做哪一步。
 1101：没登小红书但本机登过 B 站 = 只用 B 站，小红书那几步跳过、不算要人处理。B 站收藏不在这里下（视频大，作者定的只手动同步）。
+1102（安装审查 6/7/8）：
+  - 读取组件没起来（被杀毒隔离 / 端口被占 / 崩了 → `DISCONNECTED`）和没装（`NOT_INSTALLED`）不算号的事：login 记 failed，
+    result 的 code 分别是 `TRANSIENT.DISCONNECTED` / `NEEDS_HUMAN.NOT_INSTALLED`，message 让人点重试或看 reader.log，不引导扫码。
+  - Dataview 这种只能检查、要用户自己在 Obsidian 里装的（check_only + fix=manual）单列 `needs_you`，不算 failed：
+    其余都成时 ok=true、退出 0，message 末尾附「还要你装 Dataview（打开第三方插件）」。
+  - 每个步骤状态一变就写 `_archive/setup-run.json`（running / pid / started_at / current / stages / result）：
+    Obsidian 关掉、stdout 管道断了之后进度仍落盘，插件重开时按它续画或说「上次没跑完，停在 X 步」。
 """
 
 from __future__ import annotations
@@ -35,6 +42,39 @@ STAGES = [
     ("comments", "评论补齐（读不完的后台接着补）"),
 ]
 TIMEOUT_MIN = {"sync": 170, "enrich": 70, "catalog": 10, "embed": 25}
+STATE_FILE = "setup-run.json"
+# 读取组件那一侧的码（不是号的事）：服务没起来 / 没应答 → 自动可重试；没装 → 要人点一下「一键装好」
+READER_DOWN_CODES = ("DISCONNECTED", "TIMEOUT", "BUSY", "BROWSER_STUCK")
+READER_MESSAGE = "读取组件没起来，点重试或看 reader.log"
+# 要用户自己在 Obsidian 里做的（check_only + fix=manual）：给人话，不算 failed
+NEEDS_YOU_TEXT = {"dataview": "还要你装 Dataview（打开第三方插件）"}
+
+
+def state_path():
+    from .. import storage
+    return storage.archive_root() / STATE_FILE
+
+
+def write_state(state: dict[str, Any]) -> bool:
+    """`_archive/setup-run.json`：写不进去不挡安装（fail-open），返回写成没写成。"""
+    from .. import storage
+    try:
+        storage.write_json(state_path(), state)
+        return True
+    except (OSError, ValueError):
+        return False
+
+
+def login_code(code: str) -> str:
+    """login 一步的原始码 → result 的故障码：读取组件没起来 TRANSIENT.DISCONNECTED · 没装 NEEDS_HUMAN.NOT_INSTALLED ·
+    其余（掉登录 / 验证 / 风控 / 开发副本）都是号要人处理 NEEDS_HUMAN。"""
+    if not code:
+        return ""
+    if code in READER_DOWN_CODES:
+        return "TRANSIENT.DISCONNECTED"
+    if code == "NOT_INSTALLED":
+        return "NEEDS_HUMAN.NOT_INSTALLED"
+    return "NEEDS_HUMAN"
 
 
 def selected() -> list[str]:
@@ -121,21 +161,39 @@ def run(emit: Emit, *, child=_child, account_check=None, bili_check=None) -> dic
     stages: list[dict[str, Any]] = []
     count = len(STAGES)
     blocked_why = ""
+    blocked_code = ""   # 1102：login 那一步的 result 码（NEEDS_HUMAN / TRANSIENT.DISCONNECTED / NEEDS_HUMAN.NOT_INSTALLED）
+    reader_down = False
     xhs_off = False   # 1101：没登小红书、登了 B 站 = 只用 B 站，小红书那几步跳过，不算要人处理
+    needs_you: list[dict[str, str]] = []
+    started_at = time.strftime("%Y-%m-%dT%H:%M:%S%z")
+    state: dict[str, Any] = {"running": True, "pid": os.getpid(), "started_at": started_at, "updated_at": started_at,
+                             "current": None, "stages": stages, "result": None}
 
-    def say(stage: str, state: str, text: str = "") -> dict[str, Any]:
+    def flush_state() -> None:
+        state["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%S%z")
+        write_state(state)
+
+    def say(stage: str, state_: str, text: str = "") -> dict[str, Any]:
         idx = [s for s, _ in STAGES].index(stage) + 1
         label = dict(STAGES)[stage]
-        emit({"type": "progress", "stage": stage, "label": label, "index": idx, "count": count, "state": state,
-              "text": text})
-        row = {"id": stage, "label": label, "state": state, "text": text}
-        if state != "running":
+        row = {"id": stage, "label": label, "state": state_, "text": text}
+        # 先落盘再发事件：stdout 那头（插件）看到的任何一条，文件里都已经有了
+        if state_ != "running":
             stages.append(row)
+            state["current"] = None
+            flush_state()
+        elif state["current"] != stage:
+            # 同一步的多次 running 事件只在换步时落盘（子进程每秒一行进度，不用每行都写）
+            state["current"] = stage
+            flush_state()
+        emit({"type": "progress", "stage": stage, "label": label, "index": idx, "count": count, "state": state_,
+              "text": text})
         return row
 
     # 1) 装好要用的组件（不要 key、不是「以后」的）
     say("install", "running", "检查中…")
     targets = [c["id"] for c in components.COMPONENTS if c["id"] in sel and not c.get("later") and not c.get("needs_key")]
+    check_only = {c["id"] for c in components.COMPONENTS if c.get("check_only")}
     chk = components.check(targets)
     manual: list[str] = []
     for r in chk.get("results") or []:
@@ -146,9 +204,18 @@ def run(emit: Emit, *, child=_child, account_check=None, bili_check=None) -> dic
             out = components.install(r["item_id"], lambda ev: emit({**ev, "stage": "install"}))
             if not out.get("ok"):
                 manual.append(f"{r['item_id']}：{out.get('message') or '没装上'}")
+        elif r["item_id"] in check_only:
+            # 1102：只能检查、要用户自己在 Obsidian 里装的（Dataview）：单列 needs_you，不算这一步失败
+            hint = r.get("fix_hint") or r.get("detail") or "要手动装"
+            needs_you.append({"item_id": r["item_id"], "status": r["status"],
+                              "text": NEEDS_YOU_TEXT.get(r["item_id"]) or f"还要你装 {r['item_id']}（{hint}）", "hint": hint})
         else:
             manual.append(f"{r['item_id']}：{r.get('fix_hint') or r.get('detail') or '要手动装'}")
-    say("install", "ok" if not manual else "failed", "全部就绪" if not manual else "；".join(manual)[:300])
+    install_text = "全部就绪" if not manual else "；".join(manual)[:300]
+    if needs_you:
+        install_text = ("；".join(x["text"] for x in needs_you) if not manual else install_text + "；" +
+                        "；".join(x["text"] for x in needs_you))[:300]
+    say("install", "ok" if not manual else "failed", install_text)
 
     # 2) 小红书登录（只看内存状态，不开页）
     say("login", "running", "")
@@ -158,6 +225,8 @@ def run(emit: Emit, *, child=_child, account_check=None, bili_check=None) -> dic
         xhs_off = True
         say("login", "skipped", "没登小红书，只用 B 站：小红书的几步跳过（要用小红书就去扫码，再点一次）")
     elif code:
+        blocked_code = login_code(code)
+        reader_down = blocked_code != "NEEDS_HUMAN"
         blocked_why = why
         say("login", "failed", why)
     else:
@@ -190,12 +259,15 @@ def run(emit: Emit, *, child=_child, account_check=None, bili_check=None) -> dic
 
     if xhs_off:
         say("sync", "skipped", "没登小红书；B 站收藏在「收藏与同步 → B 站」手动同步")
+    elif reader_down:
+        say("sync", "skipped", "读取组件没起来（见上一步）")
     elif blocked_why:
         say("sync", "skipped", "先处理小红书登录（见上一步）")
     else:
         rc = step("sync", ["sync-favorites", "--limit", "0", "--extract"], {"LINK_BRAIN_SYNC_TRIGGER": "manual"})
         if rc == 5:
             blocked_why = blocked_why or "小红书要你处理（验证 / 登录）"
+            blocked_code = blocked_code or "NEEDS_HUMAN"
     if _ai_on(sel, "summaryAI") or _ai_on(sel, "visionAI"):
         step("enrich", ["enrich", "--pending", "--budget-min", "60"])
     else:
@@ -208,6 +280,8 @@ def run(emit: Emit, *, child=_child, account_check=None, bili_check=None) -> dic
         say("embed", "skipped", "没开 AI：关键词搜索照常能用")
     if xhs_off:
         say("comments", "skipped", "没登小红书，不用补评论")
+    elif reader_down:
+        say("comments", "skipped", "读取组件没起来，补不了评论")
     elif blocked_why:
         say("comments", "skipped", "先处理小红书登录")
     else:
@@ -224,7 +298,9 @@ def run(emit: Emit, *, child=_child, account_check=None, bili_check=None) -> dic
         except Exception as exc:  # noqa: BLE001
             say("comments", "failed", f"后台补评论没拉起来：{errtext(exc)}"[:200])
     failed = [s for s in stages if s["state"] == "failed"]
-    if blocked_why:
+    if reader_down:
+        message = f"{READER_MESSAGE}：{blocked_why}"
+    elif blocked_why:
         message = f"先处理小红书：{blocked_why}；处理好再点一次「一键装好 / 跑完」"
     elif failed:
         message = "跑完了，有 " + str(len(failed)) + " 步没成：" + "；".join(f"{s['label']}（{s['text']}）" for s in failed)[:300]
@@ -232,8 +308,13 @@ def run(emit: Emit, *, child=_child, account_check=None, bili_check=None) -> dic
         message = "都跑完了" + ("（轻量版）" if not ({"ai_text", "ai_vision"} & set(sel)) else "")
         if xhs_off:
             message += "；没登小红书，只整理了库里已有的。B 站收藏在「收藏与同步 → B 站」点「立即同步」"
-    return {"type": "result", "ok": not failed and not blocked_why, "code": "NEEDS_HUMAN" if blocked_why else "",
-            "message": message, "stages": stages, "selected": sel}
+    if needs_you:
+        message += "；" + "；".join(x["text"] for x in needs_you)
+    result = {"type": "result", "ok": not failed and not blocked_why, "code": blocked_code,
+              "message": message, "stages": stages, "needs_you": needs_you, "selected": sel}
+    state.update(running=False, current=None, result=result)
+    flush_state()
+    return result
 
 
 def _bili_logged_in() -> bool:
@@ -253,5 +334,9 @@ def _account_state() -> tuple[str, str]:
     except Exception as exc:  # noqa: BLE001 - DEV_COPY_BLOCKED 等
         return "BLOCKED", str(exc)
     if code == "NOT_INSTALLED":
-        return code, "没装读取组件：在「功能」里点「一键装好」装上（或按 README 手动装）"
+        return code, "没装读取组件：点「重试」会再装一次（或按 README 手动装）"
+    if code in READER_DOWN_CODES:
+        # 1102：读取服务没起来（被杀毒软件隔离 / 端口被占 / 刚崩了）不是号的事：不引导扫码，给日志路径
+        from ..sources.xiaohongshu import accounts
+        return code, f"读取服务没连上（{code}）：点「重试」会再拉起一次；还不行看 {accounts.home() / 'reader.log'}"
     return code, why

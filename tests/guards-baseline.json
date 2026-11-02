@@ -61,7 +61,6 @@
   "link_brain/sources/xiaohongshu/adapter.py": 1,
   "link_brain/sources/xiaohongshu/comment_fill.py": 5,
   "link_brain/sources/xiaohongshu/favorites.py": 2,
-  "link_brain/sources/xiaohongshu/reader_install.py": 2,
   "link_brain/topics.py": 1,
   "link_brain/usage.py": 1,
   "link_brain/videos.py": 3,

@@ -32,6 +32,7 @@ RAM_MEASURED = {
 }
 READER_BROWSER_EST = 300  # 估计：读收藏时开的无界面浏览器（Chromium 单标签页常见 250–400 MB），没实测
 READER_EXE_MB = 27        # 发布包 reader-v0.2.0 解出来的实量：link-brain-reader.exe 16.0 MB + relatedfile.exe 10.7 MB
+READER_QUARANTINE_HINT = "；可能被杀毒软件隔离，去 Windows 安全中心恢复并加入排除"
 DATAVIEW_RELEASE = {"version": "0.5.70", "bytes": 2377634 + 357 + 2965,
                     "source": "https://api.github.com/repos/blacksmithgu/obsidian-dataview/releases/latest（2026-10-03）"}
 
@@ -495,7 +496,8 @@ def _install_reader(emit: Emit | None) -> dict[str, Any]:
         raise SetupError("SKIPPED.NOT_CONFIGURED",
                          f"读取组件的发布地址还没配置（测试版）：把 link-brain-reader.exe 放进 {st.get('bin_dir')}")
     progress(emit, "reader", "下载", None, None, "下载读取组件")
-    out = reader_install.install()
+    # 1102：reader_install 走 setup.fetch（.part 续传、分块进度事件、sha256 过了才改名、GitHub 地址先试配置的镜像）
+    out = reader_install.install(emit=emit)
     if not out.get("ok"):
         raise SetupError(out.get("code") or "TRANSIENT.NETWORK", out.get("message") or "读取组件没装上")
     return {"message": out.get("message") or "读取组件已装好", "changed": True}
@@ -546,5 +548,8 @@ def _final(component: str, ok: bool, code: str, message: str, **extra: Any) -> d
     if ok and row and row["status"] != "ready":
         ok, code = False, code or "TRANSIENT.STEP_CRASHED"
         message = f"{message}；但装完再检查还不是就绪：{row['detail']}"
+        if component == "reader":
+            # 1102：读取组件「刚装好又不见了」在 Windows 上多半是杀毒软件把 exe 隔离了（Go 编译的服务常被误报）
+            message += READER_QUARANTINE_HINT
     return {"type": "result", "ok": ok, "code": code, "message": message, "component": component,
             "status": "ready" if ok else "failed", "check": row, **extra}

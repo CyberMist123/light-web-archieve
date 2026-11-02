@@ -28,6 +28,37 @@ const FEATURE_TEXT = {
   ai_vision: { name: '识图', short: '识图', desc: '看懂表格、流程图、截图，看到的也能搜到', price: [['vision', '']] },
 };
 const AI_ORDER = ['ocr', 'asr', 'capslock', 'ai_text', 'ai_vision'];
+// 1102：`setup run` 结果 code → 结束提示上给哪颗按钮。号的事（掉登录 / 验证 / 风控：NEEDS_HUMAN 或 NEEDS_HUMAN.<账号码>）才出「去扫码 / 验证」；
+// 读取组件没起来（TRANSIENT.DISCONNECTED）/ 没装（NEEDS_HUMAN.NOT_INSTALLED）出「重试」——以前一律弹扫码，被杀毒隔离的人去扫了也白扫
+const READER_CODES = ['TRANSIENT.DISCONNECTED', 'NEEDS_HUMAN.NOT_INSTALLED'];
+const ACCOUNT_SUBCODES = ['NOT_LOGGED_IN', 'CAPTCHA_REQUIRED', 'ACCOUNT_RISK', 'RISK_HOLD', 'WRONG_ACCOUNT', 'ACCOUNT_BLOCKED'];
+function resultKind(code) {
+  const c = String(code || '');
+  if (READER_CODES.includes(c)) return 'reader';
+  if (c === 'NEEDS_HUMAN' || ACCOUNT_SUBCODES.some(x => c === 'NEEDS_HUMAN.' + x)) return 'account';
+  return '';
+}
+const RUN_STATE_FILE = '_archive/setup-run.json';
+const NO_RESULT_TEXT = '安装程序没有返回结果，详情见日志';
+// setup-run.json（pipeline 每步落盘）→ 设置页的 run 对象。pid 活着 = 还在后台跑（续画）；死了又没 result = 上次没跑完
+function runFromState(state, alive) {
+  if (!state || typeof state !== 'object' || !Array.isArray(state.stages)) return null;
+  const run = { state: 'running', resumed: true, stages: {}, current: null, install: null, result: null,
+    startedAt: Date.parse(state.started_at || '') || Date.now(), pid: state.pid || null };
+  const count = Object.keys(STAGE_LABEL).length;
+  state.stages.forEach((s, i) => { if (s && s.id) run.stages[s.id] = { label: s.label || s.id, index: i + 1, count, state: s.state || 'ok', text: s.text || '' }; });
+  const lastLabel = state.stages.length ? (state.stages[state.stages.length - 1].label || '') : '';
+  if (state.current) { run.current = state.current; run.stages[state.current] = { label: STAGE_LABEL[state.current] || state.current, index: Object.keys(run.stages).length + 1, count, state: 'running', text: '' }; }
+  if (!state.running && state.result && typeof state.result === 'object') { run.state = 'done'; run.result = state.result; return run; }
+  if (state.running && alive) return run;
+  const stopped = state.current ? (STAGE_LABEL[state.current] || state.current) : lastLabel;
+  run.state = 'done';
+  run.result = { ok: false, interrupted: true, code: 'TRANSIENT.INTERRUPTED', stopped,
+    message: stopped ? `上次没跑完，停在「${stopped}」` : '上次没跑完' };
+  return run;
+}
+const STAGE_LABEL = { install: '装好要用的组件', login: '确认小红书登录', sync: '同步收藏（含 OCR / 识图 / 概要）', enrich: '补识图 / 概要',
+  catalog: '整理目录', embed: '建语义索引', comments: '评论补齐（读不完的后台接着补）' };
 
 const num = v => (v === null || v === undefined || v === '' || typeof v === 'boolean' || !Number.isFinite(Number(v)) ? null : Number(v));
 // 1028：后台补评论多久没刷新算停了——状态文件里 Python 写的 stale_min 优先（comment_fill.STALE_MIN），旧文件按 15 分钟
@@ -213,24 +244,91 @@ module.exports = function homeUI(obsidian, plugin) {
       },
     });
     st.child = null;
-    if (!st.run.result) st.run.result = r.json && r.json.type === 'result' ? r.json
-      : { ok: false, message: r.timedOut ? '超过 6 小时没跑完，已停止；做了的都存好了' : (r.code === 6 && r.busy ? plugin.busyText() : (String(r.err || '').trim().split('\n').pop() || '没跑完')) };
+    if (!st.run.result) {
+      if (r.json && r.json.type === 'result') st.run.result = r.json;
+      else if (r.timedOut) st.run.result = { ok: false, message: '超过 6 小时没跑完，已停止；做了的都存好了' };
+      else if (r.code === 6 && r.busy) st.run.result = { ok: false, message: plugin.busyText() };
+      else {
+        // 1102（CONVENTIONS §1.7）：没有 result JSON 不把 stderr（多半是 traceback）弹给人——一句话 + 「打开日志」，stderr 尾巴折进「详情」
+        const tail = String(r.err || '').trim().split('\n').slice(-12).join('\n');
+        st.run.result = { ok: false, code: 'TRANSIENT.STEP_CRASHED', message: NO_RESULT_TEXT, noResult: true, exit: r.code,
+          detail: (tail ? tail + '\n' : '') + '日志：<收藏库>/_archive/ob-actions.log；后台进度：~/.link-brain/logs/setup-run.log' };
+        try { await plugin.log?.(`[一键装好 / 跑完] exit=${r.code} 没有返回结果\n${String(r.all || r.err || '').trim()}`); } catch (e) { console.error('[lb] 日志没写上', e); }
+      }
+    }
     st.run.state = 'done';
     repaint();
     const res = st.run.result;
     if (!quiet) {
-      const human = res.code === 'NEEDS_HUMAN';
-      plugin.notify(res.message || (res.ok ? '都跑完了' : '没跑完'), { kind: res.ok ? 'ok' : human ? 'warn' : 'error', ms: human ? 0 : undefined,
-        actions: human ? [{ label: '去扫码 / 验证', run: () => plugin.openSetupPage?.('status') }] : null });
+      const kind = resultKind(res.code);
+      const actions = kind === 'account' ? [{ label: '去扫码 / 验证', run: () => plugin.openSetupPage?.('status') }]
+        : kind === 'reader' ? [{ label: '重试', run: () => runAll() }]
+        : res.noResult ? [{ label: '打开日志', run: () => plugin.openActionLog?.() }] : null;
+      plugin.notify(res.message || (res.ok ? '都跑完了' : '没跑完'), { kind: res.ok ? 'ok' : kind ? 'warn' : 'error', ms: kind ? 0 : undefined, actions });
     }
     loadPlan(true).then(repaint);
     return res;
+  }
+  // —— 1102：Obsidian 关掉时安装没停（onunload 不杀子进程），进度在 _archive/setup-run.json ——
+  // 打开设置页 / 启动时：文件说 running 且 pid 活着 → 续画（盯文件 + 每 3 秒再读一次，直到 result 出来或 pid 死了）；
+  // 死了又没 result → 「上次没跑完，停在 X 步」+「再跑一次」。本会话自己在跑（st.run 已有）就不碰。
+  async function readRunState() {
+    try { const v = JSON.parse(await plugin.app.vault.adapter.read(plugin.lbPath(RUN_STATE_FILE))); return v && typeof v === 'object' ? v : null; }
+    catch { return null; }
+  }
+  const alive = pid => (typeof plugin.pidAlive === 'function' ? !!plugin.pidAlive(pid) : false);
+  async function resumeRun() {
+    const st = S();
+    if (st.run || plugin.running) return st.run || null;
+    const state = await readRunState();
+    if (!state || (!state.running && !st.resumeWatching)) return null;   // 跑完了的旧结果不重放；只接「还在跑」或「没跑完」
+    if (st.run) return st.run;
+    const run = runFromState(state, alive(state.pid));
+    if (!run) return null;
+    st.run = run;
+    repaint();
+    if (run.state === 'running') watchResumed();
+    return run;
+  }
+  function watchResumed() {
+    const st = S();
+    if (st.resumeWatching) return;
+    st.resumeWatching = true;
+    const stop = () => {
+      st.resumeWatching = false; clearInterval(st.resumeTimer); st.resumeTimer = null;
+      for (const r of refs) { try { vault.offref(r); } catch {} }
+    };
+    const tick = async () => {
+      const run = st.run;
+      if (!run || !run.resumed || run.state !== 'running') { stop(); return; }
+      const state = await readRunState();
+      const next = runFromState(state, state ? alive(state.pid) : false);
+      if (!next) return;
+      next.resumed = true;
+      st.run = next;
+      if (next.state === 'done') {
+        stop();
+        const res = next.result;
+        plugin.notify(res.message || (res.ok ? '都跑完了' : '没跑完'), { kind: res.ok ? 'ok' : res.interrupted ? 'warn' : 'error',
+          actions: res.interrupted ? [{ label: '再跑一次', run: () => runAll() }] : null });
+        loadPlan(true).then(repaint);
+      }
+      repaint();
+    };
+    const vault = plugin.app.vault;
+    let refs = [];
+    if (vault && typeof vault.on === 'function') {
+      const watched = plugin.lbPath(RUN_STATE_FILE);
+      refs = ['modify', 'create'].map(ev => vault.on(ev, f => { if (f?.path === watched) tick(); }));
+    }
+    st.resumeTimer = setInterval(tick, 3000);
   }
   async function stopRun() { await plugin.stopRunning?.(); }
 
   // —— 首次（零配置）：新装、库里还没有收藏 → 按轻量版自动跑一次 ——
   async function firstRun() {
     const s = setup();
+    resumeRun().catch(e => console.error('[lb] 上次的安装进度没读到', e));   // 1102：启动时接上关 Obsidian 前没跑完的那一轮
     if (s.firstRunAt) return 'done-before';
     s.firstRunAt = new Date().toISOString();
     let fresh = true;
@@ -380,9 +478,11 @@ module.exports = function homeUI(obsidian, plugin) {
       const st = S(), run = st.run;
       const acts = runBox.createDiv({ cls: 'lb-run-actions' });
       const busy = !!(run && run.state === 'running');
-      if (busy) acts.createEl('button', { cls: 'lb-run-stop', text: '停止（做了的都留着）' }).onclick = () => stopRun();
+      if (busy && run.resumed) acts.createEl('span', { cls: 'setting-item-description', text: '上次关 Obsidian 前启动的安装还在后台跑，这里停不了；进度照文件续画' });
+      else if (busy) acts.createEl('button', { cls: 'lb-run-stop', text: '停止（做了的都留着）' }).onclick = () => stopRun();
       else {
-        const go = acts.createEl('button', { cls: 'lb-run-go mod-cta', text: '一键装好 / 跑完' });
+        const again = !!(run && run.result && run.result.interrupted);
+        const go = acts.createEl('button', { cls: 'lb-run-go mod-cta', text: again ? '再跑一次' : '一键装好 / 跑完' });
         // 按钮不能点时，旁边一句为什么
         const why = plugin.running ? plugin.busyText() : st.planError ? '读不到这台电脑装了什么：上面「这台电脑」那一行点重试' : !st.plan ? '正在看这台电脑装了什么…' : '';
         go.disabled = !!why;
@@ -410,11 +510,13 @@ module.exports = function homeUI(obsidian, plugin) {
         const label = (FEATURE_TEXT[run.install.component] || {}).name || run.install.component || '';
         runBox.createDiv({ cls: 'setting-item-description', text: '正在装 ' + label + '：' + (pv ? pv.text : '') });
       }
-      if (run.result) runBox.createDiv({ cls: 'lb-run-result' + (run.result.ok ? ' is-done' : ' is-failed'), text: run.result.message || '' });
+      if (run.result && run.result.noResult) failBox(runBox, '一键装好 / 跑完', { message: run.result.detail || '' }, () => runAll()).createEl('button', { cls: 'lb-link', text: '打开日志' }).onclick = () => plugin.openActionLog?.();
+      else if (run.result) runBox.createDiv({ cls: 'lb-run-result' + (run.result.ok ? ' is-done' : ' is-failed'), text: run.result.message || '' });
     };
     painters.add(paintRun);
     paintRun();
     if (!S().plan) loadPlan().then(() => { if (alive) repaint(); });
+    if (!S().run) resumeRun().catch(e => console.error('[lb] 上次的安装进度没读到', e));   // 1102：打开设置页时接上后台那一轮
     return () => { alive = false; painters.delete(paintRun); };
   }
 
@@ -493,7 +595,7 @@ module.exports = function homeUI(obsidian, plugin) {
   }
   const isOn = id => new Set(effective()).has(id);
 
-  return { renderStatus, renderRun, featureToggle, setFeature, applyPreset, isOn, aiReady, runAll, stopRun, firstRun, loadPlan, loadEstimate, state: S, bindToggle,
-    _internals: { repaint, withDeps, withoutDependents, toggleSelection, initialSelection, totals, fmtMB, yuan, priceText, progressView, applyRunEvent, fillLine } };
+  return { renderStatus, renderRun, featureToggle, setFeature, applyPreset, isOn, aiReady, runAll, stopRun, firstRun, resumeRun, loadPlan, loadEstimate, state: S, bindToggle,
+    _internals: { repaint, withDeps, withoutDependents, toggleSelection, initialSelection, totals, fmtMB, yuan, priceText, progressView, applyRunEvent, fillLine, resultKind, runFromState } };
 };
-module.exports._internals = { withDeps, withoutDependents, toggleSelection, initialSelection, totals, fmtMB, yuan, priceText, progressView, applyRunEvent, fillLine, LIGHT, FEATURE_TEXT, AI_ORDER };
+module.exports._internals = { withDeps, withoutDependents, toggleSelection, initialSelection, totals, fmtMB, yuan, priceText, progressView, applyRunEvent, fillLine, resultKind, runFromState, LIGHT, FEATURE_TEXT, AI_ORDER, READER_CODES, NO_RESULT_TEXT, RUN_STATE_FILE };

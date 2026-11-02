@@ -5,6 +5,10 @@
 - file:// 也支持（测试 / 离线包），同样能续。
 - 解压：拒绝绝对路径 / `..` / 盘符（防 zip-slip）；没打 UTF-8 标记的成员名按 GBK 还原（CapsWriter 的包里
   中文文件名是 GBK 编码，按 zip 默认的 cp437 解会变乱码）。
+- 镜像（1102）：GitHub Release 直连在国内常下不动。`mirror_prefixes()` 给一组可配的前缀（默认空：环境变量
+  `LINK_BRAIN_DOWNLOAD_MIRRORS`（逗号分隔）→ `~/.link-brain/config.json` 的 `download_mirrors`（列表）），
+  对 `github.com/<owner>/<repo>/releases/download/…` 的地址依次试「前缀 + 原地址」（ghproxy 那种写法），最后试原地址；
+  只有网络类失败（TRANSIENT.NETWORK）才换下一个，磁盘满 / 包太大照旧当场停。校验和不随镜像变，下错了照样拒。
 """
 from __future__ import annotations
 
@@ -24,8 +28,49 @@ CHUNK = 1 << 20
 CONNECT_TIMEOUT_S = 20
 READ_TIMEOUT_S = 120
 REPORT_EVERY = 4 << 20  # 进度事件至少隔 4 MB 发一次，别把插件淹了
+ENV_MIRRORS = "LINK_BRAIN_DOWNLOAD_MIRRORS"
+CONFIG_MIRRORS = "download_mirrors"
+MIRROR_PREFIXES: list[str] = []   # 内置默认：空（不替用户选镜像；要用自己配）
 
 Progress = Callable[[int, int | None], None]
+
+
+def mirror_prefixes() -> list[str]:
+    """可配的镜像前缀列表：环境变量 → config.json → 内置默认（空）。去空、去重、保序。"""
+    raw: list[str] = []
+    env = os.environ.get(ENV_MIRRORS)
+    if env is not None:
+        raw = [x for x in env.split(",")]
+    else:
+        from .. import storage
+        cfg = storage.user_config().get(CONFIG_MIRRORS)
+        if isinstance(cfg, str):
+            raw = cfg.split(",")
+        elif isinstance(cfg, list):
+            raw = [str(x) for x in cfg]
+        else:
+            raw = list(MIRROR_PREFIXES)
+    out: list[str] = []
+    for x in raw:
+        x = x.strip()
+        if x and x not in out:
+            out.append(x)
+    return out
+
+
+def is_github_release(url: str) -> bool:
+    parts = urlsplit(url)
+    return parts.scheme in ("http", "https") and parts.netloc.lower() in ("github.com", "www.github.com") and \
+        "/releases/download/" in parts.path
+
+
+def candidates(url: str) -> list[str]:
+    """按顺序要试的地址：GitHub Release 直连地址先走每个镜像前缀（`前缀/原地址`），最后原地址；其他地址只有自己。"""
+    if not is_github_release(url):
+        return [url]
+    out = [p.rstrip("/") + "/" + url for p in mirror_prefixes()]
+    out.append(url)
+    return out
 
 
 def _file_source(url: str) -> Path:
@@ -38,7 +83,28 @@ def _file_source(url: str) -> Path:
 
 def download(url: str, dest: Path, *, expected_size: int | None = None, on_progress: Progress | None = None,
              max_bytes: int | None = None) -> Path:
-    """下到 dest（先写 dest.part，能续）。返回 dest。不校验——校验由调用方在改名前做（见 fetch_verified）。"""
+    """下到 dest（先写 dest.part，能续）。返回 .part 的路径。不校验——校验由调用方在改名前做（见 fetch_verified）。
+    GitHub Release 地址按 candidates() 依次试镜像再试原地址；只有网络类失败才换下一个。"""
+    errors: list[str] = []
+    cands = candidates(url)
+    for i, cand in enumerate(cands):
+        try:
+            return _download_one(cand, dest, expected_size=expected_size, on_progress=on_progress, max_bytes=max_bytes)
+        except SetupError as exc:
+            if exc.code != "TRANSIENT.NETWORK" or i == len(cands) - 1:
+                if errors:
+                    raise SetupError(exc.code, exc.message + "；之前试过的镜像也没成：" + "；".join(errors)[:300]) from exc
+                raise
+            errors.append(f"{_host(cand)}：{exc.message}")
+    raise SetupError("TRANSIENT.NETWORK", f"下载失败：{_short(url)}")   # 不会到这里（最后一个候选要么成要么 raise）
+
+
+def _host(url: str) -> str:
+    return urlsplit(url).netloc or url[:40]
+
+
+def _download_one(url: str, dest: Path, *, expected_size: int | None, on_progress: Progress | None,
+                  max_bytes: int | None) -> Path:
     dest.parent.mkdir(parents=True, exist_ok=True)
     part = dest.with_name(dest.name + ".part")
     have = part.stat().st_size if part.exists() else 0
@@ -141,12 +207,13 @@ def fetch_verified(url: str, dest: Path, *, sha256: str | None, size: int | None
         got_size = part.stat().st_size
         part.unlink()
         raise SetupError("PERMANENT.CHECKSUM_MISMATCH",
-                         f"下载的大小不对（{got_size} 字节，应为 {size}），已删掉重来：{_short(url)}")
+                         f"下载的大小不对（{got_size} 字节，应为 {size}），已删掉下载的文件，没安装；再点一次安装会重新下载：{_short(url)}")
     got = sha256_of(part, on_verify)
     if want and got != want:
         part.unlink()
         raise SetupError("PERMANENT.CHECKSUM_MISMATCH",
-                         f"校验和对不上（下载到的是 {got[:12]}…，应为 {want[:12]}…），已删掉，没安装：{_short(url)}")
+                         f"校验和对不上（下载到的是 {got[:12]}…，应为 {want[:12]}…），已删掉下载的文件，没安装；"
+                         f"再点一次安装会重新下载：{_short(url)}")
     os.replace(part, dest)
     return {"path": dest, "sha256": got, "verified": bool(want), "reused": False}
 

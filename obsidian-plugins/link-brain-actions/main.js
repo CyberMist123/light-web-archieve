@@ -455,8 +455,11 @@ const PLATFORMS = [{
 }];
 
 // 小红书读取服务的域名等由 link_brain/accounts.py 统一决定，这里只管编码。
+// 1102：PYTHONUTF8=1 —— Windows 中文系统的 Python 默认用 cp936 读文件 / 开子进程管道，只设 PYTHONIOENCODING 管不到
+// open() 和子进程那一层（CI 一直设着 PYTHONUTF8=1 所以测不出）；两个都给，和 .github/workflows/test.yml 的「无 PYTHONUTF8」那一维对照。
 const ENV_EXTRA = {
   PYTHONIOENCODING: "utf-8",
+  PYTHONUTF8: "1",
 };
 
 // ── 进程（CONVENTIONS §6）：插件起 Python 只有 spawnPy 一个入口（runPy 建在它上面），杀树只有 killTree 一个函数。
@@ -2038,7 +2041,22 @@ class LinkBrainActions extends Plugin {
   stopArchiveAnswer(tag) { let n=0; for(const [id,p] of [...(this.answerPending?.entries()||[])]) { if(tag!=null&&p.tag!==tag)continue; if(this.cancelAnswer(id)) n++; } return n; }
   onunload(){this.unloading=true;if(this.syncTick)clearInterval(this.syncTick);clearTimeout(this.capsTimer);clearTimeout(this.onboardTimer);clearTimeout(this.fillTimer);clearTimeout(this.freshTimer);this.catalogCache=null;
     for(const k of ['noteActions','noteTools','imageActions','playerUI','indexUI']){try{this[k]?.detach?.();}catch(e){console.error('[lb] '+k+' 卸载出错',e);}}   // 批次 D 地基：四个挂载点 + 10-10 索引树
+    // 1102：互斥长任务（一键装好 / 同步）的子进程**不杀**——它自己把进度落盘（_archive/setup-run.json、同步记录），
+    // stdout 断了会切到 ~/.link-brain/logs 接着写；重开 Obsidian 时设置页按 setup-run.json 续画。只说一句。
+    if(this.runningChild){try{new Notice('安装在后台继续（进度在设置页和 _archive/setup-run.json）');}catch{}}
     const worker=this.answerWorker;if(worker)this.killTree(worker.pid).catch(()=>{}).finally(()=>{try{worker.kill();}catch{}});}
+  // 1102：home-ui「安装程序没有返回结果，详情见日志」的「打开日志」——用系统默认程序开 <收藏库>/_archive/ob-actions.log；
+  // 文件还没有就开 _archive 文件夹。pid 在不在（设置页续画 setup-run.json 用）也放这里，方便单测替换。
+  openActionLog(){
+    try{
+      const base=this.app.vault.adapter.getBasePath(), fs=require('fs');
+      const file=path.join(base,this.lbPath('_archive/ob-actions.log')), dir=path.dirname(file);
+      fs.mkdirSync(dir,{recursive:true});
+      require('electron').shell.openPath(fs.existsSync(file)?file:dir);
+      return true;
+    }catch(e){console.error('[lb] 日志打不开',e);this.notify?.('日志打不开：'+(e&&e.message||e),{kind:'error'});return false;}
+  }
+  pidAlive(pid){const n=Number(pid);if(!Number.isFinite(n)||n<=0)return false;try{process.kill(n,0);return true;}catch(e){return e&&e.code==='EPERM';}}
   // 返回 payload；status='cancelled' = 用户点了停止（markdown 是已生成的半截），不当失败抛。
   // sourceIds（第 10 批「按剩下的重新回答」）：只用这些来源作答，不重新检索
   // excludeIds / pinIds（R2 会话面）：本会话排除的、保留（pin）的来源 id，每一问都显式带上；空的不发，请求和以前一样

@@ -175,5 +175,166 @@ const PLAN = { ok: true, components: [
     assert.equal(child.pid, 99);
     assert.equal(res.json.ok, true, '结果照旧是最后一行 JSON');
   }
-  console.log('PASS home-ui (1009 / 1010): light by default, deps, prices next to features, run button (disabled reason while loading) → step marks + result + 去扫码 action, first run (old library untouched / new library light + auto run once), spawnPy onLine whole lines');
+  // —— 5. 1102：结果 code 分按钮——号的事才「去扫码 / 验证」，读取组件没起来 / 没装给「重试」 ——
+  {
+    assert.equal(H.resultKind('NEEDS_HUMAN'), 'account');
+    assert.equal(H.resultKind('NEEDS_HUMAN.CAPTCHA_REQUIRED'), 'account');
+    assert.equal(H.resultKind('TRANSIENT.DISCONNECTED'), 'reader');
+    assert.equal(H.resultKind('NEEDS_HUMAN.NOT_INSTALLED'), 'reader');
+    assert.equal(H.resultKind(''), ''); assert.equal(H.resultKind('TRANSIENT.STEP_CRASHED'), '');
+    const q = new Plugin();
+    q.app = { vault: { adapter: { getBasePath: () => 'D:/vault', exists: async () => false, read: async () => { throw new Error('ENOENT'); } } }, workspace: { trigger() {} } };
+    q.lbPath = x => x; q.repoRoot = 'D:/repo'; q.settings = { setup: { selected: ['core', 'reader', 'dataview', 'ocr'] } };
+    q.saveSettings = async () => {}; q.notify = (m, o = {}) => notices.push({ m, o }); q.log = async () => {};
+    q.openSetupPage = s => { q.opened = s; };
+    q.homeState = { plan: PLAN };
+    let runs = 0;
+    spawnImpl = (exe, args) => {
+      const c = new EventEmitter(); c.pid = 7; c.stdout = new EventEmitter(); c.stderr = new EventEmitter(); c.stdin = new EventEmitter(); c.stdin.write = () => {}; c.stdin.end = () => {};
+      const ev = o => Buffer.from(JSON.stringify(o) + '\n');
+      if (args.includes('plan')) { setTimeout(() => { c.stdout.emit('data', ev(PLAN)); c.emit('close', 0); }, 0); return c; }
+      runs++;
+      setTimeout(() => {
+        c.stdout.emit('data', ev({ type: 'progress', stage: 'login', label: '确认小红书登录', index: 2, count: 7, state: 'failed', text: '读取服务没连上（DISCONNECTED）' }));
+        c.stdout.emit('data', ev({ type: 'result', ok: false, code: 'TRANSIENT.DISCONNECTED', message: '读取组件没起来，点重试或看 reader.log：读取服务没连上（DISCONNECTED）', stages: [] }));
+        c.emit('close', 1);
+      }, 0);
+      return c;
+    };
+    const h = homeFactory(OBS, q);
+    const res = await h.runAll();
+    assert.equal(res.code, 'TRANSIENT.DISCONNECTED');
+    const last = notices.at(-1);
+    assert.equal(last.o.actions[0].label, '重试', '读取组件类不引导扫码');
+    assert.equal(last.o.kind, 'warn');
+    assert.equal(q.opened, undefined);
+    q.homeState.run = null;
+    last.o.actions[0].run(); await flush(12);
+    assert.equal(runs, 2, '「重试」= 再跑一次 setup run');
+  }
+
+  // —— 6. 1102：没有 result JSON（崩了 / 被杀）：不把 stderr 弹出去——一句话 + 「打开日志」，traceback 折进「详情」 ——
+  {
+    const q = new Plugin();
+    q.app = { vault: { adapter: { getBasePath: () => 'D:/vault', exists: async () => false, read: async () => { throw new Error('ENOENT'); } } }, workspace: { trigger() {} } };
+    q.lbPath = x => x; q.repoRoot = 'D:/repo'; q.settings = { setup: { selected: ['core', 'reader', 'dataview', 'ocr'] } };
+    q.saveSettings = async () => {}; q.notify = (m, o = {}) => notices.push({ m, o });
+    const logged = []; q.log = async t => logged.push(t);
+    let opened = 0; q.openActionLog = () => { opened++; return true; };
+    q.homeState = { plan: PLAN };
+    spawnImpl = () => {
+      const c = new EventEmitter(); c.pid = 8; c.stdout = new EventEmitter(); c.stderr = new EventEmitter(); c.stdin = new EventEmitter(); c.stdin.write = () => {}; c.stdin.end = () => {};
+      setTimeout(() => {
+        c.stdout.emit('data', Buffer.from(JSON.stringify({ type: 'progress', stage: 'install', label: '装好要用的组件', index: 1, count: 7, state: 'running', text: '检查中…' }) + '\n'));
+        c.stderr.emit('data', Buffer.from('Traceback (most recent call last):\n  File "x.py", line 1\nKeyError: \'boom\'\n'));
+        c.emit('close', 1);
+      }, 0);
+      return c;
+    };
+    const h = homeFactory(OBS, q);
+    const pane = dom.document.createElement('div');
+    h.renderRun(pane, {});
+    const res = await h.runAll();
+    assert.equal(res.message, '安装程序没有返回结果，详情见日志');
+    assert.ok(res.noResult && /KeyError/.test(res.detail), 'stderr 尾巴留在 detail 里');
+    const last = notices.at(-1);
+    assert.equal(last.m, '安装程序没有返回结果，详情见日志', '弹的不是 traceback');
+    assert.equal(last.o.actions[0].label, '打开日志');
+    last.o.actions[0].run(); assert.equal(opened, 1);
+    assert.ok(logged.some(t => /没有返回结果/.test(t) && /KeyError/.test(t)), 'stderr 写进 ob-actions.log');
+    await flush(4);
+    const fail = pane.querySelector('.lb-fail');
+    assert.ok(fail, '结果区用 failBox');
+    assert.match(fail.querySelector('.lb-fail-detail pre').textContent, /KeyError: 'boom'/);
+    assert.ok(!/Traceback/.test(fail.querySelector('.lb-fail-line').textContent), '一行字里没有 traceback');
+    assert.ok([...fail.querySelectorAll('button')].some(b => b.textContent === '打开日志'));
+  }
+
+  // —— 7. 1102：Obsidian 关掉后安装没停——重开按 _archive/setup-run.json 续画；pid 死了 = 「上次没跑完，停在 X 步」+「再跑一次」 ——
+  {
+    const stateFile = { running: true, pid: 4321, started_at: '2026-11-02T10:00:00+1100', updated_at: '2026-11-02T10:01:00+1100', current: 'sync',
+      stages: [{ id: 'install', label: '装好要用的组件', state: 'ok', text: '全部就绪' }, { id: 'login', label: '确认小红书登录', state: 'ok', text: '已登录' }], result: null };
+    const r1 = H.runFromState(stateFile, true);
+    assert.equal(r1.state, 'running'); assert.equal(r1.resumed, true); assert.equal(r1.current, 'sync');
+    assert.equal(r1.stages.sync.state, 'running'); assert.equal(r1.stages.install.state, 'ok');
+    const r2 = H.runFromState(stateFile, false);
+    assert.equal(r2.state, 'done'); assert.equal(r2.result.interrupted, true);
+    assert.equal(r2.result.message, '上次没跑完，停在「同步收藏（含 OCR / 识图 / 概要）」');
+    const r3 = H.runFromState({ ...stateFile, running: false, current: null, result: { ok: true, message: '都跑完了' } }, false);
+    assert.equal(r3.state, 'done'); assert.equal(r3.result.message, '都跑完了');
+    assert.equal(H.runFromState(null, true), null);
+
+    // 设置页：文件说 running、pid 活着 → 续画步骤、没有「停止」按钮；文件变成 result → 结束提示
+    const files = { '_archive/setup-run.json': JSON.stringify(stateFile) };
+    const q = new Plugin();
+    const handlers = [];
+    q.app = { vault: { adapter: { getBasePath: () => 'D:/vault', exists: async f => f in files, read: async f => { if (!(f in files)) throw new Error('ENOENT'); return files[f]; } },
+      on: (ev, cb) => { const ref = { ev, cb }; handlers.push(ref); return ref; }, offref: ref => { const i = handlers.indexOf(ref); if (i >= 0) handlers.splice(i, 1); } }, workspace: { trigger() {} } };
+    q.lbPath = x => x; q.repoRoot = 'D:/repo'; q.settings = { setup: { selected: ['core', 'reader', 'dataview', 'ocr'] } };
+    q.saveSettings = async () => {}; q.notify = (m, o = {}) => notices.push({ m, o }); q.log = async () => {};
+    let alive = true; q.pidAlive = pid => { assert.equal(pid, 4321); return alive; };
+    q.homeState = { plan: PLAN };
+    spawnImpl = () => { throw new Error('续画不起进程'); };
+    const h = homeFactory(OBS, q);
+    const pane = dom.document.createElement('div');
+    const stop = h.renderRun(pane, {});
+    await flush(6);
+    assert.equal(pane.querySelectorAll('.lb-run-stop').length, 0, '不是本会话起的，停不了');
+    assert.match(pane.textContent, /还在后台跑/);
+    assert.equal(pane.querySelectorAll('.lb-run-step').length, 3, '两步做完 + 当前一步');
+    assert.ok(handlers.length >= 1, '盯着 setup-run.json');
+    files['_archive/setup-run.json'] = JSON.stringify({ ...stateFile, running: false, current: null, result: { ok: true, code: '', message: '都跑完了（轻量版）' },
+      stages: [...stateFile.stages, { id: 'sync', label: '同步收藏（含 OCR / 识图 / 概要）', state: 'ok', text: '完成' }] });
+    for (const hd of [...handlers]) if (hd.ev === 'modify') hd.cb({ path: '_archive/setup-run.json' });
+    await flush(8);
+    assert.equal(q.homeState.run.state, 'done');
+    assert.equal(notices.at(-1).m, '都跑完了（轻量版）');
+    assert.equal(handlers.length, 0, '跑完不再盯文件');
+    assert.equal(q.homeState.resumeTimer, null);
+    assert.match(pane.querySelector('.lb-run-result').textContent, /都跑完了/);
+    stop();
+
+    // pid 死了：说停在哪一步，按钮变「再跑一次」
+    alive = false;
+    files['_archive/setup-run.json'] = JSON.stringify(stateFile);
+    q.homeState = { plan: PLAN };
+    const pane2 = dom.document.createElement('div');
+    const stop2 = h.renderRun(pane2, {});
+    await flush(6);
+    assert.match(pane2.querySelector('.lb-run-result').textContent, /上次没跑完，停在「同步收藏/);
+    assert.equal(pane2.querySelector('.lb-run-go').textContent, '再跑一次');
+    assert.equal(handlers.length, 0, '死了就不用盯');
+    stop2;
+    // 本会话自己在跑时不碰
+    q.homeState = { plan: PLAN, run: { state: 'running', stages: {}, result: null } };
+    assert.equal((await h.resumeRun()).state, 'running');
+    // 跑完了的旧结果不重放
+    files['_archive/setup-run.json'] = JSON.stringify({ ...stateFile, running: false, result: { ok: true, message: '旧' } });
+    q.homeState = { plan: PLAN };
+    assert.equal(await h.resumeRun(), null);
+    // 启动（firstRun）也接：记过 firstRunAt 的老用户照样续画
+    files['_archive/setup-run.json'] = JSON.stringify(stateFile); alive = true;
+    q.homeState = { plan: PLAN }; q.settings.setup.firstRunAt = '2026-10-01T00:00:00Z';
+    assert.equal(await h.firstRun(), 'done-before');
+    await flush(4);
+    assert.equal(q.homeState.run?.state, 'running');
+    clearInterval(q.homeState.resumeTimer); q.homeState.resumeTimer = null;
+  }
+
+  // —— 8. 1102 main.js：Windows 编码两个环境变量都给；卸载插件不杀正在跑的安装、只说一句 ——
+  {
+    const q = new Plugin();
+    q.app = { vault: { adapter: { getBasePath: () => 'D:/vault' } } };
+    const env = q.pyEnv();
+    assert.equal(env.PYTHONIOENCODING, 'utf-8'); assert.equal(env.PYTHONUTF8, '1');
+    let killed = 0;
+    q.runningChild = { pid: 99, kill() { killed++; } }; q.running = '装好并跑完';
+    q.killTree = async () => { killed++; };
+    const before = notices.length;
+    q.onunload();
+    assert.equal(killed, 0, 'onunload 不杀 runningChild');
+    assert.match(String(notices[before]), /安装在后台继续/);
+    assert.equal(q.pidAlive(process.pid), true); assert.equal(q.pidAlive(0), false); assert.equal(q.pidAlive(2147483646), false);
+  }
+  console.log('PASS home-ui (1009 / 1010 / 1102): light by default, deps, prices next to features, run button (disabled reason while loading) → step marks + result + 去扫码 action, first run (old library untouched / new library light + auto run once), spawnPy onLine whole lines; 1102 reader codes → 重试, no-result → 打开日志 + failBox detail, resume from setup-run.json (alive → continue / dead → 再跑一次), PYTHONUTF8 + onunload keeps the child');
 })().catch(e => { console.error(e); process.exitCode = 1; });
