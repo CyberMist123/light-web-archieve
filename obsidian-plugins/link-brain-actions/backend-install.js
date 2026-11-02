@@ -36,9 +36,9 @@ const PYTHON_VERSION = '3.12';
 const BACKEND_RELEASE = {
   version: '0.2.0',
   wheelUrl: 'https://github.com/CyberMist123/light-web-archieve/releases/download/v0.2.0/link_brain-0.2.0-py3-none-any.whl',
-  wheelSha256: '',
+  wheelSha256: '5f0e8ece16d9b556c8c74b450b6cbdae03d2e652e027782efcd53b1d61e48c9f',   // Release v0.2.0 的 SHA256SUMS（1102 第二次发布：lock 改 universal；本机 Windows 下载、--require-hashes 装过）
   lockUrl: 'https://github.com/CyberMist123/light-web-archieve/releases/download/v0.2.0/requirements.lock',
-  lockSha256: '',
+  lockSha256: '546dafc3bdf8daec89ab4799fbe5498dc2ecf88a819fad8db113b2e215bd8ad1',
 };
 const STAGES = [['uv', '准备安装工具 uv'], ['python', '准备 Python ' + PYTHON_VERSION], ['venv', '建后端环境'], ['install', '安装 link-brain'], ['check', '自检']];
 const STAGE_LABEL = Object.fromEntries(STAGES);
