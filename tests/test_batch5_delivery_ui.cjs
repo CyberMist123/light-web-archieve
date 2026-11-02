@@ -82,6 +82,8 @@ const texts = root => root.querySelectorAll('button').map(b => b.textContent);
 
 // 临时目录：一个「仓库」（有 link_brain/__init__.py，里面 vault/）和一个和程序无关的库
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'lb-b2-'));
+// 1102：托管目录按真实 HOME 找，作者本机真装了一个 → 整个用例的 LINK_BRAIN_HOME 隔离到临时目录（各段自己再覆盖 / 还原到它）
+const isolatedHome = path.join(tmp, 'home0'); fs.mkdirSync(isolatedHome); process.env.LINK_BRAIN_HOME = isolatedHome;
 const repo = path.join(tmp, 'repo'), repoVault = path.join(repo, 'vault'), plainVault = path.join(tmp, 'my-notes');
 fs.mkdirSync(path.join(repo, 'link_brain'), { recursive: true }); fs.writeFileSync(path.join(repo, 'link_brain', '__init__.py'), '');
 fs.mkdirSync(path.join(repoVault, '_archive'), { recursive: true }); fs.writeFileSync(path.join(repoVault, '_archive', 'catalog-data.json'), '{}');
@@ -103,10 +105,10 @@ function makePlugin(base, { saved = {}, files = new Set(), manifestDir = '.obsid
   assert.deepEqual([...Plugin.splitCommand('link-brain')], ['link-brain']);
   assert.deepEqual([...Plugin.splitCommand('"C:/Program Files/lb/link-brain.exe"  --x')], ['C:/Program Files/lb/link-brain.exe', '--x']);
   assert.deepEqual([...Plugin.splitCommand('uvx  link-brain')], ['uvx', 'link-brain']);
-  const have = new Set([path.join('/bin1', 'link-brain.exe'), path.join('/home/u', '.local', 'bin', 'other.exe'), '/opt/lb']);
+  const have = new Set([path.win32.join('/bin1', 'link-brain.exe'), path.win32.join('/home/u', '.local', 'bin', 'other.exe'), '/opt/lb']);   // platform: 'win32' 的用例按 win32 拼路径（1102：whichCommand 按传入平台拼，Linux / Windows 上跑结果一致）
   const exists = f => have.has(f);
-  assert.equal(Plugin.whichCommand('link-brain', { env: { PATH: '/bin0;/bin1' }, platform: 'win32', exists, home: '/home/u' }), path.join('/bin1', 'link-brain.exe'), 'Windows 补 .exe');
-  assert.equal(Plugin.whichCommand('other', { env: { PATH: '/bin0' }, platform: 'win32', exists, home: '/home/u' }), path.join('/home/u', '.local', 'bin', 'other.exe'), 'PATH 里没有就看 uv 的 ~/.local/bin');
+  assert.equal(Plugin.whichCommand('link-brain', { env: { PATH: '/bin0;/bin1' }, platform: 'win32', exists, home: '/home/u' }), path.win32.join('/bin1', 'link-brain.exe'), 'Windows 补 .exe');
+  assert.equal(Plugin.whichCommand('other', { env: { PATH: '/bin0' }, platform: 'win32', exists, home: '/home/u' }), path.win32.join('/home/u', '.local', 'bin', 'other.exe'), 'PATH 里没有就看 uv 的 ~/.local/bin');
   assert.equal(Plugin.whichCommand('nothing', { env: { PATH: '/bin0' }, platform: 'win32', exists, home: '/home/u' }), null);
   assert.equal(Plugin.whichCommand('/opt/lb', { env: {}, platform: 'linux', exists }), '/opt/lb', '给了路径就只看那个路径');
   const isRepo = r => r === '/repo';
@@ -217,7 +219,10 @@ function makePlugin(base, { saved = {}, files = new Set(), manifestDir = '.obsid
   tab.hide(); env.p.settingsView = null;
   // 启动检查（1102）：缺后端 → 先自己装；发布包还没发（BACKEND_RELEASE 哈希为空）→ 如实提示「没找到后端程序 + 自动安装没做成：…还没发布」，不弹引导
   notices.length = 0; spawned.length = 0;
-  assert.equal(await env.p.startupChecks(), 'backend-missing');
+  // 1102 回填校验值后 BACKEND_RELEASE 不再为空：这段要的是「还没发布」那条路，用例自己注入空校验值的 release（真安装器、不联网）
+  { const real = require(path.join(ROOT, PLUGIN_DIR, 'backend-install.js'));
+    env.p.backendInstall = () => ({ ...real, ensureBackend: (pl, o) => real.ensureBackend(pl, { ...o, release: { ...real.BACKEND_RELEASE, wheelSha256: '', lockSha256: '' } }) }); }
+  try { assert.equal(await env.p.startupChecks(), 'backend-missing'); } finally { delete env.p.backendInstall; }
   assert.ok(notices.some(n => /没找到后端程序/.test(String(n?.textContent ?? n))));
   assert.ok(notices.some(n => /自动安装没做成.*还没发布/.test(String(n?.textContent ?? n))), '说清为什么没装上');
   assert.equal(spawned.length, 0, '没有后端就不起进程');
@@ -327,7 +332,7 @@ function makePlugin(base, { saved = {}, files = new Set(), manifestDir = '.obsid
   const UI = env.p.onboardingUI();
   assert.equal(UI._internals.normalizeFolder('C:/x').ok, false);
   assert.equal(UI._internals.normalizeFolder('a\\b/').folder, 'a/b');
-  delete process.env.LINK_BRAIN_HOME;
+  process.env.LINK_BRAIN_HOME = isolatedHome;
 
   // ── 4. 定时同步任务名 ──
   const sched = (tasks) => {
