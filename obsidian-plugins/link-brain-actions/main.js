@@ -96,16 +96,17 @@ function splitCommand(text) {
 // 1102 托管模式（backend-install.js 装的；docs/SETUP-CONTRACT.md「托管模式」）：~/.link-brain/bin/uv · ~/.link-brain/py/（uv 建的 venv，装 link-brain；
 // 升级后 config.json 的 backend_dir 指到 py-<版本>/）。这里只认路径、不装东西；规则和 backend-install.js managedDir / Python deps.managed_dir 同一套。
 function managedPaths({ env = (typeof process !== "undefined" ? process.env : {}), platform = (typeof process !== "undefined" ? process.platform : ""), home = require("os").homedir(), readFile = p => fs.readFileSync(p, "utf8") } = {}) {
-  const lbHome = env.LINK_BRAIN_HOME || path.join(home, ".link-brain");
-  let dir = path.join(lbHome, "py");
-  try {
-    const cfg = JSON.parse(String(readFile(path.join(lbHome, "config.json"))).replace(/^\uFEFF/, ""));
-    const v = cfg && typeof cfg === "object" && typeof cfg.backend_dir === "string" ? cfg.backend_dir.trim() : "";
-    if (v) dir = path.isAbsolute(v) ? v : path.join(lbHome, v);
-  } catch {}
   const win = platform === "win32";
-  const scripts = path.join(dir, win ? "Scripts" : "bin");
-  return { home: lbHome, dir, scripts, bin: path.join(lbHome, "bin"), exe: path.join(scripts, win ? "link-brain.exe" : "link-brain"), python: path.join(scripts, win ? "python.exe" : "python") };
+  const P = win ? path.win32 : path.posix;   // \u8DEF\u5F84\u6309\u4F20\u8FDB\u6765\u7684 platform \u62FC\uFF08\u548C whichCommand / pickPython \u4E00\u81F4\uFF09\uFF0C\u5355\u6D4B\u5728\u522B\u7684\u5E73\u53F0\u4E0A\u8DD1\u7ED3\u679C\u624D\u4E00\u81F4
+  const lbHome = env.LINK_BRAIN_HOME || P.join(home, ".link-brain");
+  let dir = P.join(lbHome, "py");
+  try {
+    const cfg = JSON.parse(String(readFile(P.join(lbHome, "config.json"))).replace(/^\uFEFF/, ""));
+    const v = cfg && typeof cfg === "object" && typeof cfg.backend_dir === "string" ? cfg.backend_dir.trim() : "";
+    if (v) dir = P.isAbsolute(v) ? v : P.join(lbHome, v);
+  } catch {}
+  const scripts = P.join(dir, win ? "Scripts" : "bin");
+  return { home: lbHome, dir, scripts, bin: P.join(lbHome, "bin"), exe: P.join(scripts, win ? "link-brain.exe" : "link-brain"), python: P.join(scripts, win ? "python.exe" : "python") };
 }
 // Windows 11 没装 Python 时 PATH 里有个商店版的别名桩 …\Microsoft\WindowsApps\python.exe（起了只弹商店、退出码 9009、没有 JSON）：视为「没有 Python」
 function isWindowsAppsStub(exe) { return /[\\/]Microsoft[\\/]WindowsApps[\\/]python(3(\.\d+)?)?\.exe$/i.test(String(exe || "")); }

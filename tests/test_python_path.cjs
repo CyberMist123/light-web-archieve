@@ -10,6 +10,8 @@ const { EventEmitter } = require('events');
 
 const ROOT = path.resolve(__dirname, '..');
 const PLUGIN_DIR = 'obsidian-plugins/link-brain-actions';
+// 1102：托管目录（~/.link-brain/py）按真实 HOME 找——作者本机真装了一个，用例要隔离到临时目录，不然「PATH 上有 → 裸 python」会命中托管 python
+process.env.LINK_BRAIN_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'lb-pp-home-'));
 const obsidianStub = { Plugin: class {}, PluginSettingTab: class {}, Modal: class {}, Setting: class {}, Notice: class {}, Menu: class {}, TFile: class {}, MarkdownView: class {} };
 
 const spawned = [];
