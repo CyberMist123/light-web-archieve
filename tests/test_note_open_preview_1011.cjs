@@ -82,7 +82,7 @@ const file = pth => new obs.TFile(pth);
   obs.WorkspaceLeaf = saved;
 
   // onload 里真的调了 patchOpenFile（源码钉一下，免得以后挪丢）
-  const src = fs.readFileSync(path.join(ROOT, PLUGIN_DIR, 'main.js'), 'utf8');
+  const src = fs.readFileSync(path.join(ROOT, PLUGIN_DIR, 'main.src.js'), 'utf8');   // 1102：main.js 是 esbuild 产物，钉源码
   assert.ok(/this\.patchOpenFile\(\);\s*\n\s*if \(this\.app\.workspace\?\.on\) this\.registerEvent\(this\.app\.workspace\.on\('file-open'/.test(src), 'onload 先装 patchOpenFile，file-open 切视图留作兜底');
   console.log('PASS note open preview (1011): archived notes open straight in reading view via WorkspaceLeaf.openFile (mode preview added, eState kept, explicit mode respected, plain notes / non-md / cache errors untouched), unload restores or turns pass-through');
 })().catch(e => { console.error(e); process.exit(1); });

@@ -75,7 +75,7 @@ const RUNS = [
   const context = { module: { exports: {} }, process, setTimeout, clearTimeout, console, Buffer, document: fdom.document,
     require: n => (n === 'obsidian' ? makeObsidian(fdom.document, {}) : n === 'child_process' ? { spawn() { throw new Error('不许起进程'); } } : require(n)) };
   vm.createContext(context);
-  vm.runInContext(fs.readFileSync(path.join(ROOT, PLUGIN_DIR, 'main.js'), 'utf8') + '\nmodule.exports.__ext = externalSyncText;', context);
+  vm.runInContext(fs.readFileSync(path.join(ROOT, PLUGIN_DIR, 'main.js'), 'utf8') + '\nmodule.exports.__ext = module.exports.externalSyncText;', context);
   const ext = context.module.exports.__ext;
   assert.match(ext({ trigger: 'cli' }), /^命令行在同步/);
   assert.match(ext({ trigger: 'nightly' }), /^夜跑在同步（计划任务）/);

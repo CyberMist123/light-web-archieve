@@ -71,11 +71,10 @@ function fakeSpawn(exe, args, opts) {
 }
 const context = { module: { exports: {} }, process, setTimeout, clearTimeout, console, Buffer, navigator: { clipboard: { writeText: async t => { context.clipboard = t; } } },
   window: { confirm: () => true },
-  // 插件按「库根 + manifest.dir」require 自己的几个文件；临时库里没拷插件，指回仓库里的源文件
-  require: n => n === 'obsidian' ? obsidianStub : n === 'child_process' ? { spawn: fakeSpawn }
-    : /[\\/](onboarding-ui|media-nav|remote-ui|home-ui|schedule-ui|settings-pages|settings-v6|provider-icons|usage-ui|skills-ui|backend-install)\.js$/.test(n) ? require(path.join(ROOT, PLUGIN_DIR, path.basename(n))) : require(n) };
+  // 1102：界面文件都打进 main.js，不再按「库根 + manifest.dir」require
+  require: n => n === 'obsidian' ? obsidianStub : n === 'child_process' ? { spawn: fakeSpawn } : require(n) };
 vm.createContext(context);
-vm.runInContext(fs.readFileSync(path.join(ROOT, PLUGIN_DIR, 'main.js'), 'utf8') + '\nmodule.exports.__SettingTab = LinkBrainSettingTab; module.exports.__merge = mergeSettings;', context);
+vm.runInContext(fs.readFileSync(path.join(ROOT, PLUGIN_DIR, 'main.js'), 'utf8') + '\nmodule.exports.__SettingTab = module.exports.LinkBrainSettingTab; module.exports.__merge = module.exports.mergeSettings;', context);
 const Plugin = context.module.exports;
 const flush = () => new Promise(r => setTimeout(r, 0));
 const texts = root => root.querySelectorAll('button').map(b => b.textContent);
@@ -439,15 +438,16 @@ function makePlugin(base, { saved = {}, files = new Set(), manifestDir = '.obsid
   assert.ok(p.mediaNav && p.mediaNav.skipped === true, 'onload 载入了 media-nav.js（旧插件开着 → 先不接管）');
   p.renderAccounts = c => c.createDiv({ cls: 'lb-accounts' }); p.renderSyncRow = () => () => {}; p.capsWriterDir = () => null; p.saveSettings = async () => {};
   tab = new Plugin.__SettingTab({}, p); tab.display();
+  await flush(); await flush();   // 1102：remote-ui 打进 main.js 后真挂上了，等设置页的异步重绘画完，再对同一个对象 onload（那会换掉 settings）
   hint = tab.containerEl.querySelectorAll('div').find(d => d.classList.contains('is-medianav'));
   assert.ok(hint && /停用/.test(hint.textContent), '设置页提示停用旧图片导航插件');
   p.app.plugins.enabledPlugins.delete('link-brain-native-media-nav'); p.mediaNav = null;
   await p.onload();
   assert.equal(p.mediaNav.attached, true, '旧插件停用后由本插件接管');
   delete global.document; delete global.MutationObserver;
-  // doctor 必需文件清单和插件目录一致（Python 侧另有 pytest）
-  const doctorSrc = fs.readFileSync(path.join(ROOT, 'link_brain', 'doctor.py'), 'utf8');
-  for (const f of ['media-nav.js', 'onboarding-ui.js']) assert.ok(doctorSrc.includes(`'${f}'`) && fs.existsSync(path.join(ROOT, PLUGIN_DIR, f)), f);
+  // 1102：media-nav.js / onboarding-ui.js 打进 main.js（doctor 只核 main.js / manifest.json / styles.css，Python 侧另有 pytest）
+  const bundle = fs.readFileSync(path.join(ROOT, PLUGIN_DIR, 'main.js'), 'utf8');
+  for (const f of ['media-nav.js', 'onboarding-ui.js']) assert.ok(bundle.includes(`obsidian-plugins/link-brain-actions/${f}`), f);
 
   fs.rmSync(tmp, { recursive: true, force: true });
   console.log('PASS batch5 delivery UI: backend choice (repo / command / missing) + LINK_BRAIN_VAULT on every spawn, missing-backend hint with copy, first run opens settings 开始 tab once + folder row honest state, sync task LinkBrainNightly → legacy → install, no Dataview prompts (legacy dataviewjs page → one refresh hint), media-nav merged');

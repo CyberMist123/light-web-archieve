@@ -14,7 +14,7 @@ const OBS = { Plugin: class {}, PluginSettingTab: class {}, Modal: class {}, Set
 const context = { module: { exports: {} }, process, setTimeout, clearTimeout, setInterval, clearInterval, URL, console,
   require: n => n === 'obsidian' ? OBS : n === 'child_process' ? { spawn() { throw new Error('测试里不许 spawn 真进程'); } } : require(n) };
 vm.createContext(context);
-vm.runInContext(fs.readFileSync('obsidian-plugins/link-brain-actions/main.js', 'utf8') + '\nmodule.exports.__merge = mergeSettings;', context);
+vm.runInContext(fs.readFileSync('obsidian-plugins/link-brain-actions/main.js', 'utf8') + '\nmodule.exports.__merge = module.exports.mergeSettings;', context);
 const Plugin = context.module.exports;
 
 // 磁盘上是一份完整的设置（插件第一次保存以后就是这样：默认值全补齐了）；remote 段不在默认值里，由 remote-ui 挂上（这里照做）

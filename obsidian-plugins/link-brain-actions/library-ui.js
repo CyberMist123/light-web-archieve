@@ -1,6 +1,7 @@
 module.exports = function(obsidian) {
 const {Modal, Notice} = obsidian;
-const fs = require('fs/promises');
+// 1102：用到时才 require（main.js 打包后手机上也会带着这个文件，顶层不能碰 Node 模块）
+const fsp = () => require('fs/promises');
 const path = require('path');
 const electron = require('electron');
 
@@ -47,11 +48,11 @@ class AttachmentModal extends Modal {
   selected() { return (this.item.attachment_files||[])[Number(this.docs.value)] || {}; }
   async candidates() {
     const folder=this.plugin.settings.downloads.folder;
-    const names=await fs.readdir(folder,{withFileTypes:true});
+    const names=await fsp().readdir(folder,{withFileTypes:true});
     const expected=cleanName(this.selected().name||'');
     const title=cleanName(this.item.title||'');
     const files=await Promise.all(names.filter(f=>f.isFile()&&!/\.(crdownload|part|tmp|download)$/i.test(f.name)).map(async f=>{
-      const full=path.join(folder,f.name),st=await fs.stat(full),name=cleanName(f.name);
+      const full=path.join(folder,f.name),st=await fsp().stat(full),name=cleanName(f.name);
       const stem=cleanName(path.parse(f.name).name);
       return {path:full,name:f.name,size:st.size,mtime:st.mtimeMs,exact:!!expected&&name===expected,
         rank:expected&&name===expected?2:stem.length>2&&(title.includes(stem)||expected.includes(stem))?1:0};

@@ -311,7 +311,7 @@ async function pluginTests() {
   const ran = [];
   p.runPy = async args => { ran.push(args.slice(2)); return { code: 0, json: { ok: true, problems: [] } }; };
   const m = p.openProblems(); await m.opened;
-  assert.deepEqual(ran[0], ['problems', 'list']);
+  assert.equal(JSON.stringify(ran[0]), JSON.stringify(['problems', 'list']));   // 1102：problems-ui 打进 main.js、在 vm 里跑，数组原型不同，按 JSON 比
   await Promise.all([p.refreshProblemSummary(), p.refreshProblemSummary()]);
   assert.equal(JSON.stringify(ran.slice(1)), JSON.stringify([['problems', 'summary']]),'核对同步进程走 problems summary，并发合并成一次');
   assert.equal(m.contentEl.querySelector('.lb-problems-empty').textContent, '没有问题');

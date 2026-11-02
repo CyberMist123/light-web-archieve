@@ -28,18 +28,9 @@ def read_json(path: Path, default):
         return default
 
 
-# 插件目录里必须有的文件（main.js 按需 require 其余几个；第 5 批 B2 加了首次引导和并进来的图片导航；第 7 批加「开始」页向导，1009 换成设置页顶部 home-ui；10-03 加定时组件）
-PLUGIN_FILES = ('main.js', 'manifest.json', 'library-ui.js', 'remote-ui.js', 'problems-ui.js', 'report-ui.js', 'usage-ui.js', 'onboarding-ui.js', 'media-nav.js',
-                'home-ui.js', 'schedule-ui.js',  # 1009：设置页顶部（功能开关 + 一键装好 / 跑完）；10-03：灵活定时组件
-                'note-actions.js', 'note-tools.js', 'image-actions.js', 'player-ui.js',  # 批次 D：onload 的四个挂载点
-                'index-ui.js',  # 10-10 索引树（保存 索引.md 重算 / 起草 / 未归类建议 / wiki）
-                'skills-ui.js',  # 1015 设置页「技能」页签（列 _skills、导入只拷文字文件）
-                'settings-pages.js', 'settings-v6.js', 'provider-icons.js',
-                'no-tooltip.js',  # 1031 LWA 界面悬停不出提示气泡
-                'danmaku.js',  # 1031 B 站视频弹幕（media-nav 按相对路径 require）
-                # 1102：```lb-page 块的执行器 page-host.js 由 esbuild 打进 main.js（tools/build_plugin.cjs），运行时不再单独要它
-                'backend-install.js',  # 1102 托管模式：没有 Python 也能自己装后端（uv → Python 3.12 → venv → link-brain）
-                'lb-theme.js')  # 1027 样式集（Aa 样式换算，和页面 LB.applyTheme 同一段）；1016 设置页排版；1018 v6 一页五张卡 + 首次设置；图标取自 Claudian（MIT）
+# 插件目录里必须有的文件。1102 起整个插件由 esbuild 打成一个 main.js（tools/build_plugin.cjs）：界面模块、page-host.js、note.css 都在里面，
+# 和 BRAT / Release 装出来的一样只有这三个文件
+PLUGIN_FILES = ('main.js', 'manifest.json', 'styles.css')
 
 
 def _importable(module: str, load: bool) -> bool:

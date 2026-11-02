@@ -82,9 +82,10 @@ globalThis.__pageVars = typeof lbThemeVars === 'function' ? CASES.map(c => lbThe
 
 async function pluginMethod() {
   // main.js 的 applyTheme：默认读 settings.catalogLayout.theme、写到 document.body
-  const src = require('fs').readFileSync(path.join(ROOT, 'obsidian-plugins/link-brain-actions/main.js'), 'utf8');
+  const src = require('fs').readFileSync(path.join(ROOT, 'obsidian-plugins/link-brain-actions/main.src.js'), 'utf8');   // 1102：main.js 是 esbuild 产物，钉源码
   assert.match(src, /applyTheme\(theme = this\.settings\?\.catalogLayout\?\.theme, el\b/, 'plugin.applyTheme(theme?, el?) 默认取设置里的主题');
-  assert.match(src, /lbTheme\(\)\s*\{[^\n]*lb-theme\.js/, 'plugin.lbTheme() 载入 lb-theme.js');
+  assert.match(src, /lbTheme: \(\) => require\("\.\/lb-theme\.js"\)/, 'lb-theme.js 打进 main.js');
+  assert.match(src, /lbTheme\(\)\s*\{[^\n]*LB_MODULES\.lbTheme\(\)/, 'plugin.lbTheme() 载入 lb-theme.js');
   console.log('PASS plugin.applyTheme / plugin.lbTheme exist with the agreed signature');
 }
 

@@ -32,8 +32,9 @@ assert.equal(plain.getAttribute('aria-label'), '没加 aria-label 的');
 
 const css = fs.readFileSync(plug('styles.css'), 'utf8');
 assert.match(css, /body\.lb-notip \.tooltip\{display:none!important;\}/);
-const main = fs.readFileSync(plug('main.js'), 'utf8');
-assert.match(main, /'no-tooltip\.js'\)\)\(obsidian, this\); this\.noTooltip\.attach\(\)/);
+const main = fs.readFileSync(plug('main.src.js'), 'utf8');   // 1102：main.js 是 esbuild 产物，钉源码
+assert.match(main, /noTooltip: \(\) => require\("\.\/no-tooltip\.js"\)/);
+assert.match(main, /LB_MODULES\.noTooltip\(\)\(obsidian, this\); this\.noTooltip\.attach\(\)/);
 console.log('PASS no-tooltip 1031: lb* 元素悬停摘 title（挪进 aria-label）+ body.lb-notip 藏 Obsidian 气泡；别的界面不碰');
 // 1031 作者「这里还有」：标签页标题（Obsidian 按 aria-label 画黑气泡）也算
 const tab = D.createElement('div'); tab.className = 'workspace-tab-header tappable is-active'; tab.setAttribute('aria-label', '《一篇笔记》'); D.body.appendChild(tab);

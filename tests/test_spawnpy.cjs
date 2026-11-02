@@ -27,7 +27,7 @@ const context = { module: { exports: {} }, process, setTimeout, clearTimeout, Bu
   require: n => n === 'obsidian' ? { Plugin: class {}, PluginSettingTab: class {}, Modal: class {}, Notice: class { constructor(m) { notices.push(m); } } }
     : n === 'child_process' ? { spawn: fakeSpawn } : require(n) };
 vm.createContext(context);
-vm.runInContext(fs.readFileSync('obsidian-plugins/link-brain-actions/main.js', 'utf8') + ';module.exports.selectKillPids=selectKillPids;', context);
+vm.runInContext(fs.readFileSync('obsidian-plugins/link-brain-actions/main.js', 'utf8'), context);
 const Plugin = context.module.exports;
 
 (async () => {

@@ -15,7 +15,7 @@ const OBS = { Plugin: class {}, PluginSettingTab: class {}, Modal: class {}, Set
 const context = { module: { exports: {} }, process, setTimeout, clearTimeout, setInterval, clearInterval, URL, console,
   require: n => n === 'obsidian' ? OBS : n === 'child_process' ? { spawn() { throw new Error('测试里不许 spawn 真进程'); } } : require(n) };
 vm.createContext(context);
-vm.runInContext(fs.readFileSync(process.env.LB_MAIN_JS || 'obsidian-plugins/link-brain-actions/main.js', 'utf8') + '\nmodule.exports.__merge = mergeSettings;', context);
+vm.runInContext(fs.readFileSync(process.env.LB_MAIN_JS || 'obsidian-plugins/link-brain-actions/main.js', 'utf8') + '\nmodule.exports.__merge = module.exports.mergeSettings;', context);
 const Plugin = context.module.exports;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 

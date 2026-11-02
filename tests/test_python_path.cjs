@@ -27,7 +27,7 @@ function fakeSpawn(exe, args, opts) {
 const context = { module: { exports: {} }, process, setTimeout, clearTimeout, console, Buffer, navigator: {}, window: {},
   require: n => n === 'obsidian' ? obsidianStub : n === 'child_process' ? { spawn: fakeSpawn } : require(n) };
 vm.createContext(context);
-vm.runInContext(fs.readFileSync(path.join(ROOT, PLUGIN_DIR, 'main.js'), 'utf8') + '\nmodule.exports.__merge = mergeSettings;', context);
+vm.runInContext(fs.readFileSync(path.join(ROOT, PLUGIN_DIR, 'main.js'), 'utf8') + '\nmodule.exports.__merge = module.exports.mergeSettings;', context);
 const Plugin = context.module.exports;
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'lb-py-'));

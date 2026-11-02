@@ -26,12 +26,14 @@ const attached = [], detached = [];
 const stubFactory = name => (obsidian, plugin) => ({ attach() { attached.push([name, obsidian === obs, !!plugin]); }, detach() { detached.push(name); } });
 const context = { module: { exports: {} }, process, setTimeout, clearTimeout, console, Buffer, document: dom.document,
   require: n => n === 'obsidian' ? obs : n === 'child_process' ? { spawn: fakeSpawn }
-    : /[\\/](note-actions|note-tools|image-actions|player-ui|index-ui)\.js$/.test(n) ? stubFactory(path.basename(n))
-    : /[\\/](remote-ui|media-nav|onboarding-ui)\.js$/.test(n) ? (() => ({ attach() { return true; } }))
     : require(n) };
 vm.createContext(context);
-vm.runInContext(fs.readFileSync(path.join(ROOT, PLUGIN_DIR, 'main.js'), 'utf8') + '\nmodule.exports.__merge = mergeSettings; module.exports.__ConfirmModal = ConfirmModal;', context);
+vm.runInContext(fs.readFileSync(path.join(ROOT, PLUGIN_DIR, 'main.js'), 'utf8') + '\nmodule.exports.__merge = module.exports.mergeSettings; module.exports.__ConfirmModal = module.exports.ConfirmModal;', context);
 const Plugin = context.module.exports;
+// 1102 单文件：界面模块都打进 main.js，经导出的 LB_MODULES 取；单测换成桩（不再靠拦截按路径 require）
+const MOUNTS = { noteActions: 'note-actions.js', noteTools: 'note-tools.js', imageActions: 'image-actions.js', playerUI: 'player-ui.js', indexUI: 'index-ui.js' };
+for (const [k, f] of Object.entries(MOUNTS)) Plugin.LB_MODULES[k] = () => stubFactory(f);
+for (const k of ['remoteUI', 'mediaNav', 'onboardingUI']) Plugin.LB_MODULES[k] = () => () => ({ attach() { return true; } });
 
 function makePlugin() {
   const workspace = makeWorkspace();
@@ -204,14 +206,12 @@ function makePlugin() {
   const before = spawned.length;
   const q = makePlugin();
   q.p.loadData = async () => null; q.p.saveData = async () => {};
-  // require 缓存：四个文件加载前先删缓存（只重载插件也拿到新部署的文件）；别的模块的缓存不动
-  const base = path.join(path.sep, 'fake-vault', PLUGIN_DIR);
-  const mountFiles = ['note-actions.js', 'note-tools.js', 'image-actions.js', 'player-ui.js', 'index-ui.js'].map(f => path.join(base, f));
-  context.require.cache = Object.fromEntries([...mountFiles.map(f => [f, 'old']), ['other.js', 'keep']]);
-  context.require.resolve = x => x;
+  // 1102：挂载点都打进 main.js，不再按路径 require、也不再删 require 缓存
+  const required = []; const req0 = context.require;
+  context.require = n => { required.push(n); return req0(n); };
   await q.p.onload();
-  assert.deepEqual(Object.keys(context.require.cache), ['other.js'], '四个挂载点的 require 缓存先删掉再加载');
-  delete context.require.cache; delete context.require.resolve;
+  context.require = req0;
+  assert.ok(!required.some(n => /^\.|[\\/]/.test(n)), 'onload 不按路径 require 同目录文件：' + required.join(','));
   assert.deepEqual(attached.map(a => a[0]), ['note-actions.js', 'note-tools.js', 'image-actions.js', 'player-ui.js', 'index-ui.js'], '依次 require + attach');
   assert.ok(attached.every(a => a[1] && a[2]), '工厂拿到 (obsidian, plugin)');
   for (const k of ['noteActions', 'noteTools', 'imageActions', 'playerUI', 'indexUI']) assert.equal(typeof q.p[k]?.attach, 'function', 'this.' + k + ' 挂上了');
@@ -221,12 +221,12 @@ function makePlugin() {
   assert.deepEqual(detached, ['note-actions.js', 'note-tools.js', 'image-actions.js', 'player-ui.js', 'index-ui.js'], 'onunload 调各挂载点的 detach');
   // 某个文件挂不上：别的照常
   attached.length = 0;
-  const badRequire = context.require;
-  context.require = n => (/note-tools\.js$/.test(n) ? (() => { throw new Error('坏了'); })() : badRequire(n));
+  const goodTools = Plugin.LB_MODULES.noteTools;
+  Plugin.LB_MODULES.noteTools = () => { throw new Error('坏了'); };
   const errs = []; const ce = console.error; console.error = (...a) => errs.push(a.join(' '));
   const r = makePlugin(); r.p.loadData = async () => null; r.p.saveData = async () => {};
   await r.p.onload();
-  console.error = ce; context.require = badRequire;
+  console.error = ce; Plugin.LB_MODULES.noteTools = goodTools;
   assert.deepEqual(attached.map(a => a[0]), ['note-actions.js', 'image-actions.js', 'player-ui.js', 'index-ui.js'], '一个坏了不拦别的');
   assert.ok(errs.some(e => e.includes('note-tools.js 没加载上')));
   // 四个桩文件本身：工厂形状对
@@ -234,5 +234,5 @@ function makePlugin() {
     const inst = require(path.join(ROOT, PLUGIN_DIR, f))(obs, {});
     assert.equal(typeof inst.attach, 'function', f);
   }
-  console.log('PASS plugin foundation: notify (3s/8s/0, Notice.addButton actions run + hide, error re-notify), ConfirmModal (Enter / Esc / close / danger), showMenu (item mapping, pointer vs anchor incl. keyboard click detail=0 → under the button, caller onHide chained so menuOpen resets, empty / throwing menus leave menuOpen false, menuOpen false one tick after hide), busyButton / busyText, refreshCatalog args, openLightbox forward, saveSettings → link-brain:settings, answerArchive onStart (after the request is written) + stopArchiveAnswer(tag), pyEnv LINK_BRAIN_OBSIDIAN_DIR, settings.media defaults, onload attaches 4 mount points without spawning (require cache dropped first; onunload calls detach)');
+  console.log('PASS plugin foundation: notify (3s/8s/0, Notice.addButton actions run + hide, error re-notify), ConfirmModal (Enter / Esc / close / danger), showMenu (item mapping, pointer vs anchor incl. keyboard click detail=0 → under the button, caller onHide chained so menuOpen resets, empty / throwing menus leave menuOpen false, menuOpen false one tick after hide), busyButton / busyText, refreshCatalog args, openLightbox forward, saveSettings → link-brain:settings, answerArchive onStart (after the request is written) + stopArchiveAnswer(tag), pyEnv LINK_BRAIN_OBSIDIAN_DIR, settings.media defaults, onload attaches 5 mount points from the bundle without spawning or path requires (onunload calls detach)');
 })().catch(e => { console.error(e); process.exit(1); });
