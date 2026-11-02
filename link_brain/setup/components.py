@@ -105,7 +105,7 @@ def _core() -> dict[str, Any]:
                      f"内存：一个后端 Python 进程载入模块和分词词典后实测约 {RAM_MEASURED['core']} MB"}
     if not py_ok:
         row = _row("core", "failed", f"Python 版本 {sys.version.split()[0]} 太旧，要 3.11 以上", fix="manual",
-                   hint="装 Python 3.11+ 后用 uv tool install link-brain 重装后端")
+                   hint="到 Link Brain 设置页顶部点「一键装好」重装后端（自带 Python 3.12，不用另装）")
     elif missing:
         row = _row("core", "partial", f"缺 Python 依赖：{', '.join(missing)}", fix="auto", hint="点「安装」用 pip 补装")
     else:
@@ -392,14 +392,49 @@ def check(ids: list[str] | None = None) -> dict[str, Any]:
 # 安装
 # --------------------------------------------------------------------------
 
+# 1102 托管模式：插件「一键装好」把 uv 放在 ~/.link-brain/bin/，后端环境是 uv 建的 venv（没有 pip）——补装依赖用它。
+MANAGED_UV_HINT = "后端环境里没有 pip，也没找到 ~/.link-brain/bin 下的 uv：到 Link Brain 设置页顶部点「一键装好」装后端（会一起装上 uv），或在终端里 pip install 这几个包"
+# pip / uv 输出里认失败原因（CONVENTIONS §2：装不上的包 = PERMANENT，网络 = TRANSIENT）
+_BAD_PACKAGE_MARKS = ("Failed building wheel", "No matching distribution", "requires a different Python",
+                      "No solution found", "has no wheels with a matching")
+_NETWORK_MARKS = ("ConnectionError", "ReadTimeout", "ProxyError", "ConnectTimeout", "NewConnectionError",
+                  "Failed to fetch", "error sending request", "Temporary failure in name resolution")
+
+
+def managed_uv() -> Path | None:
+    """`~/.link-brain/bin/uv(.exe)`（插件 backend-install.js 下载的那一个）；没有 = None。"""
+    from .. import storage
+    exe = storage.link_brain_home() / "bin" / ("uv.exe" if sys.platform == "win32" else "uv")
+    return exe if exe.is_file() else None
+
+
+def classify_install_failure(lines: list[str], code: int | None = None) -> tuple[str, str]:
+    """pip / uv 输出的尾巴 → (故障码, 给人看的一句)。包不对 / Python 版本不符 → PERMANENT.BAD_PACKAGE；连不上 → TRANSIENT.NETWORK；
+    认不出的按网络（以前就是这样：装依赖失败最常见的原因是网，重试还有机会）。"""
+    text = "\n".join(lines)
+    last = next((ln for ln in reversed(lines) if ln.strip()), "") or f"退出码 {code}"
+    if any(m in text for m in _BAD_PACKAGE_MARKS):
+        return "PERMANENT.BAD_PACKAGE", "依赖装不上（这个包在这台电脑 / 这个 Python 版本上没有能装的版本）：" + last
+    if any(m in text for m in _NETWORK_MARKS):
+        return "TRANSIENT.NETWORK", "下载依赖时网络不通：" + last
+    return "TRANSIENT.NETWORK", "pip 安装没成功：" + last
+
+
 def _pip_install(component: str, specs: list[str], emit: Emit | None) -> None:
-    """用当前 Python 的 pip 补装。没有 pip（如 uv tool 环境）如实说怎么办。"""
+    """往当前 Python 补装依赖：有 ~/.link-brain/bin/uv 用 `uv pip install --python <当前解释器>`（uv 建的环境没有 pip）；
+    没有 uv 但有 pip 用 pip；两个都没有如实说 uv 从哪来（设置页「一键装好」）。失败按输出分类（classify_install_failure）。"""
     if not specs:
         return
-    progress(emit, component, "安装", 0, len(specs), "pip install " + " ".join(specs))
-    if not _has("pip"):
-        raise SetupError("SKIPPED.NOT_CONFIGURED", "这个 Python 环境没有 pip：用 `uv tool install --reinstall link-brain` 重装后端")
-    cmd = [sys.executable, "-m", "pip", "install", "--disable-pip-version-check", *specs]
+    uv = managed_uv()
+    if uv is not None:
+        cmd = [str(uv), "pip", "install", "--python", sys.executable, *specs]
+        shown = "uv pip install " + " ".join(specs)
+    elif _has("pip"):
+        cmd = [sys.executable, "-m", "pip", "install", "--disable-pip-version-check", *specs]
+        shown = "pip install " + " ".join(specs)
+    else:
+        raise SetupError("SKIPPED.NOT_CONFIGURED", MANAGED_UV_HINT)
+    progress(emit, component, "安装", 0, len(specs), shown)
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8",
                             errors="replace", creationflags=flags)
@@ -416,7 +451,7 @@ def _pip_install(component: str, specs: list[str], emit: Emit | None) -> None:
         procs.kill_tree(proc.pid)
         raise
     if code != 0:
-        raise SetupError("TRANSIENT.NETWORK", "pip 安装没成功：" + (tail[-1] if tail else f"退出码 {code}"))
+        raise SetupError(*classify_install_failure(tail, code))
 
 
 def _install_core(emit: Emit | None) -> dict[str, Any]:

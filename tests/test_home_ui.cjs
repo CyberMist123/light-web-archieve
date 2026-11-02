@@ -4,7 +4,8 @@
 //   2. 「一键装好 / 跑完」：经 spawnPy（exclusive）跑 `setup run`，stdout 一行一个事件画成各步 ✓ / ⟳ / ✗ + 当前在装的进度条，
 //      结果一句话；要人处理（掉登录 / 验证）给「去扫码 / 验证」按钮；
 //   3. 首次：老库（已有目录数据）只记一笔、选择不动、不跑；新库 → 选轻量版、自动跑一次；跑过不再跑；
-//   4. spawnPy 的 onLine：stdout 被切成碎块也按整行回调，最后一行没换行也给（setup run / install 的进度靠它）。
+//   4. spawnPy 的 onLine：stdout 被切成碎块也按整行回调，最后一行没换行也给（setup run / install 的进度靠它）；
+//   2b（1102）. 没有后端时主按钮是「一键装好」：装后端的五步 + 下载进度条画在同一块，完了只留一句；失败不抛、按钮能再点；runAll 先装后端。
 // 不起真进程：child_process 是替身。
 'use strict';
 const fs = require('fs'), vm = require('vm'), path = require('path'), assert = require('assert/strict');
@@ -132,6 +133,61 @@ const PLAN = { ok: true, components: [
   last.o.actions[0].run(); assert.equal(p.opened, 'status', '去扫码 → 打开设置页顶部账号那一行');
   assert.equal(p.running, null, '跑完放开互斥位');
   stop();
+
+  // —— 2b. 1102 托管模式：没有后端时这个主按钮先管「一键装好」——装后端的五步画在同一块，完了只留一句；装好后变回「一键装好 / 跑完」——
+  {
+    const q = new Plugin();
+    q.app = { vault: { adapter: { getBasePath: () => 'D:/vault', exists: async () => false } } };
+    q.lbPath = x => x; q.settings = { setup: {} }; q.saveSettings = async () => {}; q.log = async () => {};
+    const told = []; q.notify = (m, o = {}) => told.push({ m, o });
+    let mode = 'missing';
+    q.currentBackend = () => ({ mode, exe: mode === 'missing' ? null : 'D:/h/py/Scripts/link-brain.exe', command: 'link-brain' });
+    q.runPy = async args => { if (args.includes('plan')) return { code: 0, json: PLAN }; throw new Error('意外的调用 ' + args.join(' ')); };
+    let resolveInstall; const events = [];
+    q.backendInstall = () => ({ ensureBackend: (pl, { onProgress }) => new Promise(r => { resolveInstall = res => r(res); events.push(onProgress); }) });
+    const h = homeFactory(OBS, q);
+    const pane = dom.document.createElement('div');
+    const stop = h.renderRun(pane, { sectionTextAI: () => {}, sectionVisionAI: () => {} });
+    const go = pane.querySelector('.lb-run-go');
+    assert.equal(go.textContent, '一键装好', '没有后端：主按钮是「一键装好」');
+    assert.ok(!go.disabled, '能点（不等功能清单——没后端读不到）');
+    assert.match(pane.textContent, /还没有后端程序.*没有 Python 也行/);
+    go.onclick(); await flush();
+    const emit = events[0];
+    emit({ stage: 'uv', label: '准备安装工具 uv', done: 1048576, total: 4194304, text: '1.0 / 4.0 MB', state: 'running' });
+    await new Promise(r => setTimeout(r, 170));   // repaint 节流 120ms
+    assert.equal(pane.querySelector('.lb-run-go').textContent, '正在装后端…');
+    assert.ok(pane.querySelector('.lb-run-go').disabled);
+    assert.equal(pane.querySelectorAll('.lb-backend-steps .lb-run-step').length, 1, '装的时候逐步画');
+    assert.match(pane.querySelector('.lb-run-step').textContent, /准备安装工具 uv.*1\.0 \/ 4\.0 MB/);
+    assert.equal(pane.querySelector('.lb-bar-fill').style.width, '25%', '下载进度条');
+    emit({ stage: 'uv', label: '准备安装工具 uv', done: null, total: null, text: '就绪', state: 'ok' });
+    emit({ stage: 'python', label: '准备 Python 3.12', done: null, total: null, text: 'Installed Python 3.12.x', state: 'running' });
+    await new Promise(r => setTimeout(r, 170));   // repaint 节流 120ms
+    assert.equal(pane.querySelectorAll('.lb-run-step').length, 2);
+    assert.equal(pane.querySelector('.lb-run-step.is-ok .lb-run-mark').textContent, '✓');
+    assert.ok(!pane.querySelector('.lb-bar'), '没有 done / total 的步不画进度条');
+    mode = 'managed';
+    resolveInstall({ ok: true, code: '', message: '后端装好了：link-brain 0.2.0' });
+    await flush(20);
+    assert.match(pane.querySelector('.lb-run-result').textContent, /后端装好了：link-brain 0\.2\.0/, '完了只留一句结果');
+    assert.equal(pane.querySelectorAll('.lb-run-step').length, 0, '跑完不列每一步');
+    assert.equal(pane.querySelector('.lb-run-go').textContent, '一键装好 / 跑完', '装好后变回「一键装好 / 跑完」');
+    assert.equal(told.at(-1).m, '后端装好了：link-brain 0.2.0'); assert.equal(told.at(-1).o.kind, 'ok');
+    // 失败：码和原因留在这一块（{ok:false, code, message}，不抛），按钮回到「一键装好」能再点
+    mode = 'missing'; told.length = 0;
+    pane.querySelector('.lb-run-go').onclick(); await flush();
+    resolveInstall({ ok: false, code: 'TRANSIENT.NETWORK', message: '下载 uv没连上：ECONNREFUSED' });
+    await flush(20);
+    assert.match(pane.querySelector('.lb-run-result.is-failed').textContent, /下载 uv没连上/);
+    assert.equal(pane.querySelector('.lb-run-go').textContent, '一键装好');
+    assert.equal(told.at(-1).o.kind, 'error'); assert.equal(told.at(-1).o.actions[0].label, '打开设置');
+    // runAll 在没后端时先装：装不上就不往下跑 setup run
+    q.backendInstall = () => ({ ensureBackend: async () => ({ ok: false, code: 'SKIPPED.NOT_CONFIGURED', message: '后端发布包还没发布' }) });
+    const r = await h.runAll({ quiet: true });
+    assert.equal(r.ok, false); assert.equal(r.code, 'SKIPPED.NOT_CONFIGURED');
+    stop();
+  }
 
   // —— 3. 首次（零配置）——
   {

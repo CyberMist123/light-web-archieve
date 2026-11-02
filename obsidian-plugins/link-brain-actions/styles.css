@@ -409,6 +409,8 @@ button.lb-sched-add { align-self: flex-start; font-size: 12px; }
   color: var(--text-accent); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; font-size: var(--font-ui-small); }
 .lb-settings button.lb-link:hover { color: var(--text-accent-hover, var(--text-accent)); }
 .lb-settings button.lb-link:disabled { color: var(--text-faint); text-decoration: none; cursor: default; }
+/* 1102 托管模式：后端命令 / Python 路径只读显示（没有输入框，说明行就是当前路径） */
+.lb-settings .setting-item.is-readonly .setting-item-description { overflow-wrap: anywhere; }
 .lb-settings button.lb-link.is-hidden { display: none; }
 .lb-price { margin-left: 8px; padding: 0 7px; border-radius: 9px; font-size: var(--font-ui-smaller); font-weight: 400; line-height: 1.6;
   color: var(--text-muted); background: var(--background-secondary); white-space: nowrap; }

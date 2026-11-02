@@ -25,6 +25,7 @@ function scheduleShort(cur) {
 }
 function backendDesc(backend) {
   if (backend.mode === 'repo') return `当前：仓库模式（${backend.command}）。`;
+  if (backend.mode === 'managed') return `✓ 托管（插件自己装的）：${backend.exe}`;
   if (backend.mode === 'command') return `✓ 找到：${backend.exe}`;
   return '✗ 没找到这个程序。' + backendMissingText(backend);
 }
@@ -92,8 +93,25 @@ function splitCommand(text) {
   if (has || cur) out.push(cur);
   return out;
 }
+// 1102 托管模式（backend-install.js 装的；docs/SETUP-CONTRACT.md「托管模式」）：~/.link-brain/bin/uv · ~/.link-brain/py/（uv 建的 venv，装 link-brain；
+// 升级后 config.json 的 backend_dir 指到 py-<版本>/）。这里只认路径、不装东西；规则和 backend-install.js managedDir / Python deps.managed_dir 同一套。
+function managedPaths({ env = (typeof process !== "undefined" ? process.env : {}), platform = (typeof process !== "undefined" ? process.platform : ""), home = require("os").homedir(), readFile = p => fs.readFileSync(p, "utf8") } = {}) {
+  const lbHome = env.LINK_BRAIN_HOME || path.join(home, ".link-brain");
+  let dir = path.join(lbHome, "py");
+  try {
+    const cfg = JSON.parse(String(readFile(path.join(lbHome, "config.json"))).replace(/^\uFEFF/, ""));
+    const v = cfg && typeof cfg === "object" && typeof cfg.backend_dir === "string" ? cfg.backend_dir.trim() : "";
+    if (v) dir = path.isAbsolute(v) ? v : path.join(lbHome, v);
+  } catch {}
+  const win = platform === "win32";
+  const scripts = path.join(dir, win ? "Scripts" : "bin");
+  return { home: lbHome, dir, scripts, bin: path.join(lbHome, "bin"), exe: path.join(scripts, win ? "link-brain.exe" : "link-brain"), python: path.join(scripts, win ? "python.exe" : "python") };
+}
+// Windows 11 没装 Python 时 PATH 里有个商店版的别名桩 …\Microsoft\WindowsApps\python.exe（起了只弹商店、退出码 9009、没有 JSON）：视为「没有 Python」
+function isWindowsAppsStub(exe) { return /[\\/]Microsoft[\\/]WindowsApps[\\/]python(3(\.\d+)?)?\.exe$/i.test(String(exe || "")); }
 // 在 PATH（再加 uv 装工具的默认目录）里找命令；Windows 只认 .exe / .com（不经 shell 起进程，.cmd/.bat 起不来）。找不到 = null。
-function whichCommand(cmd, { env = (typeof process !== "undefined" ? process.env : {}), platform = (typeof process !== "undefined" ? process.platform : ""), exists = p => { try { return fs.statSync(p).isFile(); } catch { return false; } }, home = require("os").homedir() } = {}) {
+// 1102：托管目录（~/.link-brain/py/Scripts 或 bin、~/.link-brain/bin）是固定候选，排在 PATH 前面——装好的后端 / python / uv 不靠 PATH。
+function whichCommand(cmd, { env = (typeof process !== "undefined" ? process.env : {}), platform = (typeof process !== "undefined" ? process.platform : ""), exists = p => { try { return fs.statSync(p).isFile(); } catch { return false; } }, home = require("os").homedir(), managed = null } = {}) {
   cmd = String(cmd || "").trim();
   if (!cmd) return null;
   const win = platform === "win32";
@@ -101,15 +119,17 @@ function whichCommand(cmd, { env = (typeof process !== "undefined" ? process.env
   const tryAt = base => { for (const e of exts) if (exists(base + e)) return base + e; return null; };
   if (path.isAbsolute(cmd) || /[\\/]/.test(cmd)) return tryAt(cmd);
   const sep = win ? ";" : ":";
-  const dirs = String(env.PATH || env.Path || "").split(sep).filter(Boolean);
+  const mp = managed || managedPaths({ env, platform, home });
+  const dirs = [mp.scripts, mp.bin, ...String(env.PATH || env.Path || "").split(sep).filter(Boolean)];
   // Obsidian 从桌面图标启动时 PATH 可能还是装 uv 之前的：补上 uv tool 的默认 bin 目录
   for (const d of [env.UV_TOOL_BIN_DIR, env.XDG_BIN_HOME, home && path.join(home, ".local", "bin")]) if (d && !dirs.includes(d)) dirs.push(d);
   for (const d of dirs) { const hit = tryAt(path.join(d, cmd)); if (hit) return hit; }
   return null;
 }
 // 仓库模式用哪个 Python（P0 1024：系统 python 可能是没装依赖的另一个版本）：设置「Python 路径」（data.json 的 pythonPath）配了用配的；
-// 没配 = 程序目录下有 .venv 就用它（Windows .venv\Scripts\python.exe，其他 .venv/bin/python），否则 python。后端 link_brain/deps.py python_exe() 同一套规则。
-function pickPython({ root = null, configured = "", platform = (typeof process !== "undefined" ? process.platform : ""), exists = p => { try { return fs.statSync(p).isFile(); } catch { return false; } } } = {}) {
+// 没配 = 程序目录下有 .venv 就用它（Windows .venv\Scripts\python.exe，其他 .venv/bin/python）；再没有就用 whichCommand 找 python（托管目录 → PATH），
+// 1102：找不到、或只找到 Windows 商店的别名桩 → null（= 没有 Python；runPy 那句「找不到 Python」）。后端 link_brain/deps.py python_exe() 同一套规则。
+function pickPython({ root = null, configured = "", platform = (typeof process !== "undefined" ? process.platform : ""), exists = p => { try { return fs.statSync(p).isFile(); } catch { return false; } }, which = null } = {}) {
   const own = String(configured || "").trim().replace(/^"(.*)"$/, "$1").trim();
   // 1024 返修：相对路径（含 / 或 \）按程序目录解析，和后端 deps.python_exe 一致；裸命令名交给 PATH
   // 「是不是绝对路径」按传进来的 platform 判（D:/… 在 POSIX 的 path 里不算绝对）：纯函数在别的平台上跑单测结果才一致
@@ -119,27 +139,34 @@ function pickPython({ root = null, configured = "", platform = (typeof process !
     const venv = platform === "win32" ? path.join(root, ".venv", "Scripts", "python.exe") : path.join(root, ".venv", "bin", "python");
     if (exists(venv)) return venv;
   }
-  return PY;
+  const mp = managedPaths({ platform });
+  const find = which || (c => whichCommand(c, { platform, exists, managed: mp }));
+  const hit = find(PY) || (platform !== "win32" ? find("python3") : null);
+  if (!hit || isWindowsAppsStub(hit)) return null;
+  // 托管目录里的 python 不在 PATH 上，得给绝对路径；PATH 上找到的照旧给裸 `python`（作者本机现状，spawn 自己按 PATH 找）
+  return String(hit).startsWith(mp.scripts) ? hit : PY;
 }
-// 设置页「Python 路径」那一行的说明：配的文件不存在就照实标出来（裸命令名不按文件查）
+// 设置页「Python 路径」那一行的说明：配的文件不存在就照实标出来（裸命令名不按文件查）；null = 没找到 Python
 function pythonDesc(exe, exists = p => { try { return fs.statSync(p).isFile(); } catch { return false; } }) {
+  if (!exe) return '当前：找不到 Python（设置页顶部「一键装好」会自动装一个）';
   return `当前：${exe}` + (/[\\/]/.test(String(exe)) && !exists(exe) ? '（找不到这个文件）' : '');
 }
 function pyCommand(exe) { return `${/\s/.test(exe) ? `"${exe}"` : exe} -m link_brain`; }
-// 选后端：candidates = 可能的仓库根（收藏库上一级、插件目录上两级），第一个带 link_brain 包的 → 仓库模式；
-// 否则按后端命令找程序；找不到 → missing（插件如实提示怎么装）。
-function pickBackend({ candidates = [], command = BACKEND_DEFAULT, isRepo, which = whichCommand, python = null } = {}) {
+// 选后端（1102 顺序）：candidates = 可能的仓库根（收藏库上一级、插件目录上两级），第一个带 link_brain 包的 → 仓库模式（exe 可能是 null = 找不到 Python）；
+// 否则托管目录里的 link-brain(.exe)（插件自己装的）→ managed；否则按后端命令在 PATH 找 → command；都没有 → missing（插件如实提示，并能一键装）。
+function pickBackend({ candidates = [], command = BACKEND_DEFAULT, isRepo, which = whichCommand, python = null, managed = null } = {}) {
   for (const root of candidates) if (root && isRepo(root)) {
     const exe = typeof python === "function" ? python(root) : (python || PY);
-    return { mode: "repo", exe, prefix: [], cwd: root, command: pyCommand(exe) };
+    return { mode: "repo", exe, prefix: [], cwd: root, command: pyCommand(exe || PY) };
   }
+  if (managed && managed.exe) return { mode: "managed", exe: managed.exe, python: managed.python || null, dir: managed.dir || null, prefix: [], cwd: null, command: managed.exe };
   const parts = splitCommand(command || BACKEND_DEFAULT);
   const cmd = parts.length ? parts : [BACKEND_DEFAULT];
   const exe = which(cmd[0]);
   return exe ? { mode: "command", exe, prefix: cmd.slice(1), cwd: null, command: cmd.join(" ") }
     : { mode: "missing", exe: null, prefix: cmd.slice(1), cwd: null, command: cmd.join(" ") };
 }
-// 插件里各调用点写的都是 ['-m','link_brain', 子命令…]：仓库模式原样给 python；后端命令模式去掉前两个，接在命令后面。
+// 插件里各调用点写的都是 ['-m','link_brain', 子命令…]：仓库模式原样给 python；后端命令 / 托管模式去掉前两个，接在命令后面。
 function backendArgv(backend, args) {
   args = Array.from(args || []);
   if (!backend || backend.mode === "repo") return args;
@@ -148,8 +175,10 @@ function backendArgv(backend, args) {
 }
 function backendMissingText(backend) {
   const cmd = (backend && backend.command) || BACKEND_DEFAULT;
-  return `没找到后端程序（${cmd}）：先运行 \`${BACKEND_INSTALL}\`，再重启 Obsidian。`;
+  return `没找到后端程序（${cmd}）：到 Link Brain 设置页顶部点「一键装好」自动安装（没有 Python 也行）；或在终端运行 \`${BACKEND_INSTALL}\` 后重启 Obsidian。`;
 }
+// 仓库模式找不到 Python（PATH 里没有、或只有 Windows 商店的别名桩）的那一句（runPy 起不来也是它）
+const PYTHON_MISSING_TEXT = '找不到 Python。到 Link Brain 设置页顶部点「一键装好」自动安装后端（没有 Python 也行），或按 README 安装 Python 3.11+ 与 link_brain，再重启 Obsidian。';
 // 定时同步管哪个计划任务：两份 `sync-schedule` 读到的状态（freq='none' = 没这个任务）→ 任务名；都没有 = null（「开启」时自己注册）。
 function pickSyncTask(nightly, legacy) {
   const exists = s => !!s && s.freq && s.freq !== "none";
@@ -1139,11 +1168,14 @@ class LinkBrainActions extends Plugin {
     try { this.vaultDir = fs.realpathSync.native(lwaVault); } catch { this.vaultDir = path.resolve(lwaVault); }
     let pluginDir = null;
     if (this.manifest?.dir) { pluginDir = path.join(base, this.manifest.dir); try { pluginDir = fs.realpathSync.native(pluginDir); } catch {} }
+    const exists = p => { try { return fs.statSync(p).isFile(); } catch { return false; } };
+    const mp = managedPaths();
     this.backend = pickBackend({
       candidates: [path.resolve(this.vaultDir, '..'), pluginDir && path.resolve(pluginDir, '..', '..')],
       command: this.settings?.backend?.command,
       isRepo: root => { try { return fs.statSync(path.join(root, 'link_brain', '__init__.py')).isFile(); } catch { return false; } },
       python: root => pickPython({ root, configured: this.settings?.pythonPath }),
+      managed: exists(mp.exe) ? mp : null,
     });
     this.repoRoot = this.backend.mode === 'repo' ? this.backend.cwd : null;
     return this.backend;
@@ -1171,7 +1203,7 @@ class LinkBrainActions extends Plugin {
   // 后端命令找不到：抛 ENOENT 风格的错（spawnPy 接成 code=-1，runPy 给装法）。
   currentBackend() {
     if (this.backend) return this.backend;
-    if (this.repoRoot) { const exe = pickPython({ root: this.repoRoot, configured: this.settings?.pythonPath }); return { mode: 'repo', exe, prefix: [], cwd: this.repoRoot, command: pyCommand(exe) }; }
+    if (this.repoRoot) { const exe = pickPython({ root: this.repoRoot, configured: this.settings?.pythonPath }); return { mode: 'repo', exe, prefix: [], cwd: this.repoRoot, command: pyCommand(exe || PY) }; }
     return { mode: 'repo', exe: PY, prefix: [], cwd: undefined, command: `${PY} -m link_brain` };   // 没走过 onload（单测）：旧行为
   }
   pyEnv(extra = null) {
@@ -1184,6 +1216,8 @@ class LinkBrainActions extends Plugin {
   pyChild(args, { env = null } = {}) {
     const b = this.currentBackend();
     if (b.mode === 'missing') throw Object.assign(new Error(backendMissingText(b)), { code: 'ENOENT', backendMissing: true });
+    // 1102：仓库模式但找不到 Python（PATH 里没有 / 只有商店别名桩）——不起进程，直接说那一句
+    if (b.mode === 'repo' && !b.exe) throw Object.assign(new Error(PYTHON_MISSING_TEXT), { code: 'ENOENT', pythonMissing: true });
     const opts = { env: this.pyEnv(env), windowsHide: true };
     opts.cwd = b.mode === 'repo' ? (b.cwd || this.repoRoot) : (this.vaultDir || require('os').homedir());
     return spawn(b.exe, backendArgv(b, args), opts);
@@ -1261,7 +1295,7 @@ class LinkBrainActions extends Plugin {
     }
     // 后端命令模式起不来：如实说「没找到后端程序 + 怎么装」（设置页 / 引导里有复制按钮）；仓库模式照旧指向 Python
     if (r.code === -1 && r.json == null && this.currentBackend().mode !== 'repo') throw Object.assign(new Error(backendMissingText(this.currentBackend())), { result: r, backendMissing: true });
-    if (r.code === -1 && r.json == null) throw Object.assign(new Error('找不到 Python。请按 README 安装 Python 3.11+ 与 link_brain，再重启 Obsidian。\n' + r.err), { result: r });
+    if (r.code === -1 && r.json == null) throw Object.assign(new Error(PYTHON_MISSING_TEXT + '\n' + r.err), { result: r, pythonMissing: true });
     if (!okCodes.includes(r.code) && r.json == null) throw Object.assign(new Error(stderrTail(r.err) || fallback || `${label || '后台命令'}失败（退出码 ${r.code}）`), { result: r });
     return r;
   }
@@ -1420,6 +1454,9 @@ class LinkBrainActions extends Plugin {
   usageUI() { return require(path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir, 'usage-ui.js'))(obsidian, this); }
   skillsUI() { return require(path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir, 'skills-ui.js'))(obsidian, this); }
   homeUI() { return this._homeUI || (this._homeUI = require(path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir, 'home-ui.js'))(obsidian, this)); }
+  // 1102 托管模式：下载 uv → Python 3.12 → venv → link-brain（backend-install.js）；进度画在设置页顶部「懒人安装」（home-ui installBackend）
+  backendInstall() { return this._backendInstall || (this._backendInstall = require(path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir, 'backend-install.js'))); }
+  managedPaths() { return managedPaths(); }
   async copyText(text) {
     try { await navigator.clipboard.writeText(text); new Notice('已复制：' + text); return true; }
     catch (e) { new Notice('没复制上：' + (e.message || e) + '。请手动输入：' + text, 10000); return false; }
@@ -3093,36 +3130,74 @@ class LinkBrainSettingTab extends PluginSettingTab {
     const backend = this.plugin.currentBackend ? this.plugin.currentBackend() : { mode: 'repo', command: `${PY} -m link_brain` };
     // 1101 作者「后端命令可以改吗？不能改就不要写」：仓库模式（python -m link_brain）不用后端命令，那一行不出；反过来不是仓库模式就不出 Python 路径
     const repo = backend.mode === 'repo';
+    // 1102 托管模式（插件自己装的后端）：两行都只读显示当前路径——命令 = ~/.link-brain/py*/Scripts/link-brain.exe、Python = 同目录的 python.exe，
+    // 改它们没有意义（「更新后端 / 退回上一版后端」两行管切换）
+    const managed = backend.mode === 'managed';
     const backendRow = new Setting(c).setName('后端命令').setDesc(backendDesc(backend));
+    backendRow.settingEl.setAttribute?.('data-section', 'backend-command');
     if (repo) backendRow.settingEl.style.display = 'none';
-    this.help(backendRow, '插件调用的后台程序，默认 link-brain（用「' + BACKEND_INSTALL + '」装出来的）。');
-    backendRow
-      .addText(t => t.setPlaceholder(BACKEND_DEFAULT).setValue(s.backend?.command || '')
-        .onChange(v => {
-          s.backend = { ...(s.backend || {}), command: v.trim() || BACKEND_DEFAULT };
-          clearTimeout(this.backendTimer);
-          this.backendTimer = setTimeout(async () => {
-            await this.save(); await this.plugin.locateCollection();
-            backendRow.setDesc(backendDesc(this.plugin.currentBackend()));
-            this.hintsEl.empty(); this.plugin.renderSetupHints?.(this.hintsEl);
-          }, 300);
-        }));
-    this.link(backendRow, '复制安装命令', () => this.plugin.copyText(BACKEND_INSTALL), '把「' + BACKEND_INSTALL + '」复制到剪贴板，到终端里运行');
+    this.help(backendRow, managed ? '插件自己装的后端（托管模式），路径只读；要换版本用下面的「更新后端」「退回上一版后端」。'
+      : '插件调用的后台程序，默认 link-brain（用「' + BACKEND_INSTALL + '」装出来的）。');
+    if (managed) backendRow.settingEl.addClass('is-readonly');
+    else {
+      backendRow
+        .addText(t => t.setPlaceholder(BACKEND_DEFAULT).setValue(s.backend?.command || '')
+          .onChange(v => {
+            s.backend = { ...(s.backend || {}), command: v.trim() || BACKEND_DEFAULT };
+            clearTimeout(this.backendTimer);
+            this.backendTimer = setTimeout(async () => {
+              await this.save(); await this.plugin.locateCollection();
+              backendRow.setDesc(backendDesc(this.plugin.currentBackend()));
+              this.hintsEl.empty(); this.plugin.renderSetupHints?.(this.hintsEl);
+            }, 300);
+          }));
+      this.link(backendRow, '复制安装命令', () => this.plugin.copyText(BACKEND_INSTALL), '把「' + BACKEND_INSTALL + '」复制到剪贴板，到终端里运行');
+    }
     // P0 1024：仓库模式用哪个 Python；插件起进程、MCP 命令、计划任务注册都用它
-    const pyRow = new Setting(c).setName('Python 路径').setDesc(backend.mode === 'repo' ? pythonDesc(backend.exe) : '仓库模式才用。');
-    if (!repo) pyRow.settingEl.style.display = 'none';
-    this.help(pyRow, '空 = 程序目录下的 .venv（没有再用系统 python）。缺依赖时填装好依赖的那个 python.exe 的完整路径。');
-    pyRow.addText(t => t.setPlaceholder('D:\\程序目录\\.venv\\Scripts\\python.exe').setValue(s.pythonPath || '')
+    const pyDescOf = b => b.mode === 'repo' ? pythonDesc(b.exe) : b.mode === 'managed' ? `当前：${b.python || '（托管目录里的 python）'}（托管环境，自动管理）` : '仓库模式才用。';
+    const pyRow = new Setting(c).setName('Python 路径').setDesc(pyDescOf(backend));
+    pyRow.settingEl.setAttribute?.('data-section', 'python-path');
+    if (!repo && !managed) pyRow.settingEl.style.display = 'none';
+    this.help(pyRow, managed ? '托管后端用自己目录里的 Python 3.12（uv 装的），只读；计划任务、命令行、外接 MCP 都用它。'
+      : '空 = 程序目录下的 .venv（没有再用系统 python）。缺依赖时填装好依赖的那个 python.exe 的完整路径。');
+    if (managed) pyRow.settingEl.addClass('is-readonly');
+    else pyRow.addText(t => t.setPlaceholder('D:\\程序目录\\.venv\\Scripts\\python.exe').setValue(s.pythonPath || '')
       .onChange(v => {
         s.pythonPath = v.trim();
         clearTimeout(this.pythonTimer);
         this.pythonTimer = setTimeout(async () => {
           await this.save(); await this.plugin.locateCollection();
           const now = this.plugin.currentBackend();
-          pyRow.setDesc(now.mode === 'repo' ? pythonDesc(now.exe) : '仓库模式才用。');
+          pyRow.setDesc(pyDescOf(now));
           backendRow.setDesc(backendDesc(now));
         }, 300);
       }));
+    // 1102：托管后端的升级 / 回滚（次要动作 .lb-link；进度画在页顶「懒人安装」那一块，home-ui installBackend）。仓库模式不出（作者本机用源码）
+    if (!repo) {
+      let info = null;
+      try { info = this.plugin.backendInstall().managedInfo(); } catch (e) { console.error('[lb] 托管后端信息没读到', e); }
+      const rel = this.plugin.backendInstall?.()?.BACKEND_RELEASE;
+      const upRow = new Setting(c).setName('更新后端').setDesc(managed ? `当前在 ${backend.dir || info?.dir || ''}；可更新到 link-brain ${rel?.version || ''}（装进新目录，自检过了才切换）。` : '装到 ~/.link-brain/py（没有 Python 也行）。');
+      upRow.settingEl.setAttribute?.('data-section', 'backend-upgrade');
+      this.help(upRow, '新版装进 ~/.link-brain/py-<版本>，自检通过才改用它；上一版目录留一份，可随时退回。');
+      this.link(upRow, managed ? '更新后端' : '一键装好', async () => {
+        const r = await this.plugin.homeUI().installBackend({ upgrade: managed });
+        if (r && r.ok) { try { this.display(); } catch {} }
+      }, managed ? '下载新版后端装进新目录，自检过了才切换；旧版留着' : '自动下载 uv、Python 3.12 和 link-brain 装到 ~/.link-brain');
+      const backRow = new Setting(c).setName('退回上一版后端').setDesc(info && info.prev ? `上一版在 ${info.prev}。` : '还没有上一版（没更新过）。');
+      backRow.settingEl.setAttribute?.('data-section', 'backend-rollback');
+      this.help(backRow, '把后端切回上一版目录（不删任何东西）；切回去后「更新后端」还能再切回新版。');
+      const back = this.link(backRow, '退回上一版后端', async () => {
+        const done = this.plugin.busyButton ? this.plugin.busyButton(back, '正在切回…') : () => {};
+        try {
+          const r = await this.plugin.backendInstall().rollbackBackend(this.plugin);
+          this.plugin.notify(r.message || (r.ok ? '已退回' : '没退回去'), { kind: r.ok ? 'ok' : 'error' });
+          if (r.ok) { try { this.display(); } catch {} }
+        } catch (e) { this.plugin.notify('没退回去：' + (e.message || e), { kind: 'error' }); }
+        finally { done(); }
+      }, '切回上一版后端目录');
+      if (!(info && info.prev) && back) back.disabled = true;
+    }
     const req = c.createEl('details', { cls: 'lb-fold lb-req' });
     req.createEl('summary', { text: '这台电脑要什么' });
     const reqBox = req.createDiv({ cls: 'setting-item-description' });
@@ -3379,7 +3454,7 @@ Object.assign(module.exports, { perRunLimitOf, fillGapOf, FILL_PACE, SETTING_TAB
 module.exports.scheduleStatusText = scheduleStatusText;
 module.exports.syncStateHead = syncStateHead;   // 给 node 单测（第 5 批 4.4）
 // 第 5 批 B2（单插件交付）：给 node 单测
-Object.assign(module.exports, { splitCommand, whichCommand, pickPython, pythonDesc, pickBackend, backendArgv, backendMissingText, pickSyncTask, dataviewState,
+Object.assign(module.exports, { splitCommand, whichCommand, pickPython, pythonDesc, pickBackend, backendArgv, backendMissingText, pickSyncTask, dataviewState, managedPaths, isWindowsAppsStub, PYTHON_MISSING_TEXT,
   BACKEND_DEFAULT, BACKEND_INSTALL, NIGHTLY_TASK, LEGACY_SYNC_TASK });
 Object.assign(module.exports, { effectiveTextAI, modelState, endpointHost, normalizeEndpoint, aiGate, resultMessage, scheduleShort });
 module.exports.lastRiskNote = lastRiskNote;   // 1008（L6）：给 node 单测（设置页「立即同步」旁的验证说明）
