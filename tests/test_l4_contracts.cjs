@@ -35,7 +35,7 @@ plugin.running = null; plugin.externalSync = { state: 'running', updated_at: new
 plugin.runningProgress = ''; plugin.taskChanged(); assert.match(plugin.taskStatusEl.textContent, /夜跑同步.*3\/7/);
 plugin.externalSync.updated_at = '2000-01-01'; plugin.taskChanged(); assert.equal(plugin.taskStatusEl.hidden, true);
 off(); plugin.taskChanged(); assert.equal(called, 3);
-assert.equal(plugin.commandTable().length, 6);   // 10-29 加「打开个人 Wiki」
+assert.equal(plugin.commandTable().length, 7);   // 10-29 加「打开个人 Wiki」；1101 加「B 站：挑要下的视频」（2dd1d93 加了命令没跟断言，main 的 node 单测因此红）
 assert.ok(plugin.commandTable().some(c => c.id === 'open-wiki'));
 assert.match(Plugin.resultMessage('同步', { code: 3 }).message, /只做了一部分/);
 assert.equal(Plugin.resultMessage('同步', { code: 0, json: { message: '已保存' } }).message, '已保存');
