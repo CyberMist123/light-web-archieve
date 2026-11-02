@@ -100,8 +100,8 @@ dv.container.createEl('p', { text: '目录页（手机只读）' });`;
   assert.deepStrictEqual(required.filter(n => n !== 'obsidian'), [], 'onload 也没碰 Node 模块');
   assert.strictEqual(p.mobileMode, true);
   const style = D.getElementById('lb-note-style');
-  assert.ok(style && style.textContent === noteCss, '笔记样式经 vault.adapter 读 note.css 注入 head');
-  assert.strictEqual(V.reads[pluginDir + '/note.css'], 1);
+  assert.ok(style && style.textContent === noteCss.replace(/\r\n/g, '\n'), '笔记样式注入 head（就是 note.css 的内容）');
+  assert.ok(!V.reads[pluginDir + '/note.css'], 'note.css 打进了 main.js（BRAT 只下 main.js / manifest.json / styles.css），不读插件目录')
 
   // ③④ 打进去的处理器真能跑页面；页面在手机上看不到插件
   const said = [];

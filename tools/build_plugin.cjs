@@ -15,10 +15,12 @@ const DIR = path.join(ROOT, 'obsidian-plugins', 'link-brain-actions');
 const SRC = path.join(DIR, 'main.src.js');
 const OUT = path.join(DIR, 'main.js');
 const BUNDLED = [{ file: 'page-host.js', globalName: 'LBPageHost' }];
+// 原样当字符串打进去的文本（BRAT 只下载 main.js / manifest.json / styles.css，手机上要用的样式也得在 main.js 里）
+const TEXTS = [{ file: 'note.css', globalName: 'LBNoteCss' }];
 
 function build() {
   const esbuild = require('esbuild');
-  const parts = ['// 构建产物，别手改：源在 main.src.js（+ 下面打包进来的 ' + BUNDLED.map(b => b.file).join('、') + '），改完跑 npm run build（tools/build_plugin.cjs）。'];
+  const parts = ['// 构建产物，别手改：源在 main.src.js（+ 下面打包进来的 ' + [...BUNDLED, ...TEXTS].map(b => b.file).join('、') + '），改完跑 npm run build（tools/build_plugin.cjs）。'];
   for (const b of BUNDLED) {
     const r = esbuild.buildSync({
       entryPoints: [path.join(DIR, b.file)], bundle: true, write: false, format: 'iife', globalName: b.globalName,
@@ -30,6 +32,7 @@ function build() {
     if (strict) text = text.replace(/^"use strict";\n/, '').replace(`var ${b.globalName} = (() => {`, `var ${b.globalName} = (() => {\n  "use strict";`);
     parts.push(`// ── ${b.file}（esbuild 打包，全局名 ${b.globalName}）──`, text);
   }
+  for (const t of TEXTS) parts.push(`// ── ${t.file}（原样字符串，全局名 ${t.globalName}）──`, `var ${t.globalName} = ${JSON.stringify(fs.readFileSync(path.join(DIR, t.file), 'utf8').replace(/\r\n/g, '\n'))};`);
   parts.push('// ── main.src.js ──', fs.readFileSync(SRC, 'utf8').replace(/\r\n/g, '\n').trimEnd(), '');
   return parts.join('\n');
 }

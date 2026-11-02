@@ -2116,7 +2116,7 @@ class LinkBrainActions extends Plugin {
   warmAnswerWorker() { if(this.answerWorker||this.unloading)return false; try{this.ensureAnswerWorker();return true;}catch(e){console.error('[lb] 预热问答进程没成',e);return false;} }
   stopArchiveAnswer(tag) { let n=0; for(const [id,p] of [...(this.answerPending?.entries()||[])]) { if(tag!=null&&p.tag!==tag)continue; if(this.cancelAnswer(id)) n++; } return n; }
   // 1102 手机：同一个插件装在手机上只做两件事——注册 ```lb-page 处理器（目录 / 问收藏 / Wiki / 回收站 / B 站挑选 / 批注块照样显示），
-  // 把笔记样式 note.css 注入 head（从插件目录用 vault.adapter 读，手机上没有 fs）。不加命令、不加设置页、不起任何进程。
+  // 把笔记样式 note.css 注入 head（构建时打进 main.js；手机上没有 fs）。不加命令、不加设置页、不起任何进程。
   // 页面在手机上是只读的：lb-page-lib 的 LB.provider() 在手机上返回 null（和以前「手机上没有插件」完全一样），
   // 要插件的按钮要么不画、要么点了说 lb-page-lib 的 MOBILE_ONLY_TEXT（LB.need / LB.ensure）；笔记里「现在抓全部评论」这类入口只在 body.lb-actions-on 时显示，手机上不加这个类。
   async onloadMobile(started = Date.now()) {
@@ -2127,7 +2127,8 @@ class LinkBrainActions extends Plugin {
     } catch (e) { console.error('[lb] 手机上页面处理器没注册上', e); }
     try {
       const doc = typeof document !== 'undefined' ? document : null;
-      const css = await this.app.vault.adapter.read(`${this.manifest.dir}/note.css`);
+      // note.css 构建时打进 main.js（LBNoteCss；BRAT 装的插件目录里只有 main.js / manifest.json / styles.css），直接跑源文件时才读文件
+      const css = typeof LBNoteCss === 'string' ? LBNoteCss : await this.app.vault.adapter.read(`${this.manifest.dir}/note.css`);
       if (doc && doc.head && !this.unloading) {
         doc.getElementById('lb-note-style')?.remove();
         const el = doc.createElement('style');
