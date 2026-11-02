@@ -1509,3 +1509,19 @@ vault/
   - `reader_release_url` + `reader_release_sha256`：读取组件发布包的地址和校验和，**成对**才生效（缺一半当没给）；环境变量 `LINK_BRAIN_READER_URL` + `LINK_BRAIN_READER_SHA256` 压过它；都没有用程序内置的 `reader_install.RELEASE_URL / RELEASE_SHA256`。
 - `reader install` 从这版起走 `setup/fetch.py`：下载先写 `~/.link-brain/downloads/<包>.part`（可续传、每 4 MB 一个进度事件），sha256 对上了才改成正式文件名，装完删包；
   `setup install --component reader` 的进度事件 `component=reader`，`phase` 下载 / 校验 / 解压。
+
+## 2026-11-02 页面块 ```lb-page（不再要 Dataview）与 `_archive/page-blocks.json`
+
+- 页面 md（目录 / 星标 / 问收藏 / Wiki / 回收站 / B 站挑选）和每篇可见笔记底部的批注块，默认是一段 ```lb-page 代码块（LWA 插件 `page-host.js` 执行）：
+  第一行是 `_archive/` 下的页面脚本名（只许一个文件名，`[A-Za-z0-9][A-Za-z0-9_.-]*\.js`），其余每行 `名字: JSON 值` 是传给脚本的参数；以 `Path` 结尾的参数是仓根相对路径，运行时补仓根前缀。
+  ~~~text
+  ```lb-page
+  annotate-view.js
+  itemId: "xhs-…"
+  notePath: "_archive/xiaohongshu/…/notes.json"
+  ```
+  ~~~
+  设置 `pageBlock: "dataviewjs"`（插件 data.json）或环境变量 `LINK_BRAIN_PAGE_BLOCK=dataviewjs` 时照旧写 1017 的 dataviewjs 引导（批注块写 0925 的老样子），给手机上靠 Dataview 看的库。
+- 回收站页的脚本挪到 `_archive/trash-page.js`（lb-page-lib + trash-view），md 里不再烤整段。
+- `vault/_archive/page-blocks.json`：`{"notes": "lb-page"|"dataviewjs", "at": "<iso>", "changed": <这次改了几篇>}`——`catalog.build` 把可见笔记里的批注块换成当前写法（只换那一块）后写；
+  `notes` 和当前写法一样就不再扫笔记。删掉它 = 下次重建再扫一遍（没有别的副作用）。

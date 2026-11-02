@@ -8,13 +8,18 @@ const TRASH = '_archive/trash-data.json';
 { const pane = root.closest && root.closest('.markdown-preview-view, .markdown-source-view'); if (pane) pane.classList.add('lb-trashpage'); }
 LB.style('lb-trash-style', `
 .lb-trashpage .markdown-preview-sizer,.lb-trashpage .markdown-preview-section,.lb-trashpage .cm-sizer,.lb-trashpage .cm-contentContainer,.lb-trashpage .cm-content,.lb-trashpage .block-language-dataviewjs{width:100%!important;max-width:none!important;}
+.lb-trashpage .markdown-preview-sizer,.lb-trashpage .markdown-preview-section,.lb-trashpage .cm-sizer,.lb-trashpage .cm-contentContainer,.lb-trashpage .cm-content,.lb-trashpage .block-language-lb-page{width:100%!important;max-width:none!important;}
 .lb-trashpage .inline-title,.lb-trashpage .metadata-container{display:none!important;}
 /* C1 同理：Dataview 的行内 overflow-x:auto、实时预览 :hover{overflow:hidden} 会让页头吸顶失效 */
 .lb-trashpage .block-language-dataviewjs{overflow:visible!important;}
 .markdown-source-view.lb-trashpage .cm-embed-block.cm-lang-dataviewjs,.markdown-source-view.lb-trashpage .cm-embed-block.cm-lang-dataviewjs:hover{overflow:visible!important;}
+.lb-trashpage .block-language-lb-page{overflow:visible!important;}
+.markdown-source-view.lb-trashpage .cm-embed-block.cm-lang-lb-page,.markdown-source-view.lb-trashpage .cm-embed-block.cm-lang-lb-page:hover{overflow:visible!important;}
 /* 10-04（作者定）整页外面那层 dataviewjs 代码块的框隐形 */
 .lb-trashpage :is(.el-pre:has(.block-language-dataviewjs),pre:has(.block-language-dataviewjs),.block-language-dataviewjs,.cm-embed-block:has(.block-language-dataviewjs),.cm-preview-code-block.cm-lang-dataviewjs),.lb-trashpage :is(.cm-embed-block:has(.block-language-dataviewjs),.cm-preview-code-block.cm-lang-dataviewjs):hover{border:0!important;background:transparent!important;box-shadow:none!important;outline:0!important;border-radius:0!important;}
 .lb-trashpage :is(.cm-embed-block:has(.block-language-dataviewjs),.cm-lang-dataviewjs) .edit-block-button{display:none!important;}
+.lb-trashpage :is(.el-pre:has(.block-language-lb-page),pre:has(.block-language-lb-page),.block-language-lb-page,.cm-embed-block:has(.block-language-lb-page),.cm-preview-code-block.cm-lang-lb-page),.lb-trashpage :is(.cm-embed-block:has(.block-language-lb-page),.cm-preview-code-block.cm-lang-lb-page):hover{border:0!important;background:transparent!important;box-shadow:none!important;outline:0!important;border-radius:0!important;}
+.lb-trashpage :is(.cm-embed-block:has(.block-language-lb-page),.cm-lang-lb-page) .edit-block-button{display:none!important;}
 .lbt-wrap{max-width:820px;margin:0 auto;padding:22px 16px 40px;box-sizing:border-box;font-family:var(--lb-font-body);}
 .lbt-head{position:sticky;top:0;z-index:2;background:var(--lb-surface);display:grid;grid-template-columns:1fr auto;align-items:center;gap:12px 16px;padding:0 0 12px;}
 .lbt-title{font-family:Georgia,'Playfair Display','Times New Roman',serif;font-style:italic;font-size:30px;font-weight:700;line-height:1.1;}

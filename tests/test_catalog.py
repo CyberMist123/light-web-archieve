@@ -1,7 +1,7 @@
 """目录页（封面瀑布流版）：纯程序拼数据，不联网。
 
 验：build() 出 catalog-data.json（封面取 manifest 第一张图、tag 读可见笔记 frontmatter、
-概要读 extracted.json），md 页面带 dataviewjs 块。全部走 tmp vault（LINK_BRAIN_VAULT）。
+概要读 extracted.json），md 页面带 lb-page 块（1102 起；旧写法 dataviewjs 可在设置里留着）。全部走 tmp vault（LINK_BRAIN_VAULT）。
 """
 
 from __future__ import annotations
@@ -65,9 +65,8 @@ def test_build_emits_data_and_page(tmp_path, monkeypatch):
     assert it["note"] == "Web/Xiaohongshu/记忆系统分享.md"
 
     page = catalog_path.read_text(encoding="utf-8")
-    assert "```dataviewjs" in page
-    # 1017：页面脚本在 _archive/catalog-page.js（md 里只是载入它的引导）
-    assert "_archive/catalog-page.js" in page
+    # 1102：md 里是 ```lb-page 块（插件 page-host.js 执行，不要 Dataview）；1017 起页面脚本在 _archive/catalog-page.js
+    assert "```lb-page\ncatalog-page.js\n```" in page and "dataviewjs" not in page
     assert "catalog-data.json" in (tmp_path / "_archive" / "catalog-page.js").read_text(encoding="utf-8")
 
 

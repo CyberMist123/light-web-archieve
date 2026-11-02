@@ -510,7 +510,7 @@ def test_reader_status_says_whether_release_is_configured(monkeypatch):
     assert reader_install.status()["release_configured"] is True
 
 
-def test_doctor_plugin_files_match_plugin_dir_and_dataview_required(tmp_path):
+def test_doctor_plugin_files_match_plugin_dir_and_no_dataview(tmp_path):
     from link_brain import doctor
     plugin_dir = Path(__file__).resolve().parent.parent / "obsidian-plugins" / "link-brain-actions"
     for name in doctor.PLUGIN_FILES:
@@ -518,5 +518,7 @@ def test_doctor_plugin_files_match_plugin_dir_and_dataview_required(tmp_path):
     assert "media-nav.js" in doctor.PLUGIN_FILES and "onboarding-ui.js" in doctor.PLUGIN_FILES
     assert "home-ui.js" in doctor.PLUGIN_FILES and "setup-ui.js" not in doctor.PLUGIN_FILES, "1009：分步向导换成设置页顶部"
     rows = {r["id"]: r for r in doctor.diagnose(obsidian_dir=str(tmp_path / ".obsidian"), only="local")["checks"]}
-    assert rows["dataview"]["state"] == "missing" and rows["dataview"]["optional"] is False, "Dataview 首版是必装依赖"
+    main_js = (plugin_dir / "main.js").read_text(encoding="utf-8")
+    assert "var LBPageHost = " in main_js, "1102：目录页等由插件的 page-host.js 显示（esbuild 打进 main.js）"
+    assert "dataview" not in rows, "1102：Dataview 不再需要（页面是 lb-page 块，插件自己显示）"
     assert rows["obsidian"]["message"] == "未安装"

@@ -373,12 +373,13 @@ def normalize_endpoint(kind: str, url: str) -> str:
 
 
 def gate(cap: str, settings: dict[str, Any] | None = None) -> dict[str, Any]:
-    from .setup.components import PRESETS
+    from .setup.components import PRESETS, RETIRED
     comp = SETUP_COMPONENT.get(cap)
     setup = _settings(settings).get('setup') or {}
     selected = setup.get('selected')
     gated = bool(comp and isinstance(selected, list) and setup.get('aiSynced') and comp not in selected)
-    preset = 'light' if isinstance(selected, list) and set(selected) == set(PRESETS['light']) else ''
+    # 老设置里可能还留着已退役的 id（1102：dataview），比对时不算它
+    preset = 'light' if isinstance(selected, list) and set(selected) - set(RETIRED) == set(PRESETS['light']) else ''
     reason = ''
     if gated:
         reason = f'{LABEL.get(cap, cap)}现在不会跑：「开始」页没勾「{SETUP_COMPONENT_CN[comp]}」'

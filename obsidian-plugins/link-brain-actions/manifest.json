@@ -5,5 +5,5 @@
   "minAppVersion": "1.5.0",
   "description": "小红书收藏归档的 Obsidian 端：封面瀑布流目录（大类筛选 + 模糊检索）、投喂导入（清洗/去重/进度）、右键编辑标签 / 删除 / 多选删除、/问AI 本地检索问答、可配 AI 接口与巡检周期。",
   "author": "cybermist",
-  "isDesktopOnly": true
+  "isDesktopOnly": false
 }

@@ -46,19 +46,18 @@ const flush = async (n = 6) => { for (let i = 0; i < n; i++) await new Promise(r
 const PLAN = { ok: true, components: [
   { id: 'core', name: '归档·同步·浏览·关键词搜索', required: true, status: 'ready', depends: [] },
   { id: 'reader', name: '读取组件', required: true, status: 'ready', depends: ['core'] },
-  { id: 'dataview', name: 'Dataview', required: true, status: 'ready', depends: [] },
   { id: 'ocr', name: '本地 OCR（图片里的字）', status: 'ready', depends: ['core'] },
   { id: 'asr', name: '本地语音识别', status: 'missing', depends: ['core'] },
   { id: 'capslock', name: 'CapsLock 语音输入', status: 'missing', depends: ['asr'] },
   { id: 'ai_text', name: 'AI 问答 · 概要 · 打标（要 API key）', needs_key: true, depends: ['core'] },
   { id: 'ai_vision', name: '识图（要 API key）', needs_key: true, depends: ['ocr'] }],
-  presets: { light: ['core', 'reader', 'dataview', 'ocr'] } };
+  presets: { light: ['core', 'reader', 'ocr'] } };
 
 (async () => {
   // —— 1. 纯函数 ——
-  assert.deepEqual(H.initialSelection(null, PLAN), ['core', 'reader', 'dataview', 'ocr'], '没选过 = 轻量版');
-  assert.deepEqual(H.initialSelection(['capslock'], PLAN), ['core', 'reader', 'dataview', 'asr', 'capslock'], '勾 CapsLock 连语音识别一起；必选永远在');
-  assert.deepEqual(H.toggleSelection(['core', 'reader', 'dataview', 'ocr', 'ai_vision'], 'ocr', false, PLAN.components), ['core', 'reader', 'dataview'], '取消 OCR → 识图跟着取消');
+  assert.deepEqual(H.initialSelection(null, PLAN), ['core', 'reader', 'ocr'], '没选过 = 轻量版');
+  assert.deepEqual(H.initialSelection(['capslock'], PLAN), ['core', 'reader', 'asr', 'capslock'], '勾 CapsLock 连语音识别一起；必选永远在');
+  assert.deepEqual(H.toggleSelection(['core', 'reader', 'ocr', 'ai_vision'], 'ocr', false, PLAN.components), ['core', 'reader'], '取消 OCR → 识图跟着取消');
   const run = { stages: {} };
   H.applyRunEvent(run, { type: 'progress', stage: 'install', label: '装好要用的组件', index: 1, count: 7, state: 'running', text: '检查中…' });
   H.applyRunEvent(run, { type: 'progress', stage: 'install', component: 'asr', phase: '下载', done: 1, total: 4 });
@@ -124,7 +123,7 @@ const PLAN = { ok: true, components: [
   go.onclick(); await flush(12);
   const runArgs = runs.find(a => a.includes('run'));
   assert.deepEqual(Array.from(runArgs), ['-m', 'link_brain', 'setup', 'run']);
-  assert.deepEqual(Array.from(p.settings.setup.selected), ['core', 'reader', 'dataview', 'ocr'], '跑之前把「没选过」落成轻量版');
+  assert.deepEqual(Array.from(p.settings.setup.selected), ['core', 'reader', 'ocr'], '跑之前把「没选过」落成轻量版');
   // 1027b 作者：「不影响实际体验的就别显示了」——跑完只留一句结果（里面说清要你做什么），不再摆每一步的 ✓ / ✗
   assert.equal(pane.querySelectorAll('.lb-run-step').length, 0, '跑完不列每一步');
   assert.match(pane.querySelector('.lb-run-result').textContent, /先处理小红书/);
@@ -207,7 +206,7 @@ const PLAN = { ok: true, components: [
     r.running = '别的'; r.busyText = () => '正在别的';   // runAll 遇上占用只提示、不起进程
     const h2 = homeFactory(OBS, r);
     assert.equal(await h2.firstRun(), 'started');
-    assert.deepEqual(r.settings.setup.selected, ['core', 'reader', 'dataview', 'ocr'], '新库：轻量版');
+    assert.deepEqual(r.settings.setup.selected, ['core', 'reader', 'ocr'], '新库：轻量版');
     assert.match(told[0], /按轻量版（不要任何 key）自动装好并同步/);
   }
 
@@ -240,7 +239,7 @@ const PLAN = { ok: true, components: [
     assert.equal(H.resultKind(''), ''); assert.equal(H.resultKind('TRANSIENT.STEP_CRASHED'), '');
     const q = new Plugin();
     q.app = { vault: { adapter: { getBasePath: () => 'D:/vault', exists: async () => false, read: async () => { throw new Error('ENOENT'); } } }, workspace: { trigger() {} } };
-    q.lbPath = x => x; q.repoRoot = 'D:/repo'; q.settings = { setup: { selected: ['core', 'reader', 'dataview', 'ocr'] } };
+    q.lbPath = x => x; q.repoRoot = 'D:/repo'; q.settings = { setup: { selected: ['core', 'reader', 'ocr'] } };
     q.saveSettings = async () => {}; q.notify = (m, o = {}) => notices.push({ m, o }); q.log = async () => {};
     q.openSetupPage = s => { q.opened = s; };
     q.homeState = { plan: PLAN };
@@ -273,7 +272,7 @@ const PLAN = { ok: true, components: [
   {
     const q = new Plugin();
     q.app = { vault: { adapter: { getBasePath: () => 'D:/vault', exists: async () => false, read: async () => { throw new Error('ENOENT'); } } }, workspace: { trigger() {} } };
-    q.lbPath = x => x; q.repoRoot = 'D:/repo'; q.settings = { setup: { selected: ['core', 'reader', 'dataview', 'ocr'] } };
+    q.lbPath = x => x; q.repoRoot = 'D:/repo'; q.settings = { setup: { selected: ['core', 'reader', 'ocr'] } };
     q.saveSettings = async () => {}; q.notify = (m, o = {}) => notices.push({ m, o });
     const logged = []; q.log = async t => logged.push(t);
     let opened = 0; q.openActionLog = () => { opened++; return true; };
@@ -326,7 +325,7 @@ const PLAN = { ok: true, components: [
     const handlers = [];
     q.app = { vault: { adapter: { getBasePath: () => 'D:/vault', exists: async f => f in files, read: async f => { if (!(f in files)) throw new Error('ENOENT'); return files[f]; } },
       on: (ev, cb) => { const ref = { ev, cb }; handlers.push(ref); return ref; }, offref: ref => { const i = handlers.indexOf(ref); if (i >= 0) handlers.splice(i, 1); } }, workspace: { trigger() {} } };
-    q.lbPath = x => x; q.repoRoot = 'D:/repo'; q.settings = { setup: { selected: ['core', 'reader', 'dataview', 'ocr'] } };
+    q.lbPath = x => x; q.repoRoot = 'D:/repo'; q.settings = { setup: { selected: ['core', 'reader', 'ocr'] } };
     q.saveSettings = async () => {}; q.notify = (m, o = {}) => notices.push({ m, o }); q.log = async () => {};
     let alive = true; q.pidAlive = pid => { assert.equal(pid, 4321); return alive; };
     q.homeState = { plan: PLAN };

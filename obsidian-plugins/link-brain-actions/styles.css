@@ -963,3 +963,6 @@ body.lb-notip .tooltip{display:none!important;}
 .lb-settings .lb-v7 button.lb-plat-tab .lb-plat-note { min-width: 0; }
 /* 1031：设置是独立窗口，窄的是设置内容区不是屏幕——按内容区宽（容器）换一栏，不按视口（以前 @media 560px，设置窗 420 时不生效，「B 站」被挤成两行） */
 @container (max-width: 560px) { .lb-settings .lb-v7 .lb-plat-switch { grid-template-columns: minmax(0, 1fr); } .lb-settings .lb-v7 button.lb-plat-tab .lb-plat-note { white-space: normal; } }
+/* 1102：```lb-page 页面块（page-host.js）读不到脚本 / 跑出错时，只在这一块里说一句 */
+.lb-page-fail { padding: 8px 12px; border: 1px solid var(--lb-warn-border); border-radius: var(--radius-s); background: var(--lb-warn-bg); color: var(--text-normal); font-size: var(--font-ui-small); }
+.lb-page-fail::before { content: "⚠ "; color: var(--lb-warn); }

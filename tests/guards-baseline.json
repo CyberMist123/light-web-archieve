@@ -78,9 +78,9 @@
   "obsidian-plugins/link-brain-actions/problems-ui.js": 1
  },
  "页面标题兜底 Collections": {
-  "obsidian-plugins/link-brain-actions/main.js": 1
+  "obsidian-plugins/link-brain-actions/main.src.js": 1
  },
  "默认回答提示词": {
-  "obsidian-plugins/link-brain-actions/main.js": 1
+  "obsidian-plugins/link-brain-actions/main.src.js": 1
  }
 }

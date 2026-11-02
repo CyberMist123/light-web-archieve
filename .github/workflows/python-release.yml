@@ -55,6 +55,22 @@ jobs:
           echo "version=$ver" >> "$GITHUB_OUTPUT"
           echo "tag=v$ver" >> "$GITHUB_OUTPUT"
 
+      # 1102：插件 main.js 是构建产物（main.src.js + esbuild 打包的 page-host.js）。发版前核它是最新构建，
+      # 并把插件的 main.js / manifest.json / styles.css 一起挂到这个 Release 上（BRAT 按这三个文件名装插件）
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: 插件构建产物是最新的（npm run build:check）
+        shell: bash
+        run: |
+          set -euo pipefail
+          ver="$(node -p "require('./package-lock.json').packages['node_modules/esbuild'].version")"
+          npm install --prefix "$RUNNER_TEMP/esb" --no-package-lock "esbuild@$ver"
+          NODE_PATH="$RUNNER_TEMP/esb/node_modules" npm run build:check
+          mkdir -p dist-plugin
+          cp obsidian-plugins/link-brain-actions/main.js obsidian-plugins/link-brain-actions/manifest.json obsidian-plugins/link-brain-actions/styles.css dist-plugin/
+
       - name: 装打包工具
         run: |
           python -m pip install --upgrade pip
@@ -133,4 +149,7 @@ jobs:
             dist/*.tar.gz
             dist/requirements.lock
             dist/SHA256SUMS
+            dist-plugin/main.js
+            dist-plugin/manifest.json
+            dist-plugin/styles.css
           fail_on_unmatched_files: true

@@ -1,6 +1,6 @@
 // 批次 D · L3 note-actions.js：N2 笔记样式挂 head（和 note.css 一样、css-change 后排最后、卸载摘掉）+ body.lb-actions-on；
 // N8 / N14「现在抓」→ 确认 → fetchAllComments(file)；N9 标签 → pendingCatalogQuery + openLibraryPage('catalog', 同一窗格 / Ctrl 新标签) + 事件；
-// N11 ⋯ 菜单 / 命令「问这篇」→ plugin.askAboutNote(file)；N17 没开 Dataview 时打开归档笔记挂提示条；main.js 的 DATAVIEW_HINT / starNote 前缀。
+// N11 ⋯ 菜单 / 命令「问这篇」→ plugin.askAboutNote(file)；N17（1102）打开归档笔记交给 plugin.legacyPageHint（旧 dataviewjs 批注块 + 没 Dataview 才提示一次）；main.js 的旧格式提示 / starNote 前缀。
 'use strict';
 const assert = require('node:assert/strict');
 const fs = require('fs'), path = require('path'), vm = require('vm');
@@ -41,7 +41,7 @@ function setup({ running = null, dataview = 'ok' } = {}) {
     openLibraryPage: async (role, l) => calls.push(['open', role, l]),
     askAboutNote: async f => { calls.push(['ask', f]); return true; },
     dataviewState: () => dataview,
-    onboardingUI: () => ({ dataviewBanner: v => banners.push(v) }),
+    legacyPageHint: async f => { banners.push(f); return dataview !== 'ok'; },
   };
   const factory = load(dom);
   const inst = factory({ MarkdownView: class {} }, plugin);
@@ -121,16 +121,17 @@ const click = (D, target, extra = {}) => { const e = { type: 'click', target, pr
   }
   // ── N17 ──
   {
-    const S = setup({ dataview: 'nojs' }); S.inst.attach();
+    const S = setup({ dataview: 'missing' }); S.inst.attach();
     S.ws.activeLeaf = S.leaf;
     S.inst.onFileOpen(S.file);
-    assert.deepEqual(S.banners, [S.leaf.view], 'Dataview 没开 JS 查询：挂提示条');
+    assert.deepEqual(S.banners, [S.file], '归档笔记交给 legacyPageHint 判（旧 dataviewjs 批注块 + 没 Dataview 才提示）');
     S.inst.onFileOpen(S.other);
-    assert.equal(S.banners.length, 1, '不是归档笔记不挂');
-    const O = setup({ dataview: 'ok' }); O.inst.attach(); O.inst.onFileOpen(O.file);
+    assert.equal(S.banners.length, 1, '不是归档笔记不问');
+    // 插件里没有 legacyPageHint（旧 main.js）也不炸
+    const O = setup(); delete O.plugin.legacyPageHint; O.inst.attach(); O.inst.onFileOpen(O.file);
     assert.equal(O.banners.length, 0);
   }
-  // ── main.js：DATAVIEW_HINT 文案、starNote 只有一个前缀 ──
+  // ── main.js：旧格式提示（1102）、starNote 只有一个前缀 ──
   {
     const ctx = { module: { exports: {} }, process, setTimeout, clearTimeout, console, URL,
       require: n => n === 'obsidian' ? { Plugin: class {}, PluginSettingTab: class {}, Modal: class {}, Notice: class {}, TFile: class {} } : require(n) };
@@ -138,8 +139,27 @@ const click = (D, target, extra = {}) => { const e = { type: 'click', target, pr
     vm.runInContext(fs.readFileSync(path.join(ROOT, DIR, 'main.js'), 'utf8'), ctx);
     const P = ctx.module.exports;
     const src = fs.readFileSync(path.join(ROOT, DIR, 'main.js'), 'utf8');
-    const hint = src.slice(src.indexOf('const DATAVIEW_HINT'), src.indexOf('};', src.indexOf('const DATAVIEW_HINT')));
-    assert.equal((hint.match(/笔记下面的批注/g) || []).length, 3, 'DATAVIEW_HINT 三条都提到笔记下面的批注');
+    assert.ok(!src.includes('DATAVIEW_HINT'), '1102：Dataview 不再是必装，没有「去装 Dataview」的提示');
+    assert.ok(/LEGACY_PAGE_HINT = ".*刷新目录.*不用装 Dataview/.test(src), '旧格式页面只提示刷新目录');
+    assert.equal(P.hasLegacyPageBlock('```dataviewjs\nconst itemId = "x";\nawait app.vault.adapter.read(lbPath("_archive/annotate-view.js"));\n```'), true);
+    assert.equal(P.hasLegacyPageBlock('```lb-page\nannotate-view.js\n```'), false);
+    assert.equal(P.hasLegacyPageBlock('```dataviewjs\ndv.list([1])\n```'), false, '用户自己的 dataviewjs 不算我们的旧页面');
+    assert.equal(P.hasLegacyPageBlock('```dataviewjs\ndv.list([1])\n```\n```lb-page\nannotate-view.js\nnotePath: "_archive/x/notes.json"\n```'), false, '不跨块误判');
+    // legacyPageHint：旧格式 + 没 Dataview 才提示，带「刷新目录」，这次打开 Obsidian 只一次（Linux 上能跑的那份；batch5 第 5 节同样的断言要 Windows 才跑到）
+    const proto = (P.prototype || (P.default && P.default.prototype));
+    if (proto && typeof proto.legacyPageHint === 'function') {
+      const q = Object.create(proto); const said = []; let refreshed = 0;
+      const texts = { 'old.md': '```dataviewjs\nconst lbScript = (lbRoot ? lbRoot + "/" : "") + "_archive/catalog-page.js";\n```', 'new.md': '```lb-page\ncatalog-page.js\n```' };
+      q.app = { plugins: { manifests: {}, enabledPlugins: new Set(), plugins: {} }, vault: { cachedRead: async f => texts[f.path] } };
+      q.notify = (msg, o) => { said.push({ msg, o }); return {}; };
+      q.refreshCatalog = () => { refreshed++; };
+      assert.equal(await q.legacyPageHint({ path: 'new.md' }), false, '新格式不提示');
+      assert.equal(await q.legacyPageHint({ path: 'old.md' }), true, '旧格式 + 没 Dataview：提示');
+      assert.match(said[0].msg, /刷新目录/); said[0].o.actions[0].run(); assert.equal(refreshed, 1, '按钮就是刷新目录');
+      assert.equal(await q.legacyPageHint({ path: 'old.md' }), false, '只提示一次');
+      const r = Object.create(proto); r.app = { plugins: { manifests: { dataview: {} }, enabledPlugins: new Set(['dataview']), plugins: { dataview: { settings: { enableDataviewJs: true } } } }, vault: q.app.vault }; r.notify = q.notify;
+      assert.equal(await r.legacyPageHint({ path: 'old.md' }), false, 'Dataview 还开着：旧页面照样能看，不提示');
+    } else console.log('（main.js 导出里拿不到插件类：legacyPageHint 只按源码查）'), assert.ok(/async legacyPageHint\(file\)/.test(src));
     const p = Object.create(P.prototype || (P.default && P.default.prototype) || {});
     if (typeof p.starNote === 'function') {
       p.app = { workspace: { trigger() {} } };

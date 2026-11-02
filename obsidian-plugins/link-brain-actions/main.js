@@ -1,8 +1,303 @@
+// 构建产物，别手改：源在 main.src.js（+ 下面打包进来的 page-host.js、note.css），改完跑 npm run build（tools/build_plugin.cjs）。
+// ── page-host.js（esbuild 打包，全局名 LBPageHost）──
+var LBPageHost = (() => {
+  "use strict";
+  var __getOwnPropNames = Object.getOwnPropertyNames;
+  var __commonJS = (cb, mod) => function __require() {
+    return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
+  };
+
+  // obsidian-plugins/link-brain-actions/page-host.js
+  var require_page_host = __commonJS({
+    "obsidian-plugins/link-brain-actions/page-host.js"(exports, module) {
+      async function lbLoadPage(app, folder, script, names) {
+        let root = folder || "";
+        while (root && !app.vault.getAbstractFileByPath(root + "/_archive")) root = root.includes("/") ? root.slice(0, root.lastIndexOf("/")) : "";
+        const file = (root ? root + "/" : "") + "_archive/" + script;
+        const stat = app.vault.getAbstractFileByPath(file)?.stat;
+        const ver = stat && stat.mtime ? stat.mtime + ":" + stat.size : "";
+        const params = ["dv", "app"].concat(names || []);
+        const key = file + "|" + params.join(",");
+        const cache = globalThis.__lbPageCode = globalThis.__lbPageCode || {};
+        if (ver && cache[key] && cache[key].ver === ver) return { root, file, ver, run: cache[key].fn, error: null };
+        try {
+          const code = await app.vault.adapter.read(file);
+          const fn = new (Object.getPrototypeOf(async function() {
+          })).constructor(...params, code);
+          if (ver) cache[key] = { ver, fn };
+          return { root, file, ver, run: fn, error: null };
+        } catch (e) {
+          return { root, file, ver, run: null, error: e };
+        }
+      }
+      var LANG = "lb-page";
+      var RERUN_MS = 2500;
+      var SCRIPT_RE = /^[A-Za-z0-9][A-Za-z0-9_.-]*\.js$/;
+      var KEY_RE = /^([A-Za-z_$][A-Za-z0-9_$]*)\s*:\s*(.*)$/;
+      var RESERVED = /* @__PURE__ */ new Set(["dv", "app", "script", "arguments", "eval"]);
+      function parseBlock(source) {
+        const out = { script: "", params: {}, error: "" };
+        for (const raw of String(source == null ? "" : source).split(/\r?\n/)) {
+          const line = raw.trim();
+          if (!line || line.startsWith("#") || line.startsWith("//")) continue;
+          const m = KEY_RE.exec(line);
+          if (!m) {
+            if (!out.script) {
+              out.script = line;
+              continue;
+            }
+            out.error = "看不懂这一行：" + line;
+            break;
+          }
+          let value = m[2].trim();
+          try {
+            value = JSON.parse(value);
+          } catch {
+          }
+          if (m[1] === "script") {
+            out.script = String(value);
+            continue;
+          }
+          if (RESERVED.has(m[1])) {
+            out.error = "参数名不能用 " + m[1];
+            break;
+          }
+          out.params[m[1]] = value;
+        }
+        if (!out.error && !out.script) out.error = "没写要跑哪个页面脚本";
+        else if (!out.error && !SCRIPT_RE.test(out.script)) out.error = "页面脚本名不对：" + out.script;
+        return out;
+      }
+      function folderOf(p) {
+        const s = String(p || "");
+        return s.includes("/") ? s.slice(0, s.lastIndexOf("/")) : "";
+      }
+      module.exports = function pageHost(obsidian, plugin) {
+        const app = plugin.app;
+        const live = /* @__PURE__ */ new Set();
+        let attached = false;
+        function failBox(el, text) {
+          try {
+            const doc = el.ownerDocument || document;
+            const box = doc.createElement("div");
+            box.className = "lb-page-fail";
+            box.textContent = text;
+            el.appendChild(box);
+            return box;
+          } catch {
+            return null;
+          }
+        }
+        function makeDv(el, child, sourcePath) {
+          const folder = folderOf(sourcePath);
+          const name = String(sourcePath || "").split("/").pop() || "";
+          const dv = {
+            container: el,
+            component: child,
+            current: () => ({ file: { path: sourcePath || "", folder, name } }),
+            page(p) {
+              try {
+                const fm = app.metadataCache?.getCache?.(p)?.frontmatter;
+                return fm ? Object.assign({}, fm, { file: { path: p } }) : null;
+              } catch {
+                return null;
+              }
+            },
+            // 字符串按 Markdown 渲染（和 Dataview 一样；只给兜底提示用，页面正文走插件的 renderMarkdownScoped）
+            el(tag, text, attrs) {
+              const doc = el.ownerDocument || document;
+              const node = doc.createElement(tag || "div");
+              if (attrs && attrs.cls) node.className = [].concat(attrs.cls).join(" ");
+              const md = typeof plugin.neutralizeMarkdown === "function" ? plugin.neutralizeMarkdown(String(text == null ? "" : text)) : String(text == null ? "" : text);
+              const MR = obsidian && obsidian.MarkdownRenderer;
+              try {
+                if (MR && typeof MR.render === "function") MR.render(app, md, node, sourcePath || "", child);
+                else if (MR && typeof MR.renderMarkdown === "function") MR.renderMarkdown(md, node, sourcePath || "", child);
+                else node.textContent = md;
+              } catch {
+                node.textContent = md;
+              }
+              el.appendChild(node);
+              return node;
+            },
+            paragraph(text, attrs) {
+              return dv.el("p", text, attrs);
+            },
+            header(level, text, attrs) {
+              return dv.el("h" + (Number(level) || 1), text, attrs);
+            },
+            span(text, attrs) {
+              return dv.el("span", text, attrs);
+            }
+          };
+          return dv;
+        }
+        function clear(el) {
+          if (typeof el.empty === "function") el.empty();
+          else el.innerHTML = "";
+        }
+        async function runOnce(entry, block, el, child, sourcePath, env) {
+          entry.lastError = null;
+          const names = Object.keys(block.params);
+          const envNames = Object.keys(env || {}).filter((k) => !RESERVED.has(k) && !(k in block.params));
+          const page = await lbLoadPage(app, folderOf(sourcePath), block.script, names.concat(envNames));
+          if (!page.run) {
+            const why = page.error && (page.error.message || String(page.error)) || "没找到";
+            entry.lastError = page.error || new Error(why);
+            failBox(el, "页面脚本没读到（" + why + "）：点右上「…」→ 刷新目录");
+            return false;
+          }
+          const prefix = (p) => page.root ? page.root + "/" + p : p;
+          const values = names.map((k) => /Path$/.test(k) && typeof block.params[k] === "string" ? prefix(block.params[k]) : block.params[k]).concat(envNames.map((k) => env[k]));
+          const dv = makeDv(el, child, sourcePath);
+          dv.__lbCodeVer = page.ver;
+          try {
+            await page.run(dv, app, ...values);
+            return true;
+          } catch (e) {
+            entry.lastError = e;
+            console.error("[lb] 页面 " + block.script + " 出错", e);
+            failBox(el, "页面出错了（" + (e && e.message || e) + "）：点右上「…」→ 刷新目录 后再打开；还不行到设置页「修复」里复制报错");
+            return false;
+          }
+        }
+        async function processBlock(source, el, ctx, opts = {}) {
+          const block = parseBlock(source);
+          const sourcePath = ctx && ctx.sourcePath || "";
+          if (block.error) {
+            failBox(el, "LWA 页面块写错了：" + block.error);
+            return null;
+          }
+          const Child = obsidian && obsidian.MarkdownRenderChild;
+          const child = Child ? new Child(el) : null;
+          if (!child) {
+            failBox(el, "这个 Obsidian 版本没有 MarkdownRenderChild，页面显示不了");
+            return null;
+          }
+          let alive = true, running = null, again = false, timer = null;
+          const entry = { child, el, script: block.script, sourcePath, lastError: null };
+          const rerun = async () => {
+            if (!alive) return;
+            if (running) {
+              again = true;
+              return running;
+            }
+            running = (async () => {
+              do {
+                again = false;
+                clear(el);
+                await runOnce(entry, block, el, child, sourcePath, opts.env);
+              } while (again && alive);
+            })().finally(() => {
+              running = null;
+            });
+            return running;
+          };
+          entry.rerun = rerun;
+          child.render = rerun;
+          child.register(() => {
+            alive = false;
+            if (timer) clearTimeout(timer);
+            timer = null;
+            live.delete(entry);
+          });
+          const schedule = (file) => {
+            if (!alive || !file || !/\.md$/i.test(String(file.path || ""))) return;
+            if (timer) clearTimeout(timer);
+            timer = setTimeout(() => {
+              timer = null;
+              if (alive && el.isConnected) rerun().catch((e) => console.error("[lb] 页面重跑失败", e));
+            }, RERUN_MS);
+          };
+          if (app.vault && typeof app.vault.on === "function") for (const ev of ["modify", "create", "delete", "rename"]) child.registerEvent(app.vault.on(ev, schedule));
+          if (app.workspace && typeof app.workspace.on === "function") child.registerEvent(app.workspace.on("link-brain:refresh-pages", () => {
+            if (alive && el.isConnected) rerun().catch(() => {
+            });
+          }));
+          if (ctx && typeof ctx.addChild === "function") ctx.addChild(child);
+          else if (typeof child.load === "function") child.load();
+          live.add(entry);
+          try {
+            await rerun();
+          } catch (e) {
+            entry.lastError = e;
+            console.error("[lb] 页面没画上", e);
+            failBox(el, "页面没画上：" + (e && e.message || e));
+          }
+          return entry;
+        }
+        return {
+          LANG,
+          live,
+          process: processBlock,
+          attach() {
+            if (attached || typeof plugin.registerMarkdownCodeBlockProcessor !== "function") return false;
+            plugin.registerMarkdownCodeBlockProcessor(LANG, (source, el, ctx) => processBlock(source, el, ctx).catch((e) => {
+              console.error("[lb] lb-page 块出错", e);
+              failBox(el, "页面没画上：" + (e && e.message || e));
+            }));
+            attached = true;
+            return true;
+          },
+          // 插件卸载：已画出来的块逐个卸掉（页面的 onUnload 摘 host、停监听 / 定时器）
+          detach() {
+            for (const entry of [...live]) {
+              try {
+                entry.child.unload();
+              } catch {
+              }
+            }
+            live.clear();
+          },
+          // 别处（重建目录之后、设置里换了东西）要页面立刻重跑：和 Dataview 的 refresh-views 一样
+          refreshAll() {
+            for (const entry of [...live]) {
+              try {
+                if (entry.el.isConnected) entry.rerun();
+              } catch {
+              }
+            }
+          }
+        };
+      };
+      module.exports.parseBlock = parseBlock;
+      module.exports.lbLoadPage = lbLoadPage;
+      module.exports.LANG = LANG;
+      module.exports.RERUN_MS = RERUN_MS;
+    }
+  });
+  return require_page_host();
+})();
+// ── note.css（原样字符串，全局名 LBNoteCss）──
+var LBNoteCss = "/* Link Brain · Xiaohongshu human view\n   只作用于 cssclasses: [link-brain, xhs-note]。\n   render.py 会把这份受管 CSS 同步到 vault/.obsidian/snippets/link-brain.css。\n   Reading View + Live Preview 共用同一套视觉。\n*/\n\n/* lb-tokens:begin — LWA 样式集（1027）。唯一源：link_brain/assets/lb-tokens.css；改这里，再跑 python tools/sync_tokens.py\n   拷进 lb-page-lib.js 的 LB_SHARED_CSS（页面，手机上也有）、插件 styles.css（设置页）、link-brain.css / note.css（笔记页）。\n   tests/test_tokens_1027.py 锁住四份逐字相同。规则：新界面只用这里的名字（CONVENTIONS「样式集」），不再手写字体栈 / 字号 / 灰。\n   黑白为主：颜色全映射到 Obsidian 主题变量，深浅色都跟着走；橙 / 红只给状态。\n   用户能改的五个（目录「Aa 样式」，存插件设置 catalogLayout.theme）：标题字体 / 正文字体 / 数字字体 / 字号倍数 / 卡片间距，\n   由 LB.applyTheme / plugin.applyTheme 写成页面根上的行内变量，只在 body 上给默认值。 */\nbody{--lb-warn:var(--text-warning,var(--color-orange));--lb-warn-bg:var(--background-secondary);--lb-warn-border:var(--background-modifier-border);--lb-danger:var(--text-error);--lb-danger-bg:var(--background-secondary);--lb-ok:var(--text-success,var(--color-green));--lb-star:var(--color-yellow,#d9a21b);}\n@supports (color: color-mix(in srgb, red, blue)){body{--lb-warn-bg:color-mix(in srgb,var(--lb-warn) 14%,var(--background-primary));--lb-warn-border:color-mix(in srgb,var(--lb-warn) 35%,var(--background-modifier-border));--lb-danger-bg:color-mix(in srgb,var(--text-error) 12%,var(--background-primary));}}\nbody{--lb-font-title-base:\"LB Cinzel\",\"Cinzel\",\"Trajan Pro\",\"Times New Roman\",serif;--lb-font-serif:\"Noto Serif SC\",\"Source Han Serif SC\",\"Source Han Serif CN\",\"Songti SC\",\"STSong\",\"SimSun\",serif;--lb-font-num-base:\"LB Cormorant\",\"Cormorant Garamond\",Georgia,\"Noto Serif SC\",\"Songti SC\",\"SimSun\",serif;--lb-font-body-base:\"Noto Sans SC\",\"Segoe UI\",\"Microsoft YaHei UI\",sans-serif;--lb-font-title:var(--lb-font-title-base);--lb-font-num:var(--lb-font-num-base);--lb-font-body:var(--lb-font-body-base);--lb-scale:1;--lb-gap:24px;--lb-space-1:4px;--lb-space-2:8px;--lb-space-3:12px;--lb-space-4:16px;--lb-space-5:24px;--lb-space-6:32px;--lb-radius:8px;--lb-radius-pill:999px;--lb-ctl-h:34px;--lb-num-feat:lining-nums tabular-nums;}\nbody,.lb-page-host,.lb-scope{--lb-ink:var(--text-normal);--lb-muted:var(--text-muted);--lb-faint:var(--text-faint);--lb-line:var(--background-modifier-border);--lb-surface:var(--background-primary);--lb-soft:var(--background-secondary);--lb-accent:var(--text-normal);--lb-fs-display:calc(clamp(30px,6.5cqi,96px) * var(--lb-scale,1));--lb-fs-h1:calc(18px * var(--lb-scale,1));--lb-fs-h2:calc(16px * var(--lb-scale,1));--lb-fs-body:calc(13.5px * var(--lb-scale,1));--lb-fs-small:calc(12px * var(--lb-scale,1));--lb-fs-micro:calc(11px * var(--lb-scale,1));--lb-fs-num-lg:calc(34px * var(--lb-scale,1));--lb-fs-num:calc(15px * var(--lb-scale,1));}\n.lb-btn{display:inline-flex;align-items:center;justify-content:center;gap:var(--lb-space-2);height:var(--lb-ctl-h);padding:0 var(--lb-space-4);border:1px solid var(--lb-line);border-radius:var(--lb-radius);background:var(--lb-surface);color:var(--lb-ink);box-shadow:none;font:500 var(--lb-fs-body)/1 var(--lb-font-body);white-space:nowrap;cursor:pointer;transition:background-color .15s,color .15s,border-color .15s;}\n.lb-btn:hover{border-color:var(--lb-ink);}\n.lb-btn:disabled,.lb-btn[aria-disabled=\"true\"]{opacity:.45;cursor:default;}\n.lb-btn.is-primary{background:var(--lb-accent);border-color:var(--lb-accent);color:var(--lb-surface);}\n.lb-btn-pill{display:inline-flex;align-items:center;justify-content:center;gap:7px;height:var(--lb-ctl-h);padding:0 14px;border:1px solid var(--lb-ink);border-radius:var(--lb-radius-pill);background:var(--lb-surface);color:var(--lb-ink);box-shadow:none;font:500 var(--lb-fs-body)/1 var(--lb-font-body);white-space:nowrap;cursor:pointer;transition:background-color .2s,color .2s;}\n.lb-btn-pill:hover,.lb-btn-pill.is-on{background:var(--lb-ink);color:var(--lb-surface);}\n.lb-input{height:var(--lb-ctl-h);box-sizing:border-box;padding:0 var(--lb-space-3);border:1px solid var(--lb-line);border-radius:var(--lb-radius);background:var(--lb-surface);color:var(--lb-ink);box-shadow:none;font:var(--lb-fs-body)/1.4 var(--lb-font-body);}\n.lb-input:focus{outline:none;border-color:var(--lb-ink);box-shadow:none;}\n.lb-input::placeholder{color:var(--lb-faint);}\n.lb-label{font:500 var(--lb-fs-small)/1.4 var(--lb-font-body);color:var(--lb-muted);}\n.lb-num:not(input){font-family:var(--lb-font-num);font-style:italic;font-variant-numeric:var(--lb-num-feat);}\n.lb-kicker{font:700 var(--lb-fs-micro)/1 var(--lb-font-title);letter-spacing:.26em;text-transform:uppercase;color:var(--lb-muted);}\n/* lb-tokens:end */\n\n.xhs-note {\n  --lbn-gap: clamp(16px, 2vw, 28px);\n  --lbn-radius: 16px;\n  --lb-body-size: clamp(15px, 1.15vw, 17px);\n  --lb-comment-size: clamp(14px, 1vw, 15.5px);\n  --lbn-line: color-mix(in srgb, var(--text-normal) 12%, transparent);\n  --lb-reply-line: color-mix(in srgb, var(--text-muted) 24%, transparent);\n  --lbn-surface: color-mix(in srgb, var(--background-secondary) 88%, transparent);\n  --file-line-width: 1380px;\n}\n\n/* 容器必须建在父节点上；sizer 自己当容器时会出现断点半生效。 */\n.markdown-preview-view.xhs-note,\n.markdown-source-view.xhs-note {\n  container-type: inline-size;\n  container-name: link-brain-note;\n}\n\n.markdown-preview-view.xhs-note .markdown-preview-sizer,\n.markdown-source-view.xhs-note .cm-contentContainer {\n  width: min(100%, 1380px);\n  max-width: min(100%, 1380px) !important;\n  box-sizing: border-box;\n}\n\n.markdown-preview-view.xhs-note .markdown-preview-sizer {\n  padding-left: clamp(10px, 2vw, 28px);\n  padding-right: clamp(10px, 2vw, 28px);\n}\n\n.xhs-note .metadata-container {\n  display: none !important;\n}\n\n.markdown-source-view.xhs-note .cm-line:has(.cm-comment) {\n  display: none !important;\n}\n\n.xhs-note .inline-title {\n  font-size: clamp(1.42rem, 2.4vw, 2.1rem);\n  line-height: 1.22;\n  margin-bottom: 0.55em;\n  letter-spacing: -0.015em;\n}\n\n.xhs-note .callout[data-callout=\"link-brain-comment\"],\n.xhs-note .callout[data-callout=\"quote\"] {\n  margin: 0 0 clamp(14px, 2vw, 22px);\n  padding: 10px 13px;\n  border: 0;\n  border-left: 3px solid var(--interactive-accent);\n  border-radius: 10px;\n  background: var(--lbn-surface);\n  box-shadow: none;\n}\n\n.xhs-note .callout[data-callout=\"link-brain-comment\"] .callout-title,\n.xhs-note .callout[data-callout=\"quote\"] .callout-title {\n  display: none;\n}\n\n.xhs-note .callout[data-callout=\"link-brain-comment\"] .callout-content,\n.xhs-note .callout[data-callout=\"quote\"] .callout-content {\n  padding: 0;\n  font-size: clamp(13.5px, 1.1vw, 15px);\n  line-height: 1.55;\n}\n\n.xhs-note .callout[data-callout=\"link-brain-comment\"] p,\n.xhs-note .callout[data-callout=\"quote\"] p {\n  margin: 0.25em 0;\n}\n\n/*\n  真·左右两栏（Owner 2026-09-15）：grid 两列——左栏 `.lb-side`（图片+作者）sticky 固定，\n  右栏 `.lb-main`（正文+评论）随页滚动。正文改成 HTML（`_body_html`），整块 `.lb-note`\n  是一个连续 HTML 块、内部无空行，Obsidian 不会把它闭合，两个容器才立得住。\n  48.5% 是此前等宽两栏的比例；图片 width/max-height/object-fit 不动、头像不动（Owner：其他比例不变）。\n*/\n.xhs-note .lb-note {\n  display: grid;\n  grid-template-columns: 48.5% 1fr;\n  column-gap: var(--lbn-gap);\n  align-items: start;\n  width: 100%;\n  min-width: 0;\n}\n\n.xhs-note .lb-note.lb-no-media {\n  display: block;\n  max-width: 780px;\n  margin-inline: auto;\n}\n\n.xhs-note .lb-side {\n  position: sticky;\n  top: 8px;\n  align-self: start;\n  min-width: 0;\n}\n\n.xhs-note .lb-main {\n  min-width: 0;\n  height: min(78vh, 860px);\n  display: flex;\n  flex-direction: column;\n  overflow: hidden;\n}\n\n.xhs-note .inline-title { display: none; }\n.xhs-note .lb-scroll { overflow-y: auto; min-height: 0; padding-right: 12px; scrollbar-width: thin; }\n.xhs-note .lb-no-media .lb-main { height: auto; }\n.xhs-note .lb-author-row { flex-shrink: 0; }\n.xhs-note .lb-note-title { font-size: 1.2em; line-height: 1.5; margin: 0 0 14px; }\n/* 1031 B 站多 P：标题下面「分 P　P1 P2 …」，当前这 P 实心 */\n.xhs-note .lb-parts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: -6px 0 14px; font-size: 13px; }\n.xhs-note .lb-parts-label { color: var(--text-muted); margin-right: 2px; }\n.xhs-note .lb-part { padding: 1px 10px; border-radius: 999px; border: 1px solid var(--background-modifier-border); color: var(--text-normal); text-decoration: none; cursor: pointer; font-variant-numeric: tabular-nums; }\n.xhs-note .lb-part:hover { border-color: var(--interactive-accent); color: var(--text-accent); }\n.xhs-note .lb-part.is-current { background: var(--interactive-accent); border-color: var(--interactive-accent); color: var(--text-on-accent); cursor: default; }\n/* 1031 她：B 站笔记——标题就是原文链接；视频左栏默认放大到 60%，右下角拖着改宽（note-tools.js 存本机）；视频外面不要灰底 */\n.xhs-note .lb-title-link { color: inherit; text-decoration: none; }\n.xhs-note .lb-title-link:hover { color: var(--text-accent); }\n.xhs-note .lb-note[data-lb-item^=\"bili-\"] { grid-template-columns: var(--lb-side-w, 60%) 1fr; }\n.xhs-note .lb-note[data-lb-item^=\"bili-\"] .lb-media { position: relative; }\n.xhs-note .lb-note[data-lb-item^=\"bili-\"] .lb-carousel { background: transparent; }\n.xhs-note .lb-note[data-lb-item^=\"bili-\"] .lb-slide video { display: block; background: #000; border-radius: var(--lbn-radius); }\n.xhs-note .lb-side-resize { position: absolute; right: -6px; bottom: -6px; width: 18px; height: 18px; cursor: nwse-resize; z-index: 7; opacity: .35; transition: opacity .15s; touch-action: none; }\n.xhs-note .lb-side-resize::before { content: \"\"; position: absolute; right: 5px; bottom: 5px; width: 8px; height: 8px; border-right: 2px solid var(--text-muted); border-bottom: 2px solid var(--text-muted); }\n.xhs-note .lb-media:hover .lb-side-resize, .xhs-note .lb-side-resize.is-dragging { opacity: 1; }\n.lb-inbox .metadata-container,.lb-catalog .metadata-container { display: none!important; }\n.lb-catalog .inline-title { display: none!important; }\n\n.xhs-note .lb-media {\n  width: 100%;               /* 图片占满左栏（Owner 2026-09-07：图左评论右） */\n  margin: 2px 0 12px;\n  min-width: 0;\n}\n\n/* 只有手机大小才收成单栏；此时左栏不再 sticky。桌面 / 普通窄 pane 继续左固定右滚动。 */\n@container link-brain-note (max-width: 600px) {\n  .xhs-note .lb-note {\n    display: block;\n  }\n  .xhs-note .lb-side {\n    position: static;\n    margin-bottom: 14px;\n  }\n  .xhs-note .lb-main { height: auto; overflow: visible; }\n  .xhs-note .lb-scroll { overflow: visible; }\n  .xhs-note .lb-media {\n    width: 100%;\n    margin: 0 0 14px;\n  }\n}\n\n.xhs-note .lb-carousel {\n  position: relative;\n  display: flex !important;\n  width: 100%;\n  min-width: 0;\n  overflow-x: auto !important;\n  overflow-y: hidden;\n  overscroll-behavior-inline: contain;\n  scroll-snap-type: x mandatory;\n  scroll-behavior: smooth;\n  border-radius: var(--lbn-radius);\n  background: var(--background-secondary);\n  scrollbar-width: thin;\n  scrollbar-color: color-mix(in srgb, var(--text-muted) 28%, transparent) transparent;\n}\n\n.xhs-note .lb-slide {\n  position: relative;\n  flex: 0 0 100% !important;\n  width: 100%;\n  min-width: 100% !important;\n  margin: 0 !important;\n  scroll-snap-align: start;\n  scroll-snap-stop: always;\n  display: grid;\n  place-items: center;\n  overflow: hidden;\n}\n\n.xhs-note .lb-slide img {\n  display: block;\n  width: 100%;\n  height: auto;\n  max-height: min(78vh, 860px);\n  object-fit: contain;\n  object-position: center;\n  border-radius: var(--lbn-radius);\n  margin: 0;\n}\n\n.xhs-note .lb-counter {\n  position: absolute;\n  top: 12px;\n  right: 12px;\n  z-index: 4;\n  padding: 4px 8px;\n  border-radius: 999px;\n  font-size: 12px;\n  line-height: 1;\n  color: white;\n  background: rgb(0 0 0 / 0.56);\n  backdrop-filter: blur(5px);\n}\n\n.xhs-note .lb-video-badge {\n  position: absolute;\n  left: 12px;\n  bottom: 12px;\n  z-index: 4;\n  padding: 6px 10px;\n  border-radius: 999px;\n  font-size: 12px;\n  font-weight: 650;\n  color: white;\n  background: rgb(0 0 0 / 0.68);\n  pointer-events: none;\n}\n\n.xhs-note .lb-detail {\n  font-size: var(--lb-body-size);\n  line-height: 1.72;\n  overflow-wrap: anywhere;\n}\n\n.xhs-note .lb-author-row {\n  display: flex;\n  align-items: center;\n  gap: 9px;\n  margin: 2px 0 14px;\n}\n\n/* 恢复 9/4 晚上稳定版：30px、无外框，不再用 9/5 凌晨的 28px + border。 */\n.xhs-note .lb-author-dot {\n  width: 30px;\n  height: 30px;\n  flex: 0 0 30px;\n  border-radius: 50%;\n  background: color-mix(in srgb, var(--interactive-accent) 24%, var(--background-secondary));\n}\n\n.xhs-note .lb-author-copy {\n  min-width: 0;\n  line-height: 1.3;\n}\n\n.xhs-note .lb-author-name {\n  font-weight: 700;\n  color: var(--text-normal);\n}\n\n.xhs-note .lb-post-meta {\n  margin-top: 2px;\n  font-size: 0.78em;\n  color: var(--lb-muted);\n}\n\n/* 正文现在是 HTML `<p>`（在 .lb-body 里）；字号/行高保持原样。 */\n.xhs-note .lb-body p {\n  font-size: var(--lb-body-size);\n  line-height: 1.72;\n  color: var(--text-normal);\n  margin: 0 0 0.82em;\n  overflow-wrap: anywhere;\n}\n\n.xhs-note .lb-body p:last-child {\n  margin-bottom: 0;\n}\n\n.xhs-note mark {\n  border-radius: 3px;\n  padding: 0 2px;\n}\n/* 1015 作者：划重点默认黄色，可换绿 / 蓝 / 粉 / 紫；点一下已划的出小条（换色 / 取消） */\n.xhs-note mark { background: rgba(255, 214, 10, .42); color: inherit; }\n.theme-dark .xhs-note mark { background: rgba(255, 214, 10, .32); }\n.xhs-note mark.lb-hl-green { background: rgba(80, 200, 120, .34); }\n.xhs-note mark.lb-hl-blue { background: rgba(80, 160, 255, .32); }\n.xhs-note mark.lb-hl-pink { background: rgba(255, 120, 170, .32); }\n.xhs-note mark.lb-hl-purple { background: rgba(170, 120, 255, .32); }\nbody.lb-actions-on .xhs-note .lb-scroll mark { cursor: pointer; }\n.xhs-note mark.lb-mark-pending { opacity: .65; }\n.lb-hl-pop { position: fixed; z-index: var(--layer-menu, 65); display: flex; align-items: center; gap: 6px; padding: 5px 8px; border-radius: 999px; background: var(--background-primary); border: 1px solid var(--background-modifier-border); box-shadow: 0 4px 16px rgba(0, 0, 0, .16); }\n.lb-hl-pop button { box-shadow: none !important; cursor: pointer; }\n.lb-hl-pop .lb-hl-dot { width: 18px; height: 18px; padding: 0 !important; border-radius: 50% !important; border: 2px solid transparent !important; }\n.lb-hl-pop .lb-hl-dot.is-on { border-color: var(--text-normal) !important; }\n.lb-hl-pop .lb-hl-dot-yellow { background: rgb(255, 214, 10) !important; }\n.lb-hl-pop .lb-hl-dot-green { background: rgb(80, 200, 120) !important; }\n.lb-hl-pop .lb-hl-dot-blue { background: rgb(80, 160, 255) !important; }\n.lb-hl-pop .lb-hl-dot-pink { background: rgb(255, 120, 170) !important; }\n.lb-hl-pop .lb-hl-dot-purple { background: rgb(170, 120, 255) !important; }\n.lb-hl-pop .lb-hl-off { height: auto !important; padding: 1px 6px !important; border: 0 !important; background: transparent !important; color: var(--text-muted); font-size: 12px; }\n.lb-hl-pop .lb-hl-off:hover { color: var(--text-normal); }\n/* 1015 作者：正文下面「视频文字稿 / 视频画面文字」折叠标题改小字、浅色 */\n.xhs-note details.lb-transcript > summary { font-size: 12px; color: var(--text-faint); font-weight: 400; cursor: pointer; }\n.xhs-note details.lb-transcript > summary:hover { color: var(--text-muted); }\n\n\n/* 顶部原文/机读版/附件：保留 9/5 已确认的分隔符间距。 */\n.xhs-note .callout[data-callout=\"link-brain-file\"] {\n  margin: 2px 0 14px;\n  padding: 0;\n  border: 0;\n  border-radius: 0;\n  background: transparent;\n  box-shadow: none;\n  mix-blend-mode: normal;\n  font-size: 0.86em;\n  color: var(--text-muted);\n}\n\n.xhs-note .callout[data-callout=\"link-brain-file\"] .callout-title {\n  display: none;\n}\n\n.xhs-note .callout[data-callout=\"link-brain-file\"] .callout-content {\n  padding: 0;\n}\n\n.xhs-note .callout[data-callout=\"link-brain-file\"] p {\n  margin: 0;\n  word-spacing: 0.32em;\n  line-height: 1.75;\n}\n\n.xhs-note .callout[data-callout=\"link-brain-file\"] p + p {\n  margin-top: 6px;\n}\n\n.xhs-note .callout[data-callout=\"link-brain-file\"] a,\n.xhs-note .callout[data-callout=\"link-brain-file\"] a.internal-link {\n  color: var(--text-muted);\n  text-decoration: none;\n}\n\n.xhs-note .callout[data-callout=\"link-brain-file\"] a:hover,\n.xhs-note .callout[data-callout=\"link-brain-file\"] a.internal-link:hover {\n  color: var(--interactive-accent);\n  text-decoration: underline;\n}\n\n/* 顶部 原文·机读版 入口：无框，链接用主题的链接色（不再发灰）。Owner 2026-09-17。 */\n.xhs-note .callout[data-callout=\"lb-topbar\"] {\n  margin: 2px 0 16px;\n  padding: 0;\n  border: 0;\n  border-radius: 0;\n  background: transparent;\n  box-shadow: none;\n  mix-blend-mode: normal;\n  font-size: 0.86em;\n}\n.xhs-note .callout[data-callout=\"lb-topbar\"] .callout-title { display: none; }\n.xhs-note .callout[data-callout=\"lb-topbar\"] .callout-content { padding: 0; }\n.xhs-note .callout[data-callout=\"lb-topbar\"] p {\n  margin: 0;\n  word-spacing: 0.28em;\n  line-height: 1.7;\n}\n/* Owner 要发灰，跟下面的附件文件链接一样。 */\n.xhs-note .callout[data-callout=\"lb-topbar\"] a,\n.xhs-note .callout[data-callout=\"lb-topbar\"] a.internal-link {\n  color: var(--text-muted);\n  text-decoration: none;\n}\n.xhs-note .callout[data-callout=\"lb-topbar\"] a:hover,\n.xhs-note .callout[data-callout=\"lb-topbar\"] a.internal-link:hover {\n  color: var(--interactive-accent);\n  text-decoration: underline;\n}\n\n.xhs-note .lb-tags {\n  display: flex;\n  flex-wrap: wrap;\n  gap: 10px;\n  margin: 10px 0 6px;\n}\n\n.xhs-note .lb-tag {\n  display: inline;\n  padding: 0;\n  border-radius: 0;\n  font-size: 0.92em;\n  line-height: 1.65;\n  color: var(--link-color);\n  background: transparent;\n}\n\n.xhs-note .lb-engagement {\n  display: flex;\n  flex-wrap: wrap;\n  gap: 14px;\n  margin: 9px 0 0;\n  padding-bottom: 12px;\n  border-bottom: 1px solid var(--lbn-line);\n  font-size: 0.78em;\n  color: var(--lb-muted);\n}\n\n.xhs-note .lb-comments {\n  margin-top: 14px;\n}\n\n.xhs-note .lb-comment {\n  margin: 0 0 17px;\n  padding: 0;\n  border: 0;\n  background: transparent;\n  font-size: var(--lb-comment-size);\n  line-height: 1.62;\n}\n\n.xhs-note .lb-comment-author {\n  margin-bottom: 2px;\n  font-family: var(--lb-font-body);\n  font-size: 0.86em;\n  font-weight: 600;\n  color: var(--text-muted);\n}\n\n.xhs-note .lb-comment-text {\n  font-family: \"Kaiti SC\", STKaiti, KaiTi, \"楷体\", serif;\n  font-size: 1.04em;\n  color: var(--text-normal);\n  overflow-wrap: anywhere;\n}\n\n.xhs-note .lb-reply-target {\n  color: var(--text-muted);\n}\n\n.xhs-note .lb-comment-actions {\n  margin-top: 2px;\n  font-family: var(--lb-font-body);\n  font-size: 0.72em;\n  color: var(--text-faint);\n}\n\n.xhs-note .lb-replies {\n  position: relative;\n  margin-top: 8px;\n  margin-left: clamp(8px, 1.25vw, 15px);\n  padding-left: clamp(11px, 1.45vw, 17px);\n  border-left: 1px solid var(--lb-reply-line);\n}\n\n.xhs-note .lb-reply {\n  margin-bottom: 10px;\n  font-size: 0.97em;\n}\n\n.xhs-note .lb-comments-note {\n  margin: 0 0 10px;\n  padding: 6px 10px;\n  border-radius: 6px;\n  background: var(--background-secondary);\n  font-size: 0.8em;\n  color: var(--text-muted);\n}\n\n.xhs-note .lb-more-replies {\n  margin-top: 1px;\n  font-family: var(--lb-font-body);\n  font-size: 0.76em;\n  color: var(--text-muted);\n}\n\n.xhs-note .lb-comment-media {\n  display: flex;\n  flex-wrap: wrap;\n  gap: 6px;\n  margin-top: 7px;\n}\n\n.xhs-note .lb-comment-image {\n  width: auto;\n  max-width: min(180px, 48%);\n  max-height: 180px;\n  border-radius: 9px;\n  object-fit: contain;\n  margin: 0;\n}\n/* 0928 Owner：表情包小一点，截图/表格/流程图大一点，多张并排 */\n.xhs-note .lb-comment-image.lb-ci-sticker { max-width: 96px; max-height: 96px; }\n.xhs-note .lb-comment-image.lb-ci-photo { max-width: min(260px, 70%); max-height: 260px; }\n.xhs-note .lb-comment-image.lb-ci-doc { max-width: 100%; max-height: 520px; }\n.xhs-note .lb-comment-media.lb-ci-n2,\n.xhs-note .lb-comment-media.lb-ci-n3 { display: grid; gap: 6px; align-items: start; }\n.xhs-note .lb-comment-media.lb-ci-n2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }\n.xhs-note .lb-comment-media.lb-ci-n3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }\n.xhs-note .lb-ci-n2 .lb-comment-image.lb-ci-doc,\n.xhs-note .lb-ci-n3 .lb-comment-image.lb-ci-doc,\n.xhs-note .lb-ci-n2 .lb-comment-image.lb-ci-photo,\n.xhs-note .lb-ci-n3 .lb-comment-image.lb-ci-photo { width: 100%; max-width: 100%; max-height: 360px; object-fit: cover; object-position: top; }\n/* 机读版里的 Mermaid 流程图：缩放到一屏宽，不横向拖（0928 Owner：别像清明上河图） */\n.markdown-rendered .mermaid svg { max-width: 100% !important; height: auto; }\n.markdown-rendered .mermaid { overflow: visible; text-align: center; }\n\n.xhs-note .lb-empty {\n  color: var(--lb-muted);\n  font-size: 0.9em;\n}\n\n/* 600–800px 仍保持两栏；这里只保留原来的图片高度/文字响应规则，不再改 lb-media 宽度。 */\n@container link-brain-note (max-width: 800px) {\n  .xhs-note .lb-slide img {\n    max-height: 70vh;\n  }\n\n  .xhs-note .lb-detail {\n    font-size: clamp(15px, 3.6cqi, 16px);\n    line-height: 1.68;\n  }\n\n  .xhs-note .lb-replies {\n    margin-left: 6px;\n    padding-left: 10px;\n  }\n\n  .xhs-note .lb-comment {\n    font-size: clamp(13.8px, 3.4cqi, 15px);\n  }\n}\n\n@container link-brain-note (max-width: 480px) {\n  .xhs-note .inline-title {\n    font-size: clamp(1.32rem, 6.4cqi, 1.68rem);\n  }\n\n  .xhs-note .lb-counter,\n  .xhs-note .lb-video-badge {\n    font-size: 11px;\n  }\n\n  .xhs-note .lb-author-dot {\n    width: 27px;\n    height: 27px;\n    flex-basis: 27px;\n  }\n\n  .xhs-note .lb-replies {\n    margin-left: 3px;\n    padding-left: 8px;\n  }\n}\n\n/* Search reader: images, author text and comments form one vertical document. */\n.lb-source-reader .lb-note{display:block!important;}\n.lb-source-reader .lb-side{position:static!important;}\n.lb-source-reader .lb-main{height:auto!important;overflow:visible!important;}\n.lb-source-reader .lb-scroll{overflow:visible!important;}\n.lb-source-reader .lb-slide img,.lb-source-reader .lb-slide video{max-height:48vh!important;}\n\n/* Controls sit outside the media rather than over the picture/video. */\n.lb-visually-hidden{position:absolute!important;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap;}\n.xhs-note .lb-media{position:relative;}\n.xhs-note .lb-carousel:has(video)::scroll-button(left),.xhs-note .lb-carousel:has(video)::scroll-button(right){content:none!important;display:none!important;}\n@supports selector(.lb-carousel::scroll-button(left)){\n .xhs-note .lb-carousel:not(:has(video))::scroll-button(left),.xhs-note .lb-carousel:not(:has(video))::scroll-button(right){position:absolute;top:50%;transform:translateY(-50%);z-index:5;width:34px;height:34px;border:0;border-radius:50%;color:white;background:rgb(0 0 0 / .45);font-size:28px;line-height:1;opacity:0;cursor:pointer;}\n .xhs-note .lb-carousel:not(:has(video)):has(.lb-slide:nth-child(2))::scroll-button(left){content:'‹';left:8px;right:auto;}\n .xhs-note .lb-carousel:not(:has(video)):has(.lb-slide:nth-child(2))::scroll-button(right){content:'›';right:8px;left:auto;}\n .xhs-note .lb-carousel:hover::scroll-button(left),.xhs-note .lb-carousel:hover::scroll-button(right){opacity:1;}\n}\n.xhs-note .lb-counter{right:48px;}\n.xhs-note .lb-carousel:has(video) .lb-slide:not(:has(video)){display:none!important;}\n.xhs-note .lb-carousel:has(video){overflow:hidden!important;}\n.xhs-note .lb-media-pin{position:absolute;right:8px;top:8px;z-index:6;border:0;box-shadow:0 1px 4px #0002;background:var(--background-primary);color:var(--text-muted);border-radius:50%;width:30px;height:30px;padding:6px;cursor:pointer;}\n.xhs-note .lb-media-pin svg{display:block;width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.6;}\n.xhs-note .lb-media-pin[aria-pressed=true]{color:var(--text-normal);}.xhs-note .lb-media-pin[aria-pressed=true] svg{fill:currentColor;}\n.xhs-note .lb-media:has(.lb-media-tools) .lb-counter{display:none;}\n.xhs-note .lb-media-tools{display:flex;align-items:center;justify-content:center;gap:16px;margin-top:8px;}\n.xhs-note .lb-media-tools button{background:transparent;box-shadow:none;border:0;color:var(--text-muted);font:inherit;font-size:13px;padding:4px 10px;height:30px;cursor:pointer;}\n.xhs-note .lb-media-tools button:first-child,.xhs-note .lb-media-tools button:last-child{font-size:18px;}\n.xhs-note .lb-media-tools .lb-video-speed{font-size:13px!important;touch-action:none;cursor:ew-resize;user-select:none;}\n.xhs-note .lb-thumbnails{display:grid;grid-template-columns:repeat(auto-fill,minmax(56px,1fr));gap:7px;max-height:240px;overflow:auto;margin-top:10px;padding:4px;}\n.xhs-note .lb-thumbnails[hidden]{display:none!important;}\n.xhs-note .lb-thumbnails button{display:flex;flex-direction:column;align-items:center;gap:3px;height:auto;padding:3px;border:1px solid transparent;background:var(--background-secondary);box-shadow:none;font-size:11px;color:var(--text-muted);}\n.xhs-note .lb-thumbnails button.is-current{border-color:var(--text-muted);}\n.xhs-note .lb-thumbnails img{height:62px;width:100%;object-fit:cover;margin:0;border-radius:3px;}\n.xhs-note .lb-note.lb-media-free .lb-side{position:static!important;}\n.xhs-note .lb-note.lb-media-free .lb-main{height:auto!important;overflow:visible!important;}\n.xhs-note .lb-note.lb-media-free .lb-scroll{overflow:visible!important;}\n.lb-source-reader .lb-note.lb-media-locked{display:flex!important;flex-direction:column;height:var(--lb-reader-height,calc(100vh - 150px));}\n.lb-source-reader .lb-media-locked .lb-side{flex:none;width:100%;}\n.lb-source-reader .lb-media-locked .lb-slide img,.lb-source-reader .lb-media-locked .lb-slide video{max-height:min(36vh,calc(var(--lb-reader-height,100vh) * .42))!important;}\n.lb-source-reader .lb-media-locked .lb-main{flex:1;min-height:100px;width:100%;height:auto!important;overflow:hidden!important;}\n.lb-source-reader .lb-media-locked .lb-scroll{overflow:auto!important;}\n@container link-brain-note (max-width:600px){\n .xhs-note .lb-note.lb-media-locked{display:flex;flex-direction:column;height:var(--lb-reader-height,calc(100vh - 150px));}\n .xhs-note .lb-media-locked .lb-side{flex:none;width:100%;}\n .xhs-note .lb-media-locked .lb-slide img,.xhs-note .lb-media-locked .lb-slide video{max-height:min(36vh,calc(var(--lb-reader-height,100vh) * .42))!important;}\n .xhs-note .lb-media-locked .lb-main{flex:1;min-height:100px;width:100%;overflow:hidden;}\n .xhs-note .lb-media-locked .lb-scroll{overflow:auto;}\n}\n\n/* Evidence stays in the existing reader; no extra window. */\n.lb-evidence-bar{position:sticky;top:0;z-index:8;display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 12px;background:var(--background-primary);border-bottom:1px solid var(--background-modifier-border);font-size:12px;}\n.lb-evidence-bar details{max-width:100%;}.lb-evidence-bar blockquote{max-height:180px;overflow:auto;white-space:pre-wrap;}\n/* 1026 作者：不要紫色框——淡黄底，像荧光笔 */\n.lb-evidence-hit{outline:none!important;background:rgba(255,214,102,.38)!important;border-radius:3px;}\n/* 1022 落到图 / 视频上：描圈会被轮播裁掉，改外发光脉冲 */\n.lb-media-hit{outline:none!important;box-shadow:0 0 0 3px rgba(255,190,70,.75)!important;border-radius:6px;}\n@keyframes lbmediahit{0%,100%{box-shadow:0 0 0 4px var(--interactive-accent),0 0 18px 4px var(--interactive-accent)}50%{box-shadow:0 0 0 1px var(--interactive-accent),0 0 4px 1px var(--interactive-accent)}}\n\n/* Hide only this library's internal data from the everyday file tree. */\n.nav-folder:has(> .nav-folder-title[data-path=\"_archive\"]),\n.nav-folder:has(> .nav-folder-title[data-path=\"_trash\"]),\n.nav-folder:has(> .nav-folder-title[data-path=\"知识库【小红书】/_archive\"]),\n.nav-folder:has(> .nav-folder-title[data-path=\"知识库【小红书】/_trash\"]){display:none;}\n\n/* Lock the reading viewport as well as the inner article. */\n.lb-pane-locked{overflow:hidden!important;overscroll-behavior:none;}\n.xhs-note .lb-note.lb-media-locked{height:var(--lb-reader-height,78vh);overflow:hidden;}\n.xhs-note .lb-media-locked .lb-main{height:100%!important;min-height:0!important;overflow:hidden!important;}\n.xhs-note .lb-media-locked .lb-scroll{flex:1;min-height:0;overflow:auto!important;overscroll-behavior:contain;}\n.xhs-note .lb-media-locked .lb-slide img,.xhs-note .lb-media-locked .lb-slide video{max-height:calc(var(--lb-reader-height,78vh) - 50px);}\n/* 0929 Owner：钉住时左栏图片下的批注输入框也要够得着——左栏自己能滚 */\n.xhs-note .lb-media-locked .lb-side{max-height:var(--lb-reader-height,78vh);overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;}\n\n/* 语音评论（0926）：标签 + 站点自带转写 + 播放器，素净 */\n.xhs-note .lb-comment-audio { margin-top: 6px; display: flex; flex-direction: column; gap: 4px; }\n.xhs-note .lb-comment-audio-label { font-size: 12px; color: var(--text-muted); }\n.xhs-note .lb-comment-asr { font-size: 13px; color: var(--text-normal); line-height: 1.55; }\n.xhs-note .lb-comment-audio audio { height: 32px; max-width: 280px; }\n\n/* 0926 Owner：固定按钮平时隐藏，鼠标移到图片/视频上才出现 */\n.xhs-note .lb-media-pin{opacity:0;transition:opacity .15s;}\n.xhs-note .lb-media:hover .lb-media-pin,.xhs-note .lb-media-pin:focus-visible{opacity:1;}\n/* 0926 Owner：图片滑动条不显示横向滚动条（用左右箭头/滚轮/←→翻页） */\n.xhs-note .lb-carousel{scrollbar-width:none;}\n.xhs-note .lb-carousel::-webkit-scrollbar{display:none;}\n\n/* 10-04 Owner：正文不要上下拖动的滚动条——右栏正文 / 评论（.lb-scroll）、钉住时左栏图片区（.lb-side）、整页阅读区都只藏滚动条外观，\n   滚轮 / 触摸 / 键盘照样能滚；不改任何尺寸和布局（两栏 grid、sticky、批注框位置都不动） */\n.markdown-preview-view.xhs-note,\n.markdown-source-view.xhs-note .cm-scroller,\n.xhs-note .lb-main,\n.xhs-note .lb-scroll,\n.xhs-note .lb-side,\n.xhs-note .lb-media-locked .lb-side { scrollbar-width: none; }\n.markdown-preview-view.xhs-note::-webkit-scrollbar,\n.markdown-source-view.xhs-note .cm-scroller::-webkit-scrollbar,\n.xhs-note .lb-main::-webkit-scrollbar,\n.xhs-note .lb-scroll::-webkit-scrollbar,\n.xhs-note .lb-side::-webkit-scrollbar { display: none; width: 0; height: 0; }\n\n/* 10-04 Owner：正文里的标签（#codex 那排）外面不要框，只留文字（颜色照旧）。\n   那圈灰框是插件 styles.css 里设置页「要 key / 必需」小标签的 .lb-tag 漏到笔记里来了（插件那边也已收窄到设置页）。 */\n.xhs-note .lb-tags .lb-tag {\n  display: inline;\n  margin: 0;\n  padding: 0;\n  border: 0;\n  border-radius: 0;\n  box-shadow: none;\n  background: transparent;\n  font-size: 0.92em;\n  line-height: 1.65;\n  color: var(--link-color);\n}\n\n/* 10-04 Owner：正文视频的控制条（播放 / 进度 / 音量 / 全屏）和下面那行倍速「1×」平时藏着，鼠标放到视频上才出现；\n   控制条的显隐由插件 media-nav.js 切 video 的 controls 属性（键盘 Tab 到视频上也会出现），这里只管倍速那一行：用透明度，不占位变化 */\n.xhs-note .lb-media:has(video) .lb-media-tools { opacity: 0; transition: opacity .15s; }\n.xhs-note .lb-media:has(video):hover .lb-media-tools,\n.xhs-note .lb-media:has(video):focus-within .lb-media-tools { opacity: 1; }\n@media (hover: none) { .xhs-note .lb-media:has(video) .lb-media-tools { opacity: 1; } }\n\n/* ── 批次 D · L3 笔记页（10-08）：只在末尾追加，已有规则一条不改；插件把同一份（note.css）注入 head ── */\n/* N8 / N14：「现在抓全部评论」入口——只在桌面插件开着时显示（note-actions 给 body 加 lb-actions-on），手机上 / 插件没开时不露点了没反应的字 */\n.xhs-note .lb-act { display: none; }\nbody.lb-actions-on .xhs-note .lb-act { display: inline; margin-left: 8px; color: var(--text-muted); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; font-size: .95em; }\nbody.lb-actions-on .xhs-note .lb-act:hover { color: var(--interactive-accent); }\n/* N9：正文标签（原帖话题）点了回目录按 #标签 筛：悬停下划线，颜色不变、不加框 */\nbody.lb-actions-on .xhs-note .lb-tags .lb-tag { cursor: pointer; }\nbody.lb-actions-on .xhs-note .lb-tags .lb-tag:hover { text-decoration: underline; text-underline-offset: 2px; }\n/* N17：Dataview（或它的 JS 查询）没开时不露批注 bootstrap 的源码，由页顶提示条说明原因 */\n.xhs-note pre.language-dataviewjs, .xhs-note pre:has(> code.language-dataviewjs) { display: none; }\n/* 1102：插件没开时 ```lb-page 批注块同样不露源码 */\n.xhs-note pre.language-lb-page, .xhs-note pre:has(> code.language-lb-page) { display: none; }\n/* N15：钉住时视频的倍速 / 循环行浮在视频左上角（仍只在悬停时出现），让出位置给批注框；视频本身不缩 */\n.xhs-note .lb-media-locked .lb-media:has(video) .lb-media-tools { position: absolute; left: 8px; top: 8px; z-index: 6; margin: 0; gap: 4px; padding: 0 6px; border-radius: 999px; background: rgb(0 0 0 / .45); }\n.xhs-note .lb-media-locked .lb-media:has(video) .lb-media-tools button { color: #fff; }\n/* F6：循环 / 连播和倍速同字号（不被上面 button:first-child / :last-child 的 18px 放大） */\n.xhs-note .lb-media-tools .lb-video-loop, .xhs-note .lb-media-tools .lb-video-playlist { font-size: 13px !important; }\n.xhs-note .lb-media-tools .lb-video-loop[aria-pressed=\"true\"] { color: var(--text-normal); font-weight: 600; }\n/* 1101 作者「这个怎么跑下面去了，应该在视频左上角，播放时隐藏」：没钉住也一样——倍速 / 循环 / 全屏 / 连播浮在视频左上角（悬停才出）；\n   播放中收起，鼠标在画面上动才露 2 秒（media-nav 挂 .lb-playing / .lb-tools-awake；10-31 那条只写进了 note.css 副本，同步时丢了） */\n.xhs-note .lb-media:has(video) .lb-media-tools { position: absolute; left: 8px; top: 8px; z-index: 6; margin: 0; gap: 4px; padding: 0 6px; border-radius: 999px; background: rgb(0 0 0 / .45); }\n.xhs-note .lb-media:has(video) .lb-media-tools button { color: #fff; }\n.xhs-note .lb-media:has(video) .lb-media-tools .lb-video-loop[aria-pressed=\"true\"], .xhs-note .lb-media:has(video) .lb-media-tools .lb-video-full[aria-pressed=\"true\"] { color: #fff; }\n.xhs-note .lb-media.lb-playing:not(.lb-tools-awake) .lb-media-tools { opacity: 0 !important; pointer-events: none; }\n/* N10：划重点先乐观包上的那层（写上之前淡一点；没写上会退回） */\n.xhs-note mark.lb-mark-pending { opacity: .6; }\n/* N6：评论图预写的 width/height 只做占位（防跳），高度仍按比例由宽度算，不让 height 属性变成真高度 */\n.xhs-note .lb-comment-image { height: auto; }\n\n/* ── 1011 作者：打开一篇先露出原始 Markdown（属性块 + 带 link_brain 的 JSON、蓝色「Lb topbar」框、<!-- link-brain:content:start -->）再变正常页 ──\n   插件已让归档笔记直接以阅读视图打开（main.js previewOpenState）；这里是不靠 cssclasses 的第二道：cssclasses 要等 Obsidian\n   解析完这篇的属性才挂到视图上，早一两帧视图上还没有 .xhs-note，上面那些 .xhs-note 规则全不生效。只用归档笔记独有的东西认：\n   ①属性里有 link_brain 的属性块直接不显示；②顶栏 callout（lb-topbar 是我们自己的类型）不靠 .xhs-note 也去框、去标题；\n   ③视图里有带 data-lb-item 的 .lb-note、却还没挂上 .xhs-note 时整页先不露（visibility，占位不变），.xhs-note 一到立刻显示；\n      最多遮 1.2 秒（动画放行），哪怕 cssclasses 被删了也不会一直空白。 */\n.metadata-container:has(.metadata-property[data-property-key=\"link_brain\"]) { display: none !important; }\n.callout[data-callout=\"lb-topbar\"] { margin: 2px 0 16px; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; mix-blend-mode: normal; font-size: 0.86em; }\n.callout[data-callout=\"lb-topbar\"] .callout-title { display: none; }\n.callout[data-callout=\"lb-topbar\"] .callout-content { padding: 0; }\n.callout[data-callout=\"lb-topbar\"] p { margin: 0; }\n.callout[data-callout=\"lb-topbar\"] a, .callout[data-callout=\"lb-topbar\"] a.internal-link { color: var(--text-muted); text-decoration: none; }\n@keyframes lb-unveil { from { visibility: hidden; } to { visibility: visible; } }\n.markdown-preview-view:not(.xhs-note):has(> .markdown-preview-sizer > div > .lb-note[data-lb-item]) > .markdown-preview-sizer,\n.markdown-source-view:not(.xhs-note):has(.lb-note[data-lb-item]) .cm-sizer { animation: lb-unveil 0.01s linear 1.2s both; }\n\n/* 1023：图上角标「n / N」+ 图钉太重（深灰胶囊 + 白圆），改成同一套浅色半透明小胶囊，高度对齐、字号 12px 和正文辅助字一致 */\n.xhs-note .lb-counter{top:10px;right:44px;height:26px;padding:0 10px;display:flex;align-items:center;box-sizing:border-box;font-size:12px;font-variant-numeric:tabular-nums;letter-spacing:.02em;color:rgb(0 0 0 / .72);background:rgb(255 255 255 / .72);backdrop-filter:blur(6px);box-shadow:none;}\n.xhs-note .lb-media-pin{top:10px;right:10px;width:26px;height:26px;padding:5px;background:rgb(255 255 255 / .72);backdrop-filter:blur(6px);box-shadow:none;color:rgb(0 0 0 / .55);}\n.xhs-note .lb-media-pin svg{width:16px;height:16px;}\n.xhs-note .lb-media-pin[aria-pressed=true]{color:rgb(0 0 0 / .85);}\n.theme-dark .xhs-note .lb-counter,.theme-dark .xhs-note .lb-media-pin{background:rgb(0 0 0 / .42);color:rgb(255 255 255 / .85);}\n\n/* 1026 作者「你看它不是全屏」：视频「全屏」= 整块（画面 + 倍速 / 循环 / 连播那一行）铺满屏幕（media-nav fullscreen；不支持时 .lb-fs-fallback 铺满窗口） */\n.xhs-note .lb-media.is-lb-fullscreen { background: #000; display: flex; flex-direction: column; justify-content: center; width: 100vw; height: 100vh; max-width: none; margin: 0; padding: 0; border-radius: 0; }\n.xhs-note .lb-media.is-lb-fullscreen .lb-carousel { flex: 1 1 auto; min-height: 0; height: auto !important; max-height: none !important; }\n.xhs-note .lb-media.is-lb-fullscreen .lb-slide { height: 100% !important; max-height: none !important; display: flex; align-items: center; justify-content: center; background: #000; }\n.xhs-note .lb-media.is-lb-fullscreen .lb-slide video, .xhs-note .lb-media.is-lb-fullscreen .lb-slide img { width: 100% !important; height: 100% !important; max-width: none !important; max-height: none !important; object-fit: contain; border-radius: 0; }\n.xhs-note .lb-media.is-lb-fullscreen .lb-media-tools { position: static !important; opacity: 1 !important; margin: 0; padding: 6px 0; border-radius: 0; background: rgb(0 0 0 / .6); }\n.xhs-note .lb-media.is-lb-fullscreen .lb-media-tools button { color: #fff; }\n.xhs-note .lb-media.is-lb-fullscreen .lb-media-pin { display: none; }\n.xhs-note .lb-media-tools .lb-video-full { font-size: 13px !important; }\n.xhs-note .lb-media-tools .lb-video-full[aria-pressed=\"true\"] { color: var(--text-normal); font-weight: 600; }\n.lb-fs-fallback { position: fixed !important; inset: 0 !important; z-index: var(--layer-modal, 50) !important; width: 100vw !important; height: 100vh !important; max-width: none !important; max-height: none !important; margin: 0 !important; }\n";
+// ── main.src.js ──
 const obsidian = require("obsidian");
 const { Plugin, Notice, TFile, Modal, PluginSettingTab, Setting, requestUrl } = obsidian;
-const { spawn } = require("child_process");
-const path = require("path");
-const fs = require("fs");
+// 1102 手机：Node 模块（child_process / path / fs / os / electron）手机上没有。模块一加载就引用会让整个插件在手机上起不来，
+// 所以一律用到时才加载：path / fs 是「第一次读属性时才 require」的代理，spawn 是调用时才 require。桌面上行为不变。
+function lazyNodeModule(name) {
+  let mod = null;
+  const load = () => mod || (mod = require(name));
+  return new Proxy({}, {
+    get(_, key) { const m = load(), v = m[key]; return typeof v === "function" ? v.bind(m) : v; },
+    has(_, key) { return key in load(); },
+    ownKeys() { return Reflect.ownKeys(load()); },
+    getOwnPropertyDescriptor(_, key) { const d = Object.getOwnPropertyDescriptor(load(), key); return d ? { ...d, configurable: true } : d; },
+  });
+}
+function spawn(...args) { return require("child_process").spawn(...args); }
+const path = lazyNodeModule("path");
+const fs = lazyNodeModule("fs");
+// 下载文件夹的默认值（模块加载时就算：手机上没有 os 模块，算不出来就留空，桌面上不会走到）
+function defaultDownloadsFolder() {
+  if (typeof process === "undefined" || !process.versions || !process.versions.node) return "";   // 手机（没有 Node）：不去碰 os / path
+  try { return path.join(require("os").homedir(), "Downloads"); } catch { return ""; }
+}
+// page-host.js 由 esbuild 打进 main.js（全局名 LBPageHost，tools/build_plugin.cjs）；直接跑 main.src.js（单测）时退回 require 同目录那份
+function pageHostFactory() {
+  if (typeof LBPageHost !== "undefined" && LBPageHost) return LBPageHost;
+  return require("./page-host.js");
+}
 
 function endpointHost(value) {
   try { return new URL(String(value).includes('://') ? value : 'https://' + value).hostname.toLowerCase().replace(/^www\./, '').replace(/^\[|\]$/g, ''); }
@@ -188,7 +483,8 @@ function pickSyncTask(nightly, legacy) {
   if (exists(legacy)) return LEGACY_SYNC_TASK;
   return null;
 }
-// Dataview（首版必装依赖）：'ok' / 'missing'（没装）/ 'disabled'（装了没开）/ 'nojs'（没开 JS 查询）；拿不到插件表 = null（不提示）。
+// Dataview 的状态：'ok' / 'missing'（没装）/ 'disabled'（装了没开）/ 'nojs'（没开 JS 查询）；拿不到插件表 = null。
+// 1102 起 LWA 不再要 Dataview（页面是 ```lb-page 块，page-host.js 执行）；只用来判断「还开着旧 dataviewjs 页面、又没有 Dataview」时提示一次刷新目录。
 function dataviewState(app) {
   const pl = app && app.plugins;
   if (!pl || !pl.manifests) return null;
@@ -199,11 +495,10 @@ function dataviewState(app) {
   if (dv && dv.settings && dv.settings.enableDataviewJs === false) return "nojs";
   return "ok";
 }
-const DATAVIEW_HINT = {
-  missing: "目录页、问收藏页和笔记下面的批注靠 Dataview 插件显示：还没装。到「第三方插件 → 浏览」搜 Dataview 安装并启用，再在它的设置里打开 Enable JavaScript Queries。",
-  disabled: "目录页、问收藏页和笔记下面的批注靠 Dataview 插件显示：已装但没启用。在「第三方插件」里打开 Dataview，再在它的设置里打开 Enable JavaScript Queries。",
-  nojs: "目录页、问收藏页和笔记下面的批注靠 Dataview 的 JS 查询显示：在 Dataview 设置里打开 Enable JavaScript Queries。",
-};
+// 旧格式页面（md 里还是 ```dataviewjs）且没有可用的 Dataview：提示一次刷新目录，换成插件自己显示的 ```lb-page 块
+const LEGACY_PAGE_HINT = "这一页还是旧格式（要 Dataview 才显示）。点「刷新目录」换成新格式就能看，不用装 Dataview。";
+// 只看同一块里（不跨过 ```）：用户自己的 dataviewjs + 我们的新 lb-page 批注块（里面有 _archive/ 路径）不算
+const hasLegacyPageBlock = text => /```dataviewjs\r?\n(?:(?!```)[\s\S])*?(?:_archive\/|annotate-view\.js)/.test(String(text || ""));
 
 // AI 接口配置的默认值。**必须和 link_brain/ai_config.py 的 DEFAULTS 对齐**（改一处改两处）。
 // Owner 2026-09-16 授权在此配置各接口 endpoint/model/key；凭据只落本插件 data.json
@@ -254,7 +549,7 @@ const DEFAULT_SETTINGS = {
   // 1028 作者：「存好了作为样式锁定，可以恢复默认或恢复样式 1」——存过的编排 [{name, layout}]（layout 和 catalogLayout 同一个形状）；当前用的是哪一个（空 = 没存过 / 默认）
   catalogStyles: [],
   catalogStyleCur: "",
-  downloads: {folder: path.join(require("os").homedir(), "Downloads"), waitMinutes: 5},
+  downloads: {folder: defaultDownloadsFolder(), waitMinutes: 5},
   nickname: "",   // 批注署名（留空 = 不署名）
   annotateMention: "",   // 批注留言对象：填名字后「@名字」开头的批注标成留言给它（10-03：默认不启用）
   // 收藏同步（0926）：自动拉取评论楼层 10/20/50/all（默认 10）。dailyNewLimit 默认 50、0 = 不限（第 5 批 4.1）。和 link_brain/ai_config.py 对齐。
@@ -808,12 +1103,20 @@ const TAB_ALIAS = { overview: ['overview'], general: ['overview'], status: ['ove
 class LinkBrainActions extends Plugin {
   async onload() {
     const started = Date.now();
+    // 1102：手机上只显示页面（同一个插件，桌面专用的部分一律不碰），见 onloadMobile
+    if (this.app && this.app.isMobile) return this.onloadMobile(started);
     this.running = null;
     this.importing = false;
     this.taskListeners = new Set();
     this.taskStatusEl = this.addStatusBarItem();
     this.taskStatusEl.addClass?.('lb-task-status');   // 1031：类名带 lb，no-tooltip.js 认得它
     this.taskStatusEl.hidden = true;
+    // 1102：LWA 的页面（目录 / 问收藏 / Wiki / 回收站 / B 站挑选 / 批注块）是 ```lb-page 代码块，由插件自己执行（page-host.js），不再要 Dataview。
+    // 放在 onload 最前面：Obsidian 启动时已经打开的目录页一注册就能画，不等后面的 await
+    try {
+      this.pageHost = pageHostFactory()(obsidian, this);
+      this.pageHost.attach();
+    } catch (e) { console.error('[lb] page-host.js 没加载上（目录页等显示不了）', e); }
     this.taskStatusEl.onclick = () => this.openSyncLog();
     const refreshTask = async () => {
       const { raw, sum, fill } = await this.readSyncFiles();
@@ -910,13 +1213,10 @@ class LinkBrainActions extends Plugin {
       const vs = leaf?.getViewState();
       if (vs?.state?.mode === 'source') leaf.setViewState({ ...vs, state: { ...vs.state, mode: 'preview' } });
     }));
-    // 第 5 批 B2：目录页 / 问收藏页 / 回收站（页头 lb-page）靠 Dataview 渲染——它不可用时在页面顶部放一条提示和打开插件设置的按钮
+    // 1102：目录页 / 问收藏页 / 回收站（页头 lb-page）由插件自己画（page-host.js）。旧库里这页还是 dataviewjs、又没有 Dataview 时提示一次刷新目录
     if (this.app.workspace?.on) this.registerEvent(this.app.workspace.on('file-open', (file) => {
       if (!(file instanceof TFile) || !this.app.metadataCache.getFileCache(file)?.frontmatter?.['lb-page']) return;
-      const dv = this.dataviewState();
-      if (!dv || dv === 'ok') return;
-      const view = this.app.workspace.getActiveViewOfType(obsidian.MarkdownView);
-      try { this.onboardingUI().dataviewBanner(view); } catch (e) { console.error('[lb] Dataview 提示没画上', e); }
+      this.legacyPageHint(file).catch(() => {});
     }));
 
     this.addCommand({
@@ -1378,12 +1678,22 @@ class LinkBrainActions extends Plugin {
   openOnboarding() { return this.onboardingUI().open(); }
   startupChecks() { return this.onboardingUI().startup(); }
   renderSetupHints(c) {
-    const dv = this.dataviewState();
-    if (this.currentBackend().mode !== 'missing' && (!dv || dv === 'ok') && !this.mediaNav?.skipped) return [];   // 都正常：什么也不加
+    if (this.currentBackend().mode !== 'missing' && !this.mediaNav?.skipped) return [];   // 都正常：什么也不加
     try { return this.onboardingUI().renderSetupHints(c); } catch (e) { console.error('[lb] 设置页提示没画上', e); return []; }
   }
   dataviewState() { return dataviewState(this.app); }
-  dataviewHint(state) { return DATAVIEW_HINT[state] || ''; }
+  // 1102：打开的页面 / 笔记里还是旧的 dataviewjs 块、Dataview 又不可用 → 这次打开 Obsidian 只提示一次（带「刷新目录」）。返回是否提示了
+  async legacyPageHint(file) {
+    if (this._legacyPageHinted || !file) return false;
+    const dv = this.dataviewState();
+    if (!dv || dv === 'ok') return false;
+    let text = '';
+    try { text = await this.app.vault.cachedRead(file); } catch { return false; }
+    if (!hasLegacyPageBlock(text) || this._legacyPageHinted) return false;
+    this._legacyPageHinted = true;
+    this.notify(LEGACY_PAGE_HINT, { kind: 'warn', ms: 15000, actions: [{ label: '刷新目录', run: () => this.refreshCatalog() }] });
+    return true;
+  }
   backendMissingText() { return backendMissingText(this.currentBackend()); }
   openPluginSettings(tab = 'community-plugins') { try { this.app.setting.open(); this.app.setting.openTabById(tab); } catch (e) { new Notice('没打开设置：' + e.message); } }
   commandTable() {
@@ -1852,7 +2162,7 @@ class LinkBrainActions extends Plugin {
     return r.json;
   }
 
-  // 本机环境（Python 包 / 插件 / Dataview / AI），只在设置页「运行环境」里展示。
+  // 本机环境（Python 包 / 插件 / AI），只在设置页「运行环境」里展示。
   async checkRuntime() {
     if (this.runtimeCheck) return this.runtimeCheck;
     this.runtimeCheck = (async () => {
@@ -2078,8 +2388,33 @@ class LinkBrainActions extends Plugin {
   // 问收藏页用户开始打字时预热（同一页 60 秒内只调一次）：没有 worker、也不在卸载时才起；返回是否新起了
   warmAnswerWorker() { if(this.answerWorker||this.unloading)return false; try{this.ensureAnswerWorker();return true;}catch(e){console.error('[lb] 预热问答进程没成',e);return false;} }
   stopArchiveAnswer(tag) { let n=0; for(const [id,p] of [...(this.answerPending?.entries()||[])]) { if(tag!=null&&p.tag!==tag)continue; if(this.cancelAnswer(id)) n++; } return n; }
-  onunload(){this.unloading=true;if(this.syncTick)clearInterval(this.syncTick);clearTimeout(this.capsTimer);clearTimeout(this.onboardTimer);clearTimeout(this.fillTimer);clearTimeout(this.freshTimer);this.catalogCache=null;
-    for(const k of ['noteActions','noteTools','imageActions','playerUI','indexUI']){try{this[k]?.detach?.();}catch(e){console.error('[lb] '+k+' 卸载出错',e);}}   // 批次 D 地基：四个挂载点 + 10-10 索引树
+  // 1102 手机：同一个插件装在手机上只做两件事——注册 ```lb-page 处理器（目录 / 问收藏 / Wiki / 回收站 / B 站挑选 / 批注块照样显示），
+  // 把笔记样式 note.css 注入 head（构建时打进 main.js；手机上没有 fs）。不加命令、不加设置页、不起任何进程。
+  // 页面在手机上是只读的：lb-page-lib 的 LB.provider() 在手机上返回 null（和以前「手机上没有插件」完全一样），
+  // 要插件的按钮要么不画、要么点了说 lb-page-lib 的 MOBILE_ONLY_TEXT（LB.need / LB.ensure）；笔记里「现在抓全部评论」这类入口只在 body.lb-actions-on 时显示，手机上不加这个类。
+  async onloadMobile(started = Date.now()) {
+    this.mobileMode = true;
+    try {
+      this.pageHost = pageHostFactory()(obsidian, this);
+      this.pageHost.attach();
+    } catch (e) { console.error('[lb] 手机上页面处理器没注册上', e); }
+    try {
+      const doc = typeof document !== 'undefined' ? document : null;
+      // note.css 构建时打进 main.js（LBNoteCss；BRAT 装的插件目录里只有 main.js / manifest.json / styles.css），直接跑源文件时才读文件
+      const css = typeof LBNoteCss === 'string' ? LBNoteCss : await this.app.vault.adapter.read(`${this.manifest.dir}/note.css`);
+      if (doc && doc.head && !this.unloading) {
+        doc.getElementById('lb-note-style')?.remove();
+        const el = doc.createElement('style');
+        el.id = 'lb-note-style';
+        el.textContent = css;
+        doc.head.appendChild(el);
+        this.mobileStyleEl = el;
+      }
+    } catch (e) { console.error('[lb] 手机上笔记样式没注入上', e); }
+    this.onloadMs = Date.now() - started;
+  }
+  onunload(){if(this.mobileMode){this.unloading=true;try{this.pageHost?.detach?.();}catch{}try{this.mobileStyleEl?.remove();}catch{}return;}this.unloading=true;if(this.syncTick)clearInterval(this.syncTick);clearTimeout(this.capsTimer);clearTimeout(this.onboardTimer);clearTimeout(this.fillTimer);clearTimeout(this.freshTimer);this.catalogCache=null;
+    for(const k of ['noteActions','noteTools','imageActions','playerUI','indexUI','pageHost']){try{this[k]?.detach?.();}catch(e){console.error('[lb] '+k+' 卸载出错',e);}}   // 批次 D 地基：四个挂载点 + 10-10 索引树
     // 1102：互斥长任务（一键装好 / 同步）的子进程**不杀**——它自己把进度落盘（_archive/setup-run.json、同步记录），
     // stdout 断了会切到 ~/.link-brain/logs 接着写；重开 Obsidian 时设置页按 setup-run.json 续画。只说一句。
     if(this.runningChild){try{new Notice('安装在后台继续（进度在设置页和 _archive/setup-run.json）');}catch{}}
@@ -2397,7 +2732,7 @@ class LinkBrainActions extends Plugin {
     const Z = "​";
     return String(text)
       .replace(/(`{3,}|~{3,})([^\n`]*)/g, (all, fence, info) =>
-        info.toLowerCase().includes("dataview") ? fence + info.replace(/dataview(?:js)?/gi, "text") : all)
+        /dataview|lb-page/i.test(info) ? fence + info.replace(/dataview(?:js)?|lb-page/gi, "text") : all)
       .replace(/(`+)(?=[ \t]*\$?=)/g, (_, ticks) => ticks + Z)
       .replace(/^([ \t>]*)(?=\$?=)/gm, (_, lead) => lead + Z)
       .replace(/<(?=code[\s>/])/gi, "<" + Z);
@@ -2921,7 +3256,7 @@ class LinkBrainSettingTab extends PluginSettingTab {
     c.empty();
     c.addClass('lb-settings');
     const view = this.view();
-    // 缺后端程序 / 缺 Dataview / 旧图片导航插件还开着 → 最上面各一块提示（都正常时什么也不加），哪一栏都看得到
+    // 缺后端程序 / 旧图片导航插件还开着 → 最上面各一块提示（都正常时什么也不加），哪一栏都看得到
     this.hintsEl = c.createDiv({ cls: 'lb-setup-hints' });
     this.plugin.renderSetupHints?.(this.hintsEl);
     // 1027 作者批：不分页签，一页六组（左边锚点）；第一次用换成首次设置（settings-v6.js）。
@@ -3222,7 +3557,7 @@ class LinkBrainSettingTab extends PluginSettingTab {
     req.createEl('summary', { text: '这台电脑要什么' });
     const reqBox = req.createDiv({ cls: 'setting-item-description' });
     for (const line of [
-      '必需：Windows 10/11（macOS 能用，但没有 CapsLock 说话）· Python 3.11+ · Obsidian + Dataview 插件 · ffmpeg（视频）。',
+      '必需：Windows 10/11（macOS 能用，但没有 CapsLock 说话）· Python 3.11+（插件会自己装）· Obsidian · ffmpeg（视频）。',
       '内存：建议 8 GB 以上；同步收藏时会开一个后台浏览器（约 300–500 MB）。不装本地大模型，不要独立显卡。',
       '问收藏：文本模型（现在是 ' + (s.activeModel || '默认') + '）+ 向量模型（建索引一次，之后每问一次很便宜）。',
       '图片里的字：本地 OCR（CPU，免费）+ 识图模型（' + (s.visionAI.mode === 'off' || !s.visionAI.model ? '没配' : s.visionAI.model) + '）；流程图 / 大表格再用 ' + (s.visionAI.refineModel || '同一个模型') + ' 精细识别（只看挑出来的少数）。',
@@ -3474,7 +3809,7 @@ Object.assign(module.exports, { perRunLimitOf, fillGapOf, FILL_PACE, SETTING_TAB
 module.exports.scheduleStatusText = scheduleStatusText;
 module.exports.syncStateHead = syncStateHead;   // 给 node 单测（第 5 批 4.4）
 // 第 5 批 B2（单插件交付）：给 node 单测
-Object.assign(module.exports, { splitCommand, whichCommand, pickPython, pythonDesc, pickBackend, backendArgv, backendMissingText, pickSyncTask, dataviewState, managedPaths, isWindowsAppsStub, PYTHON_MISSING_TEXT,
+Object.assign(module.exports, { splitCommand, whichCommand, pickPython, pythonDesc, pickBackend, backendArgv, backendMissingText, pickSyncTask, dataviewState, hasLegacyPageBlock, managedPaths, isWindowsAppsStub, PYTHON_MISSING_TEXT,
   BACKEND_DEFAULT, BACKEND_INSTALL, NIGHTLY_TASK, LEGACY_SYNC_TASK });
 Object.assign(module.exports, { effectiveTextAI, modelState, endpointHost, normalizeEndpoint, aiGate, resultMessage, scheduleShort });
 module.exports.lastRiskNote = lastRiskNote;   // 1008（L6）：给 node 单测（设置页「立即同步」旁的验证说明）

@@ -825,7 +825,7 @@ module.exports = function (obsidian, plugin) {
     const s = S();
     s.setup = s.setup && typeof s.setup === 'object' ? s.setup : {};
     if (Array.isArray(s.setup.selected)) return;
-    const on = ['core', 'reader', 'dataview'];
+    const on = ['core', 'reader'];
     if ((s.ocr || {}).mode !== 'off') on.push('ocr');
     if ((s.asrAI || {}).mode === 'capswriter') on.push('asr');
     if (s.voice && s.voice.capsLock) on.push('capslock');

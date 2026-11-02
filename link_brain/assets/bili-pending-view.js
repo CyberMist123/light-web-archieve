@@ -14,11 +14,16 @@ const RUN_LABEL = '下载 B 站收藏';   // 同 settings-v6.js BILI_RUN_LABEL
 { const pane = root.closest && root.closest('.markdown-preview-view, .markdown-source-view'); if (pane) pane.classList.add('lb-bilipage'); }
 LB.style('lb-bilipick-style', `
 .lb-bilipage .markdown-preview-sizer,.lb-bilipage .markdown-preview-section,.lb-bilipage .cm-sizer,.lb-bilipage .cm-contentContainer,.lb-bilipage .cm-content,.lb-bilipage .block-language-dataviewjs{width:100%!important;max-width:none!important;}
+.lb-bilipage .markdown-preview-sizer,.lb-bilipage .markdown-preview-section,.lb-bilipage .cm-sizer,.lb-bilipage .cm-contentContainer,.lb-bilipage .cm-content,.lb-bilipage .block-language-lb-page{width:100%!important;max-width:none!important;}
 .lb-bilipage .inline-title,.lb-bilipage .metadata-container{display:none!important;}
 .lb-bilipage .block-language-dataviewjs{overflow:visible!important;}
 .markdown-source-view.lb-bilipage .cm-embed-block.cm-lang-dataviewjs,.markdown-source-view.lb-bilipage .cm-embed-block.cm-lang-dataviewjs:hover{overflow:visible!important;}
 .lb-bilipage :is(.el-pre:has(.block-language-dataviewjs),pre:has(.block-language-dataviewjs),.block-language-dataviewjs,.cm-embed-block:has(.block-language-dataviewjs),.cm-preview-code-block.cm-lang-dataviewjs),.lb-bilipage :is(.cm-embed-block:has(.block-language-dataviewjs),.cm-preview-code-block.cm-lang-dataviewjs):hover{border:0!important;background:transparent!important;box-shadow:none!important;outline:0!important;border-radius:0!important;}
 .lb-bilipage :is(.cm-embed-block:has(.block-language-dataviewjs),.cm-lang-dataviewjs) .edit-block-button{display:none!important;}
+.lb-bilipage .block-language-lb-page{overflow:visible!important;}
+.markdown-source-view.lb-bilipage .cm-embed-block.cm-lang-lb-page,.markdown-source-view.lb-bilipage .cm-embed-block.cm-lang-lb-page:hover{overflow:visible!important;}
+.lb-bilipage :is(.el-pre:has(.block-language-lb-page),pre:has(.block-language-lb-page),.block-language-lb-page,.cm-embed-block:has(.block-language-lb-page),.cm-preview-code-block.cm-lang-lb-page),.lb-bilipage :is(.cm-embed-block:has(.block-language-lb-page),.cm-preview-code-block.cm-lang-lb-page):hover{border:0!important;background:transparent!important;box-shadow:none!important;outline:0!important;border-radius:0!important;}
+.lb-bilipage :is(.cm-embed-block:has(.block-language-lb-page),.cm-lang-lb-page) .edit-block-button{display:none!important;}
 .lbb-wrap{--bili-t:#18191c;--bili-m:#9499a0;--bili-blue:#00aeec;max-width:1440px;margin:0 auto;padding:22px 24px 40px;box-sizing:border-box;font-family:var(--lb-font-body);container-type:inline-size;}
 .theme-dark .lbb-wrap{--bili-t:var(--lb-ink);--bili-m:var(--lb-muted);}
 .lbb-head{position:sticky;top:0;z-index:2;background:var(--lb-surface);padding:0 0 12px;display:flex;flex-direction:column;gap:12px;}

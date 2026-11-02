@@ -46,14 +46,14 @@ def test_build_inlines_page_lib_everywhere(tmp_path, monkeypatch):
         assert text.count("function lbPageLib(") == 1, role
         assert text.index("function lbPageLib(") < text.rindex("const LB = lbPageLib("), role
         if role in scripts:
-            assert "function lbPageLib(" not in page and f"_archive/{scripts[role].name}" in page, role
+            assert "function lbPageLib(" not in page and f"```lb-page\n{scripts[role].name}\n```" in page, role
             assert len(page.encode("utf-8")) < 4096, (role, len(page.encode("utf-8")))
     assert "const starredPage = true;" in scripts["starred"].read_text(encoding="utf-8")
     assert "const starredPage = false;" in scripts["catalog"].read_text(encoding="utf-8")
     annot = (tmp_path / "_archive" / "annotate-view.js").read_text(encoding="utf-8")
     assert annot.startswith(lib)
     assert "lbPageLib(dv, app, 'annotate')" in annot
-    assert "```" not in lib, "前导里不能有三个反引号（会截断 dataviewjs 代码块）"
+    assert "```" not in lib, "前导里不能有三个反引号（会截断 dataviewjs 代码块；pageBlock=dataviewjs 时还会用）"
     assert "```" not in (ASSETS / "page-bootstrap.js").read_text(encoding="utf-8"), "引导里不能有三个反引号"
 
 

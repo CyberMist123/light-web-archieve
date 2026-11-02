@@ -1,5 +1,7 @@
 # 发布标准（Release Bar）
 
+2026-11-02 P8（`claude/beautiful-lovelace-tpdv2a`，未部署，云端 Linux 只跑了离线测试 + 外壳 Chromium）：差项③「Dataview 仍要手动装、手动开 JS 查询」去掉——目录 / 星标 / 问收藏 / Wiki / 回收站 / B 站挑选页和笔记批注块改成 ` ```lb-page ` 代码块，由插件 `page-host.js`（`registerMarkdownCodeBlockProcessor`）执行；`doctor`、`setup plan / check`、设置页、首次引导、启动提示都不再要 Dataview，旧库 `catalog` 重建时页面和笔记批注块自然换成新写法，只在打开的页还是旧 dataviewjs、又没有 Dataview 时提示一次「刷新目录」。手机：作者定「只装一个插件」——同一个插件手机上也装（`isDesktopOnly:false`，main.js 由 esbuild 构建、手机上只注册处理器 + 注入笔记样式、页面走原来的手机只读路），`pageBlock=dataviewjs` 只留作兜底。没验：Obsidian 真机渲染、实时预览里的块、手机真机。评级不变。
+
 2026-10-29 P1/P2/P9/P12：仅明确归属楼中楼的 300011/300013 改为单独冷却，保存已取得的正文和首屏评论，设置页显示自动恢复；验证码、掉登录和其他接口风控仍拦截。离线测试已验证，外站端到端收录待正常使用验证，评级不提升。
 
 2026-10-23 启动修复：已有目录编排设置不再因默认 null 导致插件加载失败；回归见 `tests/test_plugin_foundation.cjs`。此修复不改变下列发布评级。

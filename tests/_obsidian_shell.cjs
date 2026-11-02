@@ -7,6 +7,10 @@
 //   settings-modal 设置窗（.modal.mod-settings，左 200px 分页 + 右侧滚动内容，内容宽 650 / 800 / 1100）
 // 主题：light / dark / orange（亮色 + 改过 --color-orange / --text-warning 的第三方主题）。
 // Dataview 模拟和真的一样：shell.rerun() = 同一个容器、同一个 component，先 innerHTML='' 再跑脚本；recreate() = 换新容器和新 component。
+// 1102：默认改走插件的 ```lb-page 处理器（obsidian-plugins/link-brain-actions/page-host.js 原样注入页面）：容器是 Obsidian 给代码块处理器的
+//   div.block-language-lb-page（没有 Dataview 写的行内 overflow-x），实时预览外层是 .cm-lang-lb-page；页面脚本放进 _archive/shell-test-page.js，
+//   rerun() = 处理器的 component.render()（清空容器再跑，和 Dataview 的重跑同一语义），recreate() = 卸掉这一块的 MarkdownRenderChild、换新容器再走处理器。
+//   opts.runner:'dataview' 照旧模拟 Dataview（rig_selfcheck 守卫旧宿主、旧库 pageBlock=dataviewjs 的写法）。
 // 可选：设 LWA_OBSIDIAN_APP_CSS=<tests/tools/obsidian_css.py 抽到 scratch 的 app.css> 时，把真 app.css 注入在手写子集前面（绝不进仓）。
 // 用法（tests/ui/*.cjs）：
 //   const shell = require('../_obsidian_shell.cjs');
@@ -25,6 +29,7 @@ const { installObsidianDom, browserSource } = require('./_fakeobsidian.cjs');
 const { miniMdSource } = require('./_mini_md.cjs');
 
 const ROOT = path.resolve(__dirname, '..');
+const PAGE_HOST_FILE = path.join(ROOT, 'obsidian-plugins', 'link-brain-actions', 'page-host.js');
 const SKIP = 77;
 const QA_DIR = process.env.LWA_QA_DIR || path.join(os.tmpdir(), 'lwa-qa');
 
@@ -172,13 +177,16 @@ function makeCatalogData({ n = 60, starredEvery = 9, builtAt = '2026-10-08T05:09
 // ── 宿主 DOM ─────────────────────────────────────────────────────────────────────────────────────────
 const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const DV_CONTAINER = '<div class="block-language-dataviewjs node-insert-event" style="overflow-x: auto;"></div>';   // Dataview 0.5.68 main.js:20535-20537
-function leafHtml({ mode, title, body, active = true, extraLeafCls = '', mdCls = '' }) {
+const LB_CONTAINER = '<div class="block-language-lb-page"></div>';   // Obsidian 给 registerMarkdownCodeBlockProcessor 的 el（1102 起默认）
+const containerHtml = runner => (runner === 'dataview' ? DV_CONTAINER : LB_CONTAINER);
+const PAGE_SCRIPT = 'shell-test-page.js';
+function leafHtml({ mode, title, body, active = true, extraLeafCls = '', mdCls = '', lang = 'dataviewjs' }) {
   const view = mode === 'live'
     ? `<div class="markdown-source-view cm-s-obsidian mod-cm6 node-insert-event is-readable-line-width is-live-preview is-folding show-properties ${mdCls}">`
       + `<div class="cm-editor"><div class="cm-scroller"><div class="cm-sizer"><div class="inline-title" contenteditable="true">${esc(title)}</div>`
       + `<div class="cm-contentContainer"><div class="cm-content cm-lineWrapping" contenteditable="true" role="textbox">`
       + `<div class="cm-line">---</div><div class="cm-line">lb-page: …</div><div class="cm-line">---</div>`
-      + `<div class="cm-preview-code-block cm-embed-block markdown-rendered cm-lang-dataviewjs" contenteditable="false">${body}<div class="embed-actions"><div class="embed-action edit-block-button" aria-label="Edit this block"></div></div></div>`
+      + `<div class="cm-preview-code-block cm-embed-block markdown-rendered cm-lang-${lang}" contenteditable="false">${body}<div class="embed-actions"><div class="embed-action edit-block-button" aria-label="Edit this block"></div></div></div>`
       + `<div class="cm-line"><br></div></div></div></div></div></div></div>`
     : `<div class="markdown-reading-view" style="width: 100%; height: 100%;"><div class="markdown-preview-view markdown-rendered node-insert-event is-readable-line-width allow-fold-headings show-indentation-guide allow-fold-lists show-properties ${mdCls}">`
       + `<div class="markdown-preview-sizer markdown-preview-section"><div class="markdown-preview-pusher" style="width: 1px; height: 0.1px; margin-bottom: 0px;"></div>`
@@ -195,19 +203,22 @@ function workspaceHtml({ leaves, ribbon = true, leftSplit = false }) {
     + `</div></div></div><div class="status-bar"><div class="status-bar-item">0 个反向链接</div></div>`;
 }
 // 笔记页正文：mdHtml 是生产 render 出来的「顶栏 callout + .lb-note 块」HTML；annotate:true 时末尾多一段 dataviewjs 容器（批注块）
-function noteBody(mdHtml, annotate) {
-  return `<div class="el-div">${mdHtml || ''}</div>` + (annotate ? `<div class="el-pre">${DV_CONTAINER}</div>` : '');
+function noteBody(mdHtml, annotate, runner) {
+  return `<div class="el-div">${mdHtml || ''}</div>` + (annotate ? `<div class="el-pre">${containerHtml(runner)}</div>` : '');
 }
 function hostHtml(host, opts = {}) {
   const title = opts.title || (host === 'note-reading' ? '笔记' : '目录');
-  if (host === 'page-reading') return workspaceHtml({ leaves: leafHtml({ mode: 'reading', title, body: `<div class="el-pre">${DV_CONTAINER}</div>` }) });
-  if (host === 'page-live') return workspaceHtml({ leaves: leafHtml({ mode: 'live', title, body: DV_CONTAINER }) });
+  // 手机上没有 LWA 插件（桌面专用）：只有 Dataview 能画，默认照旧模拟 Dataview
+  const runner = opts.runner || (opts.variant === 'mobile' || opts.mobile ? 'dataview' : 'lb-page');
+  const lang = runner === 'dataview' ? 'dataviewjs' : 'lb-page';
+  if (host === 'page-reading') return workspaceHtml({ leaves: leafHtml({ mode: 'reading', title, body: `<div class="el-pre">${containerHtml(runner)}</div>` }) });
+  if (host === 'page-live') return workspaceHtml({ leaves: leafHtml({ mode: 'live', title, body: containerHtml(runner), lang }) });
   if (host === 'note-reading') {
     const variant = opts.variant || '';
     const mobile = variant === 'mobile';
     const md = 'link-brain xhs-note';
-    let leaves = leafHtml({ mode: 'reading', title, body: noteBody(opts.mdHtml, opts.annotate !== false), mdCls: md, extraLeafCls: variant === 'source-reader' ? 'lb-test-source-reader' : '' });
-    if (variant === 'background') leaves += leafHtml({ mode: 'reading', title: title + '（后台）', body: noteBody(opts.mdHtml, false), mdCls: md, active: false });
+    let leaves = leafHtml({ mode: 'reading', title, body: noteBody(opts.mdHtml, opts.annotate !== false, runner), mdCls: md, extraLeafCls: variant === 'source-reader' ? 'lb-test-source-reader' : '' });
+    if (variant === 'background') leaves += leafHtml({ mode: 'reading', title: title + '（后台）', body: noteBody(opts.mdHtml, false, runner), mdCls: md, active: false });
     let html = workspaceHtml({ leaves, ribbon: !mobile, leftSplit: !mobile && opts.sidebar !== false });
     if (variant === 'popover') html += `<div class="popover hover-popover" style="left:120px;top:160px;"><div class="markdown-embed is-loaded"><div class="markdown-embed-content"><div class="markdown-preview-view markdown-rendered ${md}"><div class="markdown-preview-sizer markdown-preview-section">${noteBody(opts.mdHtml, false)}</div></div></div></div></div>`;
     return html;
@@ -220,10 +231,11 @@ function hostHtml(host, opts = {}) {
   }
   throw new Error('未知宿主：' + host);
 }
+const CONTAINER_SEL = '.workspace-leaf.mod-active :is(.block-language-dataviewjs, .block-language-lb-page)';
 const SELECTORS = {
-  'page-reading': { scroller: '.workspace-leaf.mod-active .markdown-preview-view', container: '.workspace-leaf.mod-active .block-language-dataviewjs', section: '.workspace-leaf.mod-active .el-pre' },
-  'page-live': { scroller: '.workspace-leaf.mod-active .cm-scroller', container: '.workspace-leaf.mod-active .block-language-dataviewjs', section: '.workspace-leaf.mod-active .cm-embed-block' },
-  'note-reading': { scroller: '.workspace-leaf.mod-active .markdown-preview-view', container: '.workspace-leaf.mod-active .block-language-dataviewjs', section: '.workspace-leaf.mod-active .el-pre' },
+  'page-reading': { scroller: '.workspace-leaf.mod-active .markdown-preview-view', container: CONTAINER_SEL, section: '.workspace-leaf.mod-active .el-pre' },
+  'page-live': { scroller: '.workspace-leaf.mod-active .cm-scroller', container: CONTAINER_SEL, section: '.workspace-leaf.mod-active .cm-embed-block' },
+  'note-reading': { scroller: '.workspace-leaf.mod-active .markdown-preview-view', container: CONTAINER_SEL, section: '.workspace-leaf.mod-active .el-pre' },
   'settings-modal': { scroller: '.modal.mod-settings .vertical-tab-content', container: '.modal.mod-settings .vertical-tab-content', section: '.modal.mod-settings .vertical-tab-content' },
 };
 
@@ -393,8 +405,35 @@ function shellRuntime(cfg) {
     addChild(x) { try { x && x.load && x.load(); } catch (e) {} c.register(() => x && x.unload && x.unload()); return x; },
     unload() { if (!c.loaded) return; c.loaded = false; while (c._cbs.length) { try { c._cbs.pop()(); } catch (e) {} } },
     render() { return shell.rerun(); } }; return c; };
-  const shell = W.__shell = { container: D.querySelector(sel.container), component: makeComponent(), runs: 0, errors: [], params: cfg.params || {} };
+  const shell = W.__shell = { container: D.querySelector(sel.container), component: makeComponent(), runs: 0, errors: [], params: cfg.params || {}, runner: cfg.runner };
   shell.section = shell.container && shell.container.parentElement;
+  if (cfg.runner !== 'dataview') {
+    // 1102：走插件的 lb-page 处理器（page-host.js）。这一块的 MarkdownRenderChild 挂在一个「这一段 Markdown」的组件下面（ctx.addChild）
+    const hostPlugin = Object.assign(Object.create(W.plugin || null), { app, neutralizeMarkdown: t => t });
+    const host = shell.pageHost = W.__lbPageHostFactory(obs, hostPlugin);
+    const owner = new obs.Component(); owner.load();
+    const ctx = { sourcePath: cfg.pagePath || ((cfg.folder ? cfg.folder + '/' : '') + 'page.md'), addChild: c => owner.addChild(c) };
+    const block = cfg.blockSource || cfg.pageScript;
+    const check = entry => { const e = entry ? entry.lastError : new Error('lb-page 块写错了：' + (shell.container.textContent || '')); if (e) { shell.errors.push(String(e && e.stack || e)); throw e; } };
+    shell.entry = null;
+    shell.run = async () => {
+      if (!cfg.code && !cfg.blockSource) return;
+      shell.runs++;
+      if (shell.entry && shell.entry.child._loaded) { await shell.entry.child.render(); check(shell.entry); return; }
+      shell.entry = await host.process(block, shell.container, ctx, { env: shell.params });
+      shell.component = shell.entry ? shell.entry.child : shell.component;
+      check(shell.entry);
+    };
+    shell.rerun = () => shell.run();
+    shell.recreate = async () => {
+      if (shell.entry) owner.removeChild(shell.entry.child);
+      const fresh = D.createElement('div'); fresh.className = 'block-language-lb-page';
+      shell.container.replaceWith(fresh); shell.container = fresh; shell.entry = null;
+      await shell.run();
+    };
+    shell.detach = () => { if (shell.entry) owner.removeChild(shell.entry.child); shell.section && shell.section.remove(); };
+    return;
+  }
   shell.dv = () => ({ container: shell.container, component: shell.component, current: () => ({ file: { folder: cfg.folder || '', path: cfg.pagePath || ((cfg.folder ? cfg.folder + '/' : '') + 'page.md') } }), page: () => null,
     // 和 Dataview 一样：字符串按行内 markdown 渲染（**粗体** / `代码` / ![[图]]）
     paragraph: t => shell.dv().el('p', t),
@@ -462,6 +501,8 @@ async function setup(page, opts = {}) {
   await page.addScriptTag({ content: `(${installObsidianDom.toString()})(window);` });
   await page.addScriptTag({ content: miniMdSource('__miniMd') });
   await page.addScriptTag({ content: 'window.__lbRenderMarkdown=(md,el)=>window.__miniMd.render(md,el);' + browserSource('obsidian') + 'window.Notice=window.obsidian.Notice;' });
+  // 1102：插件的 lb-page 处理器原样注入（CommonJS 包一层）
+  await page.addScriptTag({ content: '(function(){var module={exports:{}};' + fs.readFileSync(PAGE_HOST_FILE, 'utf8') + '\n;window.__lbPageHostFactory=module.exports;})();' });
 }
 
 // 开一页：宿主 + 假 app / 插件 + Dataview 跑页面脚本。返回 S（见下）
@@ -479,7 +520,11 @@ async function openPage(page, opts = {}) {
   if (!Object.keys(files).some(k => k.startsWith(pre + '_archive/'))) files[pre + '_archive/.keep'] = '';
   const frontmatter = { ...(opts.frontmatter || {}) };
   if (!opts.frontmatter) for (const [role, name] of [['catalog', '目录'], ['chat', '问收藏'], ['starred', '星标收藏'], ['trash', '回收站']]) { files[pre + name + '.md'] = files[pre + name + '.md'] || `---\nlb-page: ${role}\n---\n`; frontmatter[pre + name + '.md'] = { 'lb-page': role }; }
+  const runner = opts.runner || (opts.mobile || opts.variant === 'mobile' ? 'dataview' : 'lb-page');
+  // 1102：lb-page 处理器从 _archive 读页面脚本（和真的一样）；opts.block 给了就用它当块内容（如批注块带参数）
+  if (runner !== 'dataview' && code) files[pre + '_archive/' + PAGE_SCRIPT] = code;
   const cfg = { code, folder, files, frontmatter, resources: opts.resources || {}, isMobile: !!opts.mobile || opts.variant === 'mobile', params: opts.params || {}, pagePath: opts.pagePath,
+    runner, pageScript: PAGE_SCRIPT, blockSource: opts.block || null,
     plugin: opts.plugin === null || opts.mobile || opts.variant === 'mobile' ? null : (opts.plugin || {}), pluginInit: opts.pluginInit ? String(opts.pluginInit) : null, selectors: SELECTORS[host] };
   await page.evaluate(`(${shellRuntime.toString()})(${JSON.stringify(cfg)})`);
   const S = makeHandle(page, host, errors);
@@ -517,7 +562,7 @@ function makeHandle(page, host, errors) {
         hoverInMedia: inHoverMedia, hoverMediaMatches: matchMedia('(hover: hover)').matches,
         embedActions: !!(c && c.parentElement && c.parentElement.querySelector(':scope > .embed-actions > .edit-block-button')),
         containPaint: /\.cm-content\s*>\s*\[contenteditable="?false"?\]\s*\{[^}]*contain:\s*paint/.test(sheet),
-        inEmbedBlock: !!(c && c.closest('.cm-embed-block.cm-lang-dataviewjs')), inPreviewView: !!(c && c.closest('.markdown-preview-view')) };
+        inEmbedBlock: !!(c && c.closest('.cm-embed-block:is(.cm-lang-dataviewjs, .cm-lang-lb-page)')), inPreviewView: !!(c && c.closest('.markdown-preview-view')) };
     }, [sel.container]),
     // 鼠标移到滚动容器可见区域的中间（不用 page.hover：它会先把元素滚进视野，改掉 scrollTop）
     async hoverScroller() {
@@ -586,7 +631,7 @@ async function notePage(page, { mdHtml = '', css = [], theme = 'light', width = 
 async function openSettings(page, opts = {}) { return openPage(page, { ...opts, host: 'settings-modal', run: false }); }
 
 module.exports = {
-  ROOT, SKIP, QA_DIR, THEME_CSS, SUBSET_CSS, SHELL_CSS, SELECTORS, DV_CONTAINER,
+  ROOT, SKIP, QA_DIR, THEME_CSS, SUBSET_CSS, SHELL_CSS, SELECTORS, DV_CONTAINER, LB_CONTAINER, PAGE_SCRIPT,
   requirePlaywright, loadPlaywright, launch, setup, hostHtml, pageAssets, readAsset, revAvailable, makeCatalogData,
   page: openPage, note: openNote, notePage, settings: openSettings,
 };

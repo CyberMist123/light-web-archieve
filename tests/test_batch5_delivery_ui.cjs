@@ -6,7 +6,7 @@
 //   3. 首次引导：什么时候自己打开（走过 / 没后端 / 已有 _archive 都不开）；第 7 批起 = 打开设置页「开始」分页（不再弹窗），开过一次就算走过；
 //      收藏位置那一行写进插件设置 + 后端命令模式写 ~/.link-brain/config.json（读取组件改由「开始」第 ② 步 setup install 装，见 test_setup_wizard.cjs）；
 //   4. 定时同步任务名：LinkBrainNightly 优先 → 旧任务 → 都没有时「开启」= sync-schedule --install --at --vault，「关闭」不起进程；
-//   5. Dataview 缺失 / 没开 JS：设置页顶部提示 + 目录页顶部提示，按钮打开第三方插件页（或 Dataview 设置）；
+//   5. 1102 起 Dataview 不再必装：设置页不再提示装 Dataview；只有打开的页还是旧 dataviewjs、又没有 Dataview 时提示一次「刷新目录」；
 //   6. 媒体导航并进主插件：onload 载入 media-nav.js 并接管；旧插件还开着就不接管（不重复弹大图），设置页提示停用旧插件。
 'use strict';
 const fs = require('fs'), os = require('os'), path = require('path'), vm = require('vm'), assert = require('assert/strict');
@@ -393,22 +393,20 @@ function makePlugin(base, { saved = {}, files = new Set(), manifestDir = '.obsid
   env.p.app.plugins = { manifests: {}, enabledPlugins: new Set(), plugins: {} };
   env.p.renderAccounts = c => c.createDiv({ cls: 'lb-accounts' }); env.p.renderSyncRow = () => () => {}; env.p.capsWriterDir = () => null;
   tab = new Plugin.__SettingTab({}, env.p); tab.display();
-  hint = tab.containerEl.querySelectorAll('div').find(d => d.classList.contains('is-dataview'));
-  assert.ok(hint && /Dataview/.test(hint.textContent) && /还没装/.test(hint.textContent), '设置页有 Dataview 缺失提示');
-  hint.querySelector('button').click();
-  assert.deepEqual(env.p.app.setting.opened.slice(-1), ['community-plugins']);
-  // 目录页顶部
-  const view = { contentEl: dom.document.createElement('div') };
-  view.contentEl.createDiv({ text: '```dataviewjs …' });
-  const banner = env.p.onboardingUI().dataviewBanner(view);
-  assert.ok(banner && view.contentEl.querySelector('.lb-dataview-hint'), '目录页顶部有提示');
-  env.p.app.plugins = { manifests: { dataview: {} }, enabledPlugins: new Set(['dataview']), plugins: { dataview: { settings: { enableDataviewJs: false } } } };
-  env.p.onboardingUI().dataviewBanner(view);
-  assert.equal(view.contentEl.querySelectorAll('.lb-dataview-hint').length, 1, '重开只留一条');
-  view.contentEl.querySelector('.lb-dataview-hint').querySelector('button').click();
-  assert.deepEqual(env.p.app.setting.opened.slice(-1), ['dataview'], '没开 JS → 打开 Dataview 设置');
-  env.p.app.plugins.plugins.dataview.settings.enableDataviewJs = true;
-  assert.equal(env.p.onboardingUI().dataviewBanner(view), null); assert.equal(view.contentEl.querySelector('.lb-dataview-hint'), null, '好了就撤掉');
+  assert.equal(tab.containerEl.querySelectorAll('div').find(d => d.classList.contains('is-dataview')), undefined, '没装 Dataview：设置页不再提示');
+  assert.equal(typeof env.p.onboardingUI().dataviewBanner, 'undefined', '目录页顶部的 Dataview 提示条拿掉了');
+  // 旧格式页面（md 里还是 dataviewjs）+ 没 Dataview：提示一次刷新目录
+  const notes = [];
+  env.p.notify = (msg, o) => { notes.push({ msg, o }); return {}; };
+  const texts = { 'old.md': '---\nlb-page: catalog\n---\n```dataviewjs\nlet lbRoot = "";\nconst lbScript = (lbRoot ? lbRoot + "/" : "") + "_archive/catalog-page.js";\n```', 'new.md': '```lb-page\ncatalog-page.js\n```' };
+  env.p.app.vault.cachedRead = async f => texts[f.path];
+  assert.equal(await env.p.legacyPageHint({ path: 'new.md' }), false, '新格式不提示');
+  assert.equal(await env.p.legacyPageHint({ path: 'old.md' }), true, '旧格式 + 没 Dataview：提示');
+  assert.match(notes[0].msg, /刷新目录/); assert.deepEqual([...notes[0].o.actions.map(a => a.label)], ['刷新目录']);
+  assert.equal(await env.p.legacyPageHint({ path: 'old.md' }), false, '这次打开 Obsidian 只提示一次');
+  env.p._legacyPageHinted = false;
+  env.p.app.plugins = { manifests: { dataview: {} }, enabledPlugins: new Set(['dataview']), plugins: { dataview: { settings: { enableDataviewJs: true } } } };
+  assert.equal(await env.p.legacyPageHint({ path: 'old.md' }), false, 'Dataview 还开着：旧页面照样能看，不提示');
   // 都正常时设置页什么也不加（第一层不多一行）
   tab = new Plugin.__SettingTab({}, env.p); tab.display();
   assert.equal(tab.containerEl.querySelector('.lb-setup-hint'), null);
@@ -452,5 +450,5 @@ function makePlugin(base, { saved = {}, files = new Set(), manifestDir = '.obsid
   for (const f of ['media-nav.js', 'onboarding-ui.js']) assert.ok(doctorSrc.includes(`'${f}'`) && fs.existsSync(path.join(ROOT, PLUGIN_DIR, f)), f);
 
   fs.rmSync(tmp, { recursive: true, force: true });
-  console.log('PASS batch5 delivery UI: backend choice (repo / command / missing) + LINK_BRAIN_VAULT on every spawn, missing-backend hint with copy, first run opens settings 开始 tab once + folder row honest state, sync task LinkBrainNightly → legacy → install, Dataview hints, media-nav merged');
+  console.log('PASS batch5 delivery UI: backend choice (repo / command / missing) + LINK_BRAIN_VAULT on every spawn, missing-backend hint with copy, first run opens settings 开始 tab once + folder row honest state, sync task LinkBrainNightly → legacy → install, no Dataview prompts (legacy dataviewjs page → one refresh hint), media-nav merged');
 })().catch(e => { console.error(e); process.exitCode = 1; });

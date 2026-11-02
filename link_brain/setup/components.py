@@ -34,8 +34,6 @@ RAM_MEASURED = {
 READER_BROWSER_EST = 300  # 估计：读收藏时开的无界面浏览器（Chromium 单标签页常见 250–400 MB），没实测
 READER_EXE_MB = 27        # 发布包 reader-v0.2.0 解出来的实量：link-brain-reader.exe 16.0 MB + relatedfile.exe 10.7 MB
 READER_QUARANTINE_HINT = "；可能被杀毒软件隔离，去 Windows 安全中心恢复并加入排除"
-DATAVIEW_RELEASE = {"version": "0.5.70", "bytes": 2377634 + 357 + 2965,
-                    "source": "https://api.github.com/repos/blacksmithgu/obsidian-dataview/releases/latest（2026-10-03）"}
 
 # pyproject 的依赖（发行名 → import 名 / 依赖说明），1102 起从包元数据推（link_brain/extras.py，唯一来源）：
 # core = pyproject 的 dependencies；ocr = extra `ocr`（B 站 / PDF·Word 的 extra 没有对应的功能项，缺了在用到那一步提示）。
@@ -49,9 +47,6 @@ COMPONENTS: list[dict[str, Any]] = [
      "required": True, "default": True, "needs_key": False, "local": True, "depends": [], "settings_tab": "sync"},
     {"id": "reader", "name": "读取组件（读小红书收藏 / 评论 / 附件）", "desc": "本机的读取服务，用你扫码登录的号读收藏。",
      "required": True, "default": True, "needs_key": False, "local": True, "depends": ["core"], "settings_tab": "sync"},
-    {"id": "dataview", "name": "Dataview（目录页显示用，Obsidian 插件）", "desc": "目录页、问答页靠它渲染；在 Obsidian 社区插件里装并打开 JS 查询。",
-     "required": True, "default": True, "needs_key": False, "local": True, "check_only": True, "depends": [],
-     "settings_tab": "advanced"},
     {"id": "ocr", "name": "本地 OCR（图片里的字）", "desc": "RapidOCR + PP-OCRv6，在本机认图里的字，免费、不出电脑。",
      "required": False, "default": True, "needs_key": False, "local": True, "depends": ["core"], "settings_tab": "ai"},
     {"id": "asr", "name": "本地语音识别（CapsWriter，视频转写 / 语音提问）",
@@ -68,9 +63,12 @@ COMPONENTS: list[dict[str, Any]] = [
      "settings_tab": "remote"},
 ]
 IDS = [c["id"] for c in COMPONENTS]
+# 1102：不再需要的功能 id（老设置的 setup.selected 里可能还有）：check / install 当它不存在，不报「不认识」
+# dataview：页面改成 ```lb-page 块、由 LWA 插件自己显示（page-host.js），不再要 Dataview
+RETIRED = {"dataview": "不再需要 Dataview：目录页等由 LWA 插件自己显示"}
 PRESETS = {
-    "light": ["core", "reader", "dataview", "ocr"],
-    "recommended": ["core", "reader", "dataview", "ocr", "asr", "capslock", "ai_text"],
+    "light": ["core", "reader", "ocr"],
+    "recommended": ["core", "reader", "ocr", "asr", "capslock", "ai_text"],
     "full": list(IDS),
 }
 TOTALS_BASIS = ("磁盘 / 内存是估计值：装了的按本机实际占用量（目录和 Python 包逐个文件算，CapsWriter 服务端在跑就量它的峰值内存）；"
@@ -259,29 +257,6 @@ def _reader() -> dict[str, Any]:
             "installed": bool(st.get("reader")), "row": row}
 
 
-def _obsidian_dir() -> Path:
-    from .. import storage
-    return storage.vault_root() / ".obsidian"
-
-
-def _dataview() -> dict[str, Any]:
-    from .. import doctor
-    obs = _obsidian_dir()
-    folder = obs / "plugins" / "dataview"
-    size = sysinfo.dir_bytes(folder) if folder.is_dir() else 0
-    basis = (f"磁盘：{'已装的 Dataview 插件目录实量' if size else '官方 ' + DATAVIEW_RELEASE['version'] + ' 发布文件大小'}；"
-             "内存：在 Obsidian 里运行，不另起进程（占用算在 Obsidian 里）")
-    if doctor.dataview_ready(obs):
-        row = _row("dataview", "ready", "Dataview 已启用，JS 查询已打开")
-    elif folder.is_dir():
-        row = _row("dataview", "partial", "Dataview 装了，但没启用或没打开 JavaScript 查询", fix="manual",
-                   hint="设置 → 第三方插件 → Dataview：启用，并打开 Enable JavaScript Queries")
-    else:
-        row = _row("dataview", "missing", "没装 Dataview", fix="manual", hint="在 Obsidian 社区插件里搜 Dataview 安装并启用")
-    return {"disk_mb": mb(size or DATAVIEW_RELEASE["bytes"]), "ram_mb": 0, "basis": basis,
-            "installed": folder.is_dir(), "row": row}
-
-
 def _ai(item: str) -> dict[str, Any]:
     from .. import ai_config, providers
     cap = "textAI" if item == "ai_text" else "visionAI"
@@ -342,8 +317,6 @@ def evaluate(ids: list[str] | None = None) -> dict[str, dict[str, Any]]:
                 out[cid] = _capslock(det)
             elif cid == "reader":
                 out[cid] = _reader()
-            elif cid == "dataview":
-                out[cid] = _dataview()
             elif cid in ("ai_text", "ai_vision"):
                 out[cid] = _ai(cid)
             elif cid == "remote":
@@ -370,8 +343,11 @@ def plan() -> dict[str, Any]:
 
 
 def check(ids: list[str] | None = None) -> dict[str, Any]:
+    retired = [i for i in ids or [] if i in RETIRED]
+    if ids:
+        ids = [i for i in ids if i not in RETIRED]
     bad = [i for i in ids or [] if i not in IDS]
-    ev = evaluate([i for i in (ids or IDS) if i in IDS])
+    ev = evaluate([i for i in (ids if ids or retired else IDS) if i in IDS])   # 只问了退役项 = 什么也不查
     results = [ev[i]["row"] for i in ev]
     results += [_row(i, "failed", "不认识这一项", code="SKIPPED.NOT_CONFIGURED", error=f"可选：{', '.join(IDS)}")
                 for i in bad]
@@ -538,6 +514,8 @@ def _install_reader(emit: Emit | None) -> dict[str, Any]:
 
 def install(component: str, emit: Emit | None = None, *, asr_model: str = capswriter.DEFAULT_MODEL) -> dict[str, Any]:
     """装一项，装完再 check 一遍写进结果。返回 {type:result, ok, code, message, component, status, check, ...}。"""
+    if component in RETIRED:
+        return _final(component, True, "", RETIRED[component])
     if component not in IDS:
         return _final(component, False, "SKIPPED.NOT_CONFIGURED", f"不认识的功能：{component}（可选 {', '.join(IDS)}）")
     extra: dict[str, Any] = {}
@@ -552,7 +530,7 @@ def install(component: str, emit: Emit | None = None, *, asr_model: str = capswr
             ok, code, message = out["ok"], out["code"], out["message"]
             if component == "capslock" and ok:
                 message += "；CapsLock 语音由插件在开着时拉起客户端"
-        elif component in ("dataview", "ai_text", "ai_vision", "remote"):
+        elif component in ("ai_text", "ai_vision", "remote"):
             row = evaluate([component])[component]["row"]
             if row["status"] == "ready":
                 ok, code, message = True, "", row["detail"]

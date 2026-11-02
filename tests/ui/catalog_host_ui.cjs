@@ -25,9 +25,10 @@ const shell = require('../_obsidian_shell.cjs');
         const S = await shell.page(page, { host, kind: 'catalog', theme, data });
         // ① 守卫
         const g = await S.guards();
-        assert.equal(g.containerInlineOverflowX, 'auto', `${tag}：容器带 Dataview 写的行内 overflow-x:auto`);
+        // 1102：页面走插件的 lb-page 处理器——Obsidian 给的容器没有 Dataview 写的行内 overflow-x（旧库 dataviewjs 那条由 rig_selfcheck 守）
+        assert.equal(g.containerInlineOverflowX, '', `${tag}：lb-page 容器没有行内 overflow-x`);
         if (host === 'page-live') assert.ok(g.hoverOverflowHidden && g.inEmbedBlock, `${tag}：实时预览带 :hover{overflow:hidden}`);
-        assert.equal(await page.evaluate(() => document.querySelector('.workspace-leaf.mod-active .block-language-dataviewjs').children.length), 0, `${tag}：容器本身空着（页面在 host 上）`);
+        assert.equal(await page.evaluate(() => document.querySelector('.workspace-leaf.mod-active .block-language-lb-page').children.length), 0, `${tag}：容器本身空着（页面在 host 上）`);
         // ② 吸顶
         const c1 = await S.probeSticky({ target: '.lbc-top', by: 1500 });
         results[`C1 ${tag}`] = c1;
@@ -136,18 +137,18 @@ const shell = require('../_obsidian_shell.cjs');
       await page.close();
     }
 
-    // ⑧ X14c：两种打开顺序下没收藏的 ☆ 计算 opacity 都是 0（平时隐藏）（第二页在同一个阅读视图里另起一段 dataviewjs 容器跑）
+    // ⑧ X14c：两种打开顺序下没收藏的 ☆ 计算 opacity 都是 0（平时隐藏）（第二页在同一个阅读视图里另起一段 lb-page 块，经插件处理器跑）
     for (const order of [['chat', 'catalog'], ['catalog', 'chat']]) {
       const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
       const S = await shell.page(page, { host: 'page-reading', kind: order[0], data });
       await page.evaluate(async code => {
         const sizer = document.querySelector('.workspace-leaf.mod-active .markdown-preview-sizer');
         const pre = document.createElement('div'); pre.className = 'el-pre';
-        pre.innerHTML = '<div class="block-language-dataviewjs node-insert-event" style="overflow-x: auto;"></div>';
+        pre.innerHTML = '<div class="block-language-lb-page"></div>';
         sizer.appendChild(pre);
-        window.__shell.container = pre.firstChild; window.__shell.section = pre;
-        const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
-        await new AsyncFunction('dv', 'input', code)(window.__shell.dv(), undefined);
+        window.__setFile('_archive/second-page.js', code);
+        const entry = await window.__shell.pageHost.process('second-page.js', pre.firstChild, { sourcePath: 'page.md', addChild: c => c.load() });
+        if (!entry || entry.lastError) throw entry ? entry.lastError : new Error('第二页没跑起来');
       }, shell.pageAssets(order[1]));
       await S.settle(60);
       const op = await page.evaluate(() => { const st = [...document.querySelectorAll('.lbc-card .lbc-star')].find(s => !s.classList.contains('is-on')); return st ? getComputedStyle(st).opacity : null; });

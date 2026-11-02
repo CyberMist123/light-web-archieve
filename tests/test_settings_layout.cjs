@@ -80,14 +80,13 @@ const PLUGIN_DIR = '../obsidian-plugins/link-brain-actions/';
 const PLAN = { ok: true, components: [
   { id: 'core', name: '归档·同步·浏览·关键词搜索', required: true, status: 'ready', disk_mb: 120, ram_mb: 300, depends: [] },
   { id: 'reader', name: '读取组件（读小红书收藏 / 评论 / 附件）', required: true, status: 'ready', disk_mb: 80, ram_mb: 400, depends: ['core'] },
-  { id: 'dataview', name: 'Dataview（目录页显示用，Obsidian 插件）', required: true, check_only: true, status: 'ready', depends: [] },
   { id: 'ocr', name: '本地 OCR（图片里的字）', status: 'ready', disk_mb: 60, ram_mb: 200, depends: ['core'] },
   { id: 'asr', name: '本地语音识别（CapsWriter，视频转写 / 语音提问）', status: 'missing', disk_mb: 900, ram_mb: 600, depends: ['core'] },
   { id: 'capslock', name: 'CapsLock 语音输入', status: 'missing', disk_mb: 5, ram_mb: 30, depends: ['asr'] },
   { id: 'ai_text', name: 'AI 问答 · 概要 · 打标（要 API key）', needs_key: true, status: 'needs_key', depends: ['core'] },
   { id: 'ai_vision', name: '识图（要 API key）', needs_key: true, status: 'needs_key', depends: ['ocr'] },
   { id: 'remote', name: '远程阅读（MCP，高级，要自备域名）', later: true, status: 'ready', depends: ['core'] }],
-  presets: { light: ['core', 'reader', 'dataview', 'ocr'], recommended: ['core', 'reader', 'dataview', 'ocr', 'asr', 'capslock', 'ai_text'] }, totals_basis: '估计值' };
+  presets: { light: ['core', 'reader', 'ocr'], recommended: ['core', 'reader', 'ocr', 'asr', 'capslock', 'ai_text'] }, totals_basis: '估计值' };
 const W = o => ({ calls: 1, failed: 0, items: 0, in: 0, out: 0, sec: 0, cost: 0, free: 0, unpriced: 0, ...o });
 const DATES = Array.from({ length: 30 }, (_, i) => `2026-10-${String(i - 2).padStart(2, '0')}`.replace('-10--', '-09-2').replace('-10-00', '-09-30'));
 const USAGE = { ok: true, budget: { daily_yuan: 3, spent_today: 0.83, over: false },
@@ -123,7 +122,7 @@ const REPLIES = {
     visionAI: { endpoint: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', model: 'qwen3.8-flash' } } },
   'remote status': { ok: true, state: 'running', message: '运行中（127.0.0.1:18071）', auth: { passphrase_set: true, passphrase_copyable: true, clients: [], personal: [] }, recent: [] },
   'sync-schedule': { task: null, freq: 'none', enabled: false, installable: true },
-  'doctor': { checks: [{ label: 'Python 程序', state: 'ready', message: '能用' }, { label: 'Dataview', state: 'missing', message: '没装', next_step: '到第三方插件里装' }] },
+  'doctor': { checks: [{ label: 'Python 程序', state: 'ready', message: '能用' }, { label: 'Obsidian 插件', state: 'missing', message: '尚未启用', next_step: '到第三方插件里启用' }] },
   'problems summary': { ok: true },
   'problems repair': { ok: true, message: '修好 2 件' },
 };
@@ -361,7 +360,7 @@ async function inventory(p) {
   await openAll(root);
   assert.equal(root.querySelectorAll('button').filter(b => /打开问题列表/.test(b.textContent) || (b.textContent === '打开' && b.closest('.setting-item') && nameOf(b.closest('.setting-item')) === '问题记录')).length, 1, '问题记录只有一个入口（更多里不再有「问题」那一行）');
   await rowNamed(rp, '当前状态').querySelectorAll('button')[0].onclick(); await settle();
-  assert.deepEqual(rp.querySelectorAll('.lb-check-line').map(x => x.textContent), ['✓ Python 程序：能用', '⚠ Dataview：没装 — 到第三方插件里装']);
+  assert.deepEqual(rp.querySelectorAll('.lb-check-line').map(x => x.textContent), ['✓ Python 程序：能用', '⚠ Obsidian 插件：尚未启用 — 到第三方插件里启用']);
   assert.ok(env.calls.some(a => a.join(' ').includes('problems summary')), '检查 = 先请后端重算问题记录');
   await rowNamed(rp, '当前状态').querySelectorAll('button')[1].onclick(); await settle();
   assert.ok(env.calls.some(a => a.join(' ') === '-m link_brain problems repair') && notices.includes('修好 2 件'), '全部修一遍 = problems repair，结果如实说');
@@ -369,7 +368,7 @@ async function inventory(p) {
   tab.hide();
 
   // —— 2. ④ 每项一个下拉：对上 setup.selected 和各能力的 mode（双重门禁）；存失败拨回 ——
-  env = makePlugin({ onboarding: { guideDone: true }, setup: { selected: ['core', 'reader', 'dataview', 'ocr', 'ai_text', 'ai_vision'], aiSynced: true },
+  env = makePlugin({ onboarding: { guideDone: true }, setup: { selected: ['core', 'reader', 'ocr', 'ai_text', 'ai_vision'], aiSynced: true },
     visionAI: { mode: 'http', endpoint: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', model: 'qwen3.8-flash', keyFile: 'k.csv' } });
   tab = openPage(env.p, 'ai'); root = tab.containerEl; await settle();
   const A = n => rowNamed(group(root, 'g-advanced'), n);
@@ -418,7 +417,7 @@ async function inventory(p) {
   assert.ok(notices.some(n => String(n).startsWith('没保存上，已改回原来的')), notices.join('|'));
   // 1101 每一行「现在」一句：能不能用 + 要不要钱、大概多少（谁在干活、价钱只照后端 ai_routes / pricing.json，前端不算）
   tab.hide();
-  env = makePlugin({ setup: { selected: ['core', 'reader', 'dataview', 'ocr', 'asr', 'ai_text', 'ai_vision'], aiSynced: true }, asrAI: { mode: 'capswriter' },
+  env = makePlugin({ setup: { selected: ['core', 'reader', 'ocr', 'asr', 'ai_text', 'ai_vision'], aiSynced: true }, asrAI: { mode: 'capswriter' },
     textAI: { mode: 'http', endpoint: 'https://api.deepseek.com/chat/completions', model: 'deepseek-flash', keyFile: 'k.csv' },
     summaryAI: { mode: 'cli', preset: 'opencode', command: 'opencode run -m deepseek-v4.1-flash-free' },
     visionAI: { mode: 'http', endpoint: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', model: 'qwen3.8-flash', keyFile: 'k.csv' } });
@@ -518,7 +517,7 @@ async function inventory(p) {
     REPLIES.usage = USAGE;
     // 只填空格子（没出问题的那家）：已经填好的地址和密钥引用一个不动
     const e3 = makePlugin({ textAI: { mode: 'http', endpoint: 'https://api.deepseek.com/chat/completions', model: 'deepseek-v4-flash', keyFile: 'k.csv' }, visionAI: { mode: 'http', endpoint: '', model: '' },
-      setup: { selected: ['core', 'reader', 'dataview', 'ocr', 'ai_text'], aiSynced: true } });
+      setup: { selected: ['core', 'reader', 'ocr', 'ai_text'], aiSynced: true } });
     e3.p.v6Cache = {};
     REPLIES.usage = { ...USAGE, keys: {} };
     await e3.p.settingsV6().pasteKey('sk-aliyun-fake');
@@ -645,7 +644,7 @@ async function inventory(p) {
     const done = r3.querySelectorAll('.lb-guide-nav button').find(b => b.textContent === '完成');
     await done.onclick(); await settle();
     assert.equal(e3.p.settings.onboarding.guideDone, true);
-    assert.deepEqual(Array.from(e3.p.settings.setup.selected), ['core', 'reader', 'dataview', 'ocr', 'asr', 'capslock'], '推荐那一组（没 key 的 AI 先不勾）');
+    assert.deepEqual(Array.from(e3.p.settings.setup.selected), ['core', 'reader', 'ocr', 'asr', 'capslock'], '推荐那一组（没 key 的 AI 先不勾）');
     assert.equal(ran, 1, '完成后开始一口气跑');
     assert.ok(!pane(r3).querySelector('.lb-guide') && group(r3, 'g-account'), '走完变成六组设置页');
     t3.hide();
@@ -676,7 +675,7 @@ async function inventory(p) {
 
   // —— 7. 全部打开后一项不少、单例只剩一处 ——
   for (const [k, cfg] of Object.entries(CONFIGS)) {
-    const { p } = makePlugin({ ...cfg, setup: { selected: ['core', 'reader', 'dataview', 'ocr', 'asr', 'capslock', 'ai_text', 'ai_vision'], aiSynced: true } });
+    const { p } = makePlugin({ ...cfg, setup: { selected: ['core', 'reader', 'ocr', 'asr', 'capslock', 'ai_text', 'ai_vision'], aiSynced: true } });
     const all = await inventory(p);
     const count = a => a.reduce((m, x) => m.set(x, (m.get(x) || 0) + 1), new Map());
     const per = k === 'alt' ? { '测试语音识别': '测试语音转文字（发 1 秒录音，几乎不花钱）' } : {};
@@ -779,7 +778,7 @@ async function inventory(p) {
       textAI: { mode: 'http', endpoint: 'https://api.deepseek.com/chat/completions', model: 'deepseek-v4-flash', apiKey: '', keyFile: 'C:/keys/llm.json', keyField: 'deepseek', maxTokens: 1200 },
       summaryAI: { mode: 'http', endpoint: DEDICATED, model: 'qwen3.7-flash', apiKey: '', apiKeyEnv: 'DASHSCOPE_API_KEY', keyFile: 'C:/keys/llm.json', keyField: 'qwen', requireKey: true },
       visionAI: { mode: 'http', endpoint: DEDICATED, model: 'qwen3.8-flash', refineModel: 'qwen3.8-max', apiKey: '', apiKeyEnv: 'DASHSCOPE_API_KEY', keyFile: 'C:/keys/llm.json', keyField: 'qwen', requireKey: true, videoScreenText: true },
-      setup: { selected: ['core', 'reader', 'dataview', 'ocr', 'ai_text', 'ai_vision'], aiSynced: true },
+      setup: { selected: ['core', 'reader', 'ocr', 'ai_text', 'ai_vision'], aiSynced: true },
     };
     const AI = ['textAI', 'summaryAI', 'visionAI'];
     const e3 = makePlugin(JSON.parse(JSON.stringify(HERS)), { '_archive/catalog-data.json': '{"items":[]}' });

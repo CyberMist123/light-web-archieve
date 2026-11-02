@@ -136,6 +136,8 @@ def _files(globs, root: Path):
         for p in sorted(root.glob(g)):
             if "node_modules" in p.parts or not p.is_file() or p in seen:
                 continue
+            if p.suffix == ".js" and p.read_text(encoding="utf-8", errors="replace").startswith("// 构建产物，别手改"):
+                continue   # 1102：插件 main.js 是 main.src.js 的构建产物，扫源文件就够了，不重复计数
             seen.add(p)
             yield p
 
@@ -342,7 +344,7 @@ sys.path.insert(0, str(ROOT / "tests" / "tools"))
 import import_scan  # noqa: E402
 
 # 最大环的模块数（PR⑥a 后 77）。只许减：拆掉一截就把数字改小。
-MAX_CYCLE = 77
+MAX_CYCLE = 76
 
 
 def test_shared_attachments_has_no_xhs_import(import_graph):

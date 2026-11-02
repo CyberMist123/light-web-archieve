@@ -9,7 +9,7 @@
 check / plan 的 status：ready | missing | partial | failed（plan 里检查出错记 unknown）| needs_key（要 API key 的两项
 没配 key：不算没装好，all_ready 不被它拖住，前端放到 ⑤ 填）。
 输出都是 CONVENTIONS §1 形状 {ok, code, message, ...}，退出码和 ok 一致：0 成功 · 1 失败 · 5 要人手动处理
-（装不了、只能照提示自己做的：Dataview、填 key、发布地址没配等）。人话原因进 stderr 最后一行。
+（装不了、只能照提示自己做的：填 key、发布地址没配等）。人话原因进 stderr 最后一行。
 """
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ def add_parser(sub) -> None:
     pc = ssub.add_parser("check", help="逐项检查（只读）")
     pc.add_argument("--components", default="", help="逗号分隔的功能 id，不给 = 全部")
     pi = ssub.add_parser("install", help="装一项：stdout 一行一个进度事件，最后一行 result")
-    pi.add_argument("--component", required=True, help="功能 id：core / ocr / asr / capslock / reader / dataview / …")
+    pi.add_argument("--component", required=True, help="功能 id：core / ocr / asr / capslock / reader / …")
     pi.add_argument("--asr-model", default="", help="CapsWriter 模型：qwen3-asr-q4（默认）/ sensevoice（小、快、准确度低一档）")
     pe = ssub.add_parser("estimate", help="每 N 篇的 AI 花费估算")
     pe.add_argument("--posts", type=int, default=100)

@@ -208,6 +208,9 @@ def forget_item(conn, item_id: str) -> dict:
     return {'item_id': item_id, 'status': 'forgotten', 'url': row['url']}
 
 
+TRASH_SCRIPT_NAME = 'trash-page.js'
+
+
 def publish_trash(vault=None):
     vault = vault or storage.vault_root()
     conn = index_mod.connect(vault / '_archive/index.db')
@@ -222,11 +225,13 @@ def publish_trash(vault=None):
     _write_if_changed(vault / '_archive/trash-data.json', json.dumps({'items': items}, ensure_ascii=False, indent=2) + '\n')
     script = (Path(__file__).parent / 'assets/trash-view.js').read_text(encoding='utf-8')
     # 第 3 批：页头带 lb-page: trash，用户改了名也按标记找回那一份重写（不再按固定名另冒一份「回收站.md」）
-    # 批次 D · C16：和目录页同一套前导（lb-page-lib 内联在前面：host、样式挂 head、提示 / 确认 / busy、手机只读）；
+    # 批次 D · C16：和目录页同一套前导（lb-page-lib 在前面：host、样式挂 head、提示 / 确认 / busy、手机只读）；
     # 标题和说明挪进页面脚本里画（cssclasses 让外框隐形规则只作用在这一页）
-    from .catalog import _PAGE_LIB, library_pages
+    # 1102：脚本不再整段烤进 md，和目录页一样存 _archive/trash-page.js、md 里只放 ```lb-page 块（catalog._page_bootstrap）
+    from .catalog import _PAGE_LIB, _page_bootstrap, library_pages
+    _write_if_changed(vault / '_archive' / TRASH_SCRIPT_NAME, _PAGE_LIB + '\n' + script + '\n')
     page = library_pages(vault)['trash']
-    _write_if_changed(vault / page, '---\nlb-page: trash\ncssclasses: [lb-trashpage]\n---\n\n```dataviewjs\n' + _PAGE_LIB + '\n' + script + '\n```\n')
+    _write_if_changed(vault / page, '---\nlb-page: trash\ncssclasses: [lb-trashpage]\n---\n\n' + _page_bootstrap(TRASH_SCRIPT_NAME) + '\n')
 
 
 def _one(action, conn, item_id: str) -> dict[str, Any]:

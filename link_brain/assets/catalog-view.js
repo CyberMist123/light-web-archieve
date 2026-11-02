@@ -28,15 +28,21 @@ const FONT_NAMES = {
 const CSS = `
 .markdown-preview-view.lb-catalog,.markdown-source-view.lb-catalog{--file-line-width:100%;}
 .lb-catalog .markdown-preview-sizer,.lb-catalog .markdown-preview-section,.lb-catalog .cm-sizer,.lb-catalog .cm-contentContainer,.lb-catalog .cm-content,.lb-catalog .block-language-dataviewjs{width:100%!important;max-width:none!important;}
+.lb-catalog .markdown-preview-sizer,.lb-catalog .markdown-preview-section,.lb-catalog .cm-sizer,.lb-catalog .cm-contentContainer,.lb-catalog .cm-content,.lb-catalog .block-language-lb-page{width:100%!important;max-width:none!important;}
 .lb-catalog .lb-page-host{width:100%;max-width:none;}
 .lb-catalog .inline-title,.lb-catalog .metadata-container{display:none!important;}
 /* C1 吸顶：Dataview 给容器写的行内 overflow-x:auto（兜底）、实时预览 1.14.4 的 .cm-embed-block:hover{overflow:hidden} 都会让 sticky 失效 */
 .lb-catalog .block-language-dataviewjs{overflow:visible!important;}
 .markdown-source-view.lb-catalog .cm-embed-block.cm-lang-dataviewjs,.markdown-source-view.lb-catalog .cm-embed-block.cm-lang-dataviewjs:hover{overflow:visible!important;}
+.lb-catalog .block-language-lb-page{overflow:visible!important;}
+.markdown-source-view.lb-catalog .cm-embed-block.cm-lang-lb-page,.markdown-source-view.lb-catalog .cm-embed-block.cm-lang-lb-page:hover{overflow:visible!important;}
 /* 10-04（用户定）整页外面那层 dataviewjs 代码块的框（边框 / 底色 / 圆角 / 悬停「编辑代码块」按钮）隐形：阅读视图 + 实时预览 */
 .lb-catalog :is(.el-pre:has(.block-language-dataviewjs),pre:has(.block-language-dataviewjs),.block-language-dataviewjs,.cm-embed-block:has(.block-language-dataviewjs),.cm-preview-code-block.cm-lang-dataviewjs),
 .lb-catalog :is(.cm-embed-block:has(.block-language-dataviewjs),.cm-preview-code-block.cm-lang-dataviewjs):hover{border:0!important;background:transparent!important;box-shadow:none!important;outline:0!important;border-radius:0!important;}
 .lb-catalog :is(.cm-embed-block:has(.block-language-dataviewjs),.cm-lang-dataviewjs) .edit-block-button{display:none!important;}
+.lb-catalog :is(.el-pre:has(.block-language-lb-page),pre:has(.block-language-lb-page),.block-language-lb-page,.cm-embed-block:has(.block-language-lb-page),.cm-preview-code-block.cm-lang-lb-page),
+.lb-catalog :is(.cm-embed-block:has(.block-language-lb-page),.cm-preview-code-block.cm-lang-lb-page):hover{border:0!important;background:transparent!important;box-shadow:none!important;outline:0!important;border-radius:0!important;}
+.lb-catalog :is(.cm-embed-block:has(.block-language-lb-page),.cm-lang-lb-page) .edit-block-button{display:none!important;}
 /* 1021 Collection+ 改版（设计交接包 DESIGN-SPEC §0–3、5、9）：界面只有黑白——文字、选中、细线都用正文色 / 边框色，不用 --interactive-accent；
    颜色只出现在封面里。令牌映射 Obsidian 变量，深浅色自动跟随。标题 / 数字字体随包（_archive/fonts，@font-face 见 fontFaceCss），离线可用 */
 .lbc-wrap{--c-bg:var(--background-primary);--c-ink:var(--text-normal);--c-muted:var(--text-muted);--c-faint:var(--text-faint);--c-line:var(--background-modifier-border);--c-soft:var(--background-secondary);

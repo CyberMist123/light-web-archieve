@@ -12,7 +12,7 @@
 // 本模块不起进程：一律经 plugin.runPy / spawnPy（CONVENTIONS §1.4、§6.1）；进度只显示后端发来的（§1.6）。
 'use strict';
 
-const LIGHT = ['core', 'reader', 'dataview', 'ocr'];
+const LIGHT = ['core', 'reader', 'ocr'];
 const STATUS_TEXT = { ready: '已装好', missing: '还没装', partial: '没装全', failed: '没装上', unknown: '没查出来', needs_key: '要填密钥' };
 const STAGE_MARK = { running: '⟳', ok: '✓', skipped: '–', failed: '✗' };
 const AI_CAP = { ai_text: 'textAI', ai_vision: 'visionAI' };
@@ -20,7 +20,6 @@ const AI_CAP = { ai_text: 'textAI', ai_vision: 'visionAI' };
 const FEATURE_TEXT = {
   core: { name: '程序本体', short: '程序', desc: '同步、浏览、关键词搜索' },
   reader: { name: '读取组件', short: '读取组件', desc: '读小红书收藏、评论、附件用' },
-  dataview: { name: 'Dataview 插件', short: 'Dataview', desc: '目录页、问收藏页靠它显示' },
   ocr: { name: '认图片里的字', short: '认字', desc: '本地 OCR：截图、表格里的字也能搜到', price: 'free' },
   asr: { name: '视频说话转文字', short: '语音转文字', desc: '本地语音识别：视频里说的话也能搜到', price: 'free' },
   capslock: { name: '按住 CapsLock 说话打字', short: 'CapsLock 说话', desc: '在任何软件里按住 CapsLock 说话，松开就出字', price: 'free' },
@@ -439,7 +438,7 @@ module.exports = function homeUI(obsidian, plugin) {
     }
     const machine = new Setting(box).setName('这台电脑').setDesc('读取中…');
     machine.settingEl.addClass('lb-machine-row');
-    help(tab, machine, '打开了的功能各自装好没有（Dataview 是目录页靠它显示的 Obsidian 插件）。没装好的，点下面「一键装好 / 跑完」会自动装。');
+    help(tab, machine, '打开了的功能各自装好没有。没装好的，点下面「一键装好 / 跑完」会自动装。');
     const machineErr = box.createDiv({ cls: 'lb-machine-err' });
     let alive = true;
     const paintFill = async () => {
@@ -469,17 +468,14 @@ module.exports = function homeUI(obsidian, plugin) {
       }
       const sel = new Set(effective());
       const bits = [];
-      let dataviewMissing = false;
       for (const comp of comps()) {
         if (comp.later || comp.needs_key || !sel.has(comp.id)) continue;
         const status = (st.run && st.run.installed && st.run.installed[comp.id]) || comp.status;
         const label = (FEATURE_TEXT[comp.id] || {}).short || comp.name || comp.id;
-        if (comp.id === 'dataview' && status !== 'ready') dataviewMissing = true;
         bits.push(status === 'ready' ? '✓ ' + label : `⚠ ${label}${STATUS_TEXT[status] ? '（' + STATUS_TEXT[status] + '）' : ''}`);
       }
       const t = totals([...sel], comps());
       machine.setDesc(bits.join(' · ') + (t.disk ? `　共占磁盘约 ${fmtMB(t.disk)}` : ''));
-      if (dataviewMissing && !machine.lbDvBtn) machine.lbDvBtn = linkButton(machine, '打开第三方插件', () => plugin.openPluginSettings('community-plugins'), '到第三方插件里装好、打开 Dataview');
     };
     painters.add(paintMachine);
     paintFill();
