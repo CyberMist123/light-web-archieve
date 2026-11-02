@@ -37,7 +37,7 @@ PLUGIN_FILES = ('main.js', 'manifest.json', 'library-ui.js', 'remote-ui.js', 'pr
                 'settings-pages.js', 'settings-v6.js', 'provider-icons.js',
                 'no-tooltip.js',  # 1031 LWA 界面悬停不出提示气泡
                 'danmaku.js',  # 1031 B 站视频弹幕（media-nav 按相对路径 require）
-                'page-host.js',  # 1102 目录页等 ```lb-page 块的执行器（不再要 Dataview）
+                # 1102：```lb-page 块的执行器 page-host.js 由 esbuild 打进 main.js（tools/build_plugin.cjs），运行时不再单独要它
                 'backend-install.js',  # 1102 托管模式：没有 Python 也能自己装后端（uv → Python 3.12 → venv → link-brain）
                 'lb-theme.js')  # 1027 样式集（Aa 样式换算，和页面 LB.applyTheme 同一段）；1016 设置页排版；1018 v6 一页五张卡 + 首次设置；图标取自 Claudian（MIT）
 

@@ -13,7 +13,7 @@ Node 权限执行。凡是把这类文本写成 .md 或交给 MarkdownRenderer �
 - 原样 HTML 的 <code> 标签（allowHtml 开着）在标签名前插零宽空格，变成普通文字。
 
 我们自己的目录页 / 回收站页里的 dataviewjs 来自 link_brain/assets，不经过这里。
-`obsidian-plugins/link-brain-actions/main.js` 的 `neutralizeMarkdown` 是同一套规则的 JS 版
+`obsidian-plugins/link-brain-actions/main.src.js`（构建出 main.js）的 `neutralizeMarkdown` 是同一套规则的 JS 版
 （`renderMarkdownInto` 统一过它；chat-view.js 的导出也调它），两边共用
 tests/fixtures/mdsafe_cases.json（tests/test_mdsafe.py · tests/test_mdsafe.cjs）。改规则两边一起改。
 """

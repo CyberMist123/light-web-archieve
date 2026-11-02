@@ -64,6 +64,15 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
+      # 1102：插件 main.js 是构建产物（main.src.js + esbuild 打包的 page-host.js）。只装 esbuild（照 package-lock 的版本），
+      # 不装 playwright（页面测试照本地规则 SKIP）；核 main.js 是最新构建，不是就红（先 npm run build 再提交）
+      - name: 装 esbuild（装在仓库外的临时目录，经 NODE_PATH 找到）
+        run: |
+          ver="$(node -p "require('./package-lock.json').packages['node_modules/esbuild'].version")"
+          npm install --prefix "$RUNNER_TEMP/esb" --no-package-lock "esbuild@$ver"
+          echo "NODE_PATH=$RUNNER_TEMP/esb/node_modules" >> "$GITHUB_ENV"
+      - name: 插件构建产物是最新的（npm run build:check）
+        run: npm run build:check
       - name: node 单测（不装 playwright：页面测试照本地规则 SKIP）
         run: node tests/run-node.cjs --unit
 

@@ -25,8 +25,13 @@
   插件在 `onload` 里 `registerMarkdownCodeBlockProcessor('lb-page', …)`（`page-host.js`）：找仓根 → 读（同一版本复用已编译的）
   `_archive/<页面脚本>`（`catalog-page.js` 等，`catalog build` 由 `link_brain/assets/lb-page-lib.js` + 各 view 拼出来）→ 给一个和 Dataview 同样大小的
   `dv`（容器、component、`current()`）跑起来；库里 `.md` 变了 2.5 秒防抖重跑（和 Dataview 一样，页面靠 `reuseDom` 原样挂回旧 DOM）。
-  载入核心只有一份（`page-bootstrap.js` 的 `lb-page-core`，插件里是 `tools/sync_tokens.py` 拷的逐字副本）。手机上没有插件：要在手机上看页面，
-  插件设置 `pageBlock` 改成 `dataviewjs`（或环境变量 `LINK_BRAIN_PAGE_BLOCK`），下次 `catalog` 重建就换回旧的 dataviewjs 写法、靠手机上的 Dataview 显示。
+  载入核心只有一份（`page-bootstrap.js` 的 `lb-page-core`，插件里是 `tools/sync_tokens.py` 拷的逐字副本）。
+  **同一个插件手机上也装**（manifest `isDesktopOnly: false`）：手机上 `onload` 只注册这个处理器、把 `note.css` 注入 head，不加命令 / 设置页、不起进程；
+  页面在手机上看到的 `LB.provider()` 是 null，走原来的手机只读路（要插件的按钮不画，或点了说「手机上只能看…」）。
+  兜底：不想在手机上装 LWA 插件的，`pageBlock` 改成 `dataviewjs`（或环境变量 `LINK_BRAIN_PAGE_BLOCK`），下次 `catalog` 重建换回旧写法、靠手机上的 Dataview 显示。
+- **插件 main.js 是构建产物**：源是 `main.src.js`，`npm run build`（`tools/build_plugin.cjs`）用 esbuild 把 `page-host.js` 打成 IIFE（全局名 `LBPageHost`）放在前面、
+  `main.src.js` 原样跟在后面。手机上只加载 main.js 一个文件，所以手机要用的代码必须打进去；桌面上其余几个 ui 文件照旧在运行时按路径加载。
+  `path` / `fs` / `child_process` 都是用到时才加载（手机上没有）。CI 跑 `npm run build:check`，main.js 不是最新构建就红。
 - **插件拉 Python**：插件只有一个起进程入口 `spawnPy`，每次调用 `python -m link_brain <子命令> --json`，**只认 stdout 最后一行 JSON**（`{ok, code, message, …}`）；stderr 最后一行是人话原因。长任务互斥（同一时刻一个），轻量调用并行。
 - **Python 拉读取服务**：所有要登录小红书的操作经本机 HTTP 服务 `link-brain-reader`（`reader/` 里的 Go 补丁版 xiaohongshu-mcp，默认端口 18061）。它**不是任何 Python 的子进程**（经短命中转拉起），所以杀 Python 进程树不会杀掉浏览器会话；一个号只有一个浏览器 profile，操作串行。
 - **夜跑**：`python -m link_brain nightly` 按步骤顺序起子进程（同步收藏 → 补附件 → 补评论 → 概要 / 打标 → 识图 → 转写 → 向量 → 目录），每步带时限，超时只杀这一步；碰号的步骤一旦撞风控 / 掉登录（退出码 5）后面碰号的全跳过。Windows 上由计划任务 `LinkBrainNightly` 触发，插件设置里开关。

@@ -402,7 +402,7 @@ function makePlugin(base, { saved = {}, files = new Set(), manifestDir = '.obsid
   env.p.app.vault.cachedRead = async f => texts[f.path];
   assert.equal(await env.p.legacyPageHint({ path: 'new.md' }), false, '新格式不提示');
   assert.equal(await env.p.legacyPageHint({ path: 'old.md' }), true, '旧格式 + 没 Dataview：提示');
-  assert.match(notes[0].msg, /刷新目录/); assert.deepEqual(notes[0].o.actions.map(a => a.label), ['刷新目录']);
+  assert.match(notes[0].msg, /刷新目录/); assert.deepEqual([...notes[0].o.actions.map(a => a.label)], ['刷新目录']);
   assert.equal(await env.p.legacyPageHint({ path: 'old.md' }), false, '这次打开 Obsidian 只提示一次');
   env.p._legacyPageHinted = false;
   env.p.app.plugins = { manifests: { dataview: {} }, enabledPlugins: new Set(['dataview']), plugins: { dataview: { settings: { enableDataviewJs: true } } } };

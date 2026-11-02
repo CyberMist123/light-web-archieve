@@ -169,9 +169,11 @@ function lbPageLib(dv, app, role) {
   const path = p => (p && root ? `${root}/${p}` : p);
 
   const PID = 'link-brain-actions';
-  const provider = () => app?.plugins?.plugins?.[PID];
-  // 手机（X3）：插件是桌面专用，手机上页面只读；需要插件的按钮点了只说这一句
+  // 手机（X3）：页面只读；需要插件的按钮点了只说这一句
   const mobile = !!(app && app.isMobile);
+  // 1102：同一个插件手机上也装（只负责显示 lb-page 页面），但手机上它没有导入 / 同步 / 问 AI 这些本事——
+  // 所以手机上 provider() 一律当「没有插件」（null），页面走的还是原来那条手机只读路（按钮不画，或 LB.need / LB.ensure 说 MOBILE_ONLY_TEXT）
+  const provider = () => (mobile ? null : app?.plugins?.plugins?.[PID]);
   const MOBILE_ONLY_TEXT = '手机上只能看：导入、同步、问 AI、收藏要在电脑上用';
   // 插件方法不在（刚部署了新 main.js、旧实例还在内存里）就重载一次插件；正在跑同步 / 导入时不重载，免得打断它
   // 手机上直接说只读（不去 enablePlugin）；插件忙时用插件统一的占用句（busyText）

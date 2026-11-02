@@ -1,8 +1,301 @@
+// 构建产物，别手改：源在 main.src.js（+ 下面打包进来的 page-host.js），改完跑 npm run build（tools/build_plugin.cjs）。
+// ── page-host.js（esbuild 打包，全局名 LBPageHost）──
+var LBPageHost = (() => {
+  "use strict";
+  var __getOwnPropNames = Object.getOwnPropertyNames;
+  var __commonJS = (cb, mod) => function __require() {
+    return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
+  };
+
+  // obsidian-plugins/link-brain-actions/page-host.js
+  var require_page_host = __commonJS({
+    "obsidian-plugins/link-brain-actions/page-host.js"(exports, module) {
+      async function lbLoadPage(app, folder, script, names) {
+        let root = folder || "";
+        while (root && !app.vault.getAbstractFileByPath(root + "/_archive")) root = root.includes("/") ? root.slice(0, root.lastIndexOf("/")) : "";
+        const file = (root ? root + "/" : "") + "_archive/" + script;
+        const stat = app.vault.getAbstractFileByPath(file)?.stat;
+        const ver = stat && stat.mtime ? stat.mtime + ":" + stat.size : "";
+        const params = ["dv", "app"].concat(names || []);
+        const key = file + "|" + params.join(",");
+        const cache = globalThis.__lbPageCode = globalThis.__lbPageCode || {};
+        if (ver && cache[key] && cache[key].ver === ver) return { root, file, ver, run: cache[key].fn, error: null };
+        try {
+          const code = await app.vault.adapter.read(file);
+          const fn = new (Object.getPrototypeOf(async function() {
+          })).constructor(...params, code);
+          if (ver) cache[key] = { ver, fn };
+          return { root, file, ver, run: fn, error: null };
+        } catch (e) {
+          return { root, file, ver, run: null, error: e };
+        }
+      }
+      var LANG = "lb-page";
+      var RERUN_MS = 2500;
+      var SCRIPT_RE = /^[A-Za-z0-9][A-Za-z0-9_.-]*\.js$/;
+      var KEY_RE = /^([A-Za-z_$][A-Za-z0-9_$]*)\s*:\s*(.*)$/;
+      var RESERVED = /* @__PURE__ */ new Set(["dv", "app", "script", "arguments", "eval"]);
+      function parseBlock(source) {
+        const out = { script: "", params: {}, error: "" };
+        for (const raw of String(source == null ? "" : source).split(/\r?\n/)) {
+          const line = raw.trim();
+          if (!line || line.startsWith("#") || line.startsWith("//")) continue;
+          const m = KEY_RE.exec(line);
+          if (!m) {
+            if (!out.script) {
+              out.script = line;
+              continue;
+            }
+            out.error = "看不懂这一行：" + line;
+            break;
+          }
+          let value = m[2].trim();
+          try {
+            value = JSON.parse(value);
+          } catch {
+          }
+          if (m[1] === "script") {
+            out.script = String(value);
+            continue;
+          }
+          if (RESERVED.has(m[1])) {
+            out.error = "参数名不能用 " + m[1];
+            break;
+          }
+          out.params[m[1]] = value;
+        }
+        if (!out.error && !out.script) out.error = "没写要跑哪个页面脚本";
+        else if (!out.error && !SCRIPT_RE.test(out.script)) out.error = "页面脚本名不对：" + out.script;
+        return out;
+      }
+      function folderOf(p) {
+        const s = String(p || "");
+        return s.includes("/") ? s.slice(0, s.lastIndexOf("/")) : "";
+      }
+      module.exports = function pageHost(obsidian, plugin) {
+        const app = plugin.app;
+        const live = /* @__PURE__ */ new Set();
+        let attached = false;
+        function failBox(el, text) {
+          try {
+            const doc = el.ownerDocument || document;
+            const box = doc.createElement("div");
+            box.className = "lb-page-fail";
+            box.textContent = text;
+            el.appendChild(box);
+            return box;
+          } catch {
+            return null;
+          }
+        }
+        function makeDv(el, child, sourcePath) {
+          const folder = folderOf(sourcePath);
+          const name = String(sourcePath || "").split("/").pop() || "";
+          const dv = {
+            container: el,
+            component: child,
+            current: () => ({ file: { path: sourcePath || "", folder, name } }),
+            page(p) {
+              try {
+                const fm = app.metadataCache?.getCache?.(p)?.frontmatter;
+                return fm ? Object.assign({}, fm, { file: { path: p } }) : null;
+              } catch {
+                return null;
+              }
+            },
+            // 字符串按 Markdown 渲染（和 Dataview 一样；只给兜底提示用，页面正文走插件的 renderMarkdownScoped）
+            el(tag, text, attrs) {
+              const doc = el.ownerDocument || document;
+              const node = doc.createElement(tag || "div");
+              if (attrs && attrs.cls) node.className = [].concat(attrs.cls).join(" ");
+              const md = typeof plugin.neutralizeMarkdown === "function" ? plugin.neutralizeMarkdown(String(text == null ? "" : text)) : String(text == null ? "" : text);
+              const MR = obsidian && obsidian.MarkdownRenderer;
+              try {
+                if (MR && typeof MR.render === "function") MR.render(app, md, node, sourcePath || "", child);
+                else if (MR && typeof MR.renderMarkdown === "function") MR.renderMarkdown(md, node, sourcePath || "", child);
+                else node.textContent = md;
+              } catch {
+                node.textContent = md;
+              }
+              el.appendChild(node);
+              return node;
+            },
+            paragraph(text, attrs) {
+              return dv.el("p", text, attrs);
+            },
+            header(level, text, attrs) {
+              return dv.el("h" + (Number(level) || 1), text, attrs);
+            },
+            span(text, attrs) {
+              return dv.el("span", text, attrs);
+            }
+          };
+          return dv;
+        }
+        function clear(el) {
+          if (typeof el.empty === "function") el.empty();
+          else el.innerHTML = "";
+        }
+        async function runOnce(entry, block, el, child, sourcePath, env) {
+          entry.lastError = null;
+          const names = Object.keys(block.params);
+          const envNames = Object.keys(env || {}).filter((k) => !RESERVED.has(k) && !(k in block.params));
+          const page = await lbLoadPage(app, folderOf(sourcePath), block.script, names.concat(envNames));
+          if (!page.run) {
+            const why = page.error && (page.error.message || String(page.error)) || "没找到";
+            entry.lastError = page.error || new Error(why);
+            failBox(el, "页面脚本没读到（" + why + "）：点右上「…」→ 刷新目录");
+            return false;
+          }
+          const prefix = (p) => page.root ? page.root + "/" + p : p;
+          const values = names.map((k) => /Path$/.test(k) && typeof block.params[k] === "string" ? prefix(block.params[k]) : block.params[k]).concat(envNames.map((k) => env[k]));
+          const dv = makeDv(el, child, sourcePath);
+          dv.__lbCodeVer = page.ver;
+          try {
+            await page.run(dv, app, ...values);
+            return true;
+          } catch (e) {
+            entry.lastError = e;
+            console.error("[lb] 页面 " + block.script + " 出错", e);
+            failBox(el, "页面出错了（" + (e && e.message || e) + "）：点右上「…」→ 刷新目录 后再打开；还不行到设置页「修复」里复制报错");
+            return false;
+          }
+        }
+        async function processBlock(source, el, ctx, opts = {}) {
+          const block = parseBlock(source);
+          const sourcePath = ctx && ctx.sourcePath || "";
+          if (block.error) {
+            failBox(el, "LWA 页面块写错了：" + block.error);
+            return null;
+          }
+          const Child = obsidian && obsidian.MarkdownRenderChild;
+          const child = Child ? new Child(el) : null;
+          if (!child) {
+            failBox(el, "这个 Obsidian 版本没有 MarkdownRenderChild，页面显示不了");
+            return null;
+          }
+          let alive = true, running = null, again = false, timer = null;
+          const entry = { child, el, script: block.script, sourcePath, lastError: null };
+          const rerun = async () => {
+            if (!alive) return;
+            if (running) {
+              again = true;
+              return running;
+            }
+            running = (async () => {
+              do {
+                again = false;
+                clear(el);
+                await runOnce(entry, block, el, child, sourcePath, opts.env);
+              } while (again && alive);
+            })().finally(() => {
+              running = null;
+            });
+            return running;
+          };
+          entry.rerun = rerun;
+          child.render = rerun;
+          child.register(() => {
+            alive = false;
+            if (timer) clearTimeout(timer);
+            timer = null;
+            live.delete(entry);
+          });
+          const schedule = (file) => {
+            if (!alive || !file || !/\.md$/i.test(String(file.path || ""))) return;
+            if (timer) clearTimeout(timer);
+            timer = setTimeout(() => {
+              timer = null;
+              if (alive && el.isConnected) rerun().catch((e) => console.error("[lb] 页面重跑失败", e));
+            }, RERUN_MS);
+          };
+          if (app.vault && typeof app.vault.on === "function") for (const ev of ["modify", "create", "delete", "rename"]) child.registerEvent(app.vault.on(ev, schedule));
+          if (app.workspace && typeof app.workspace.on === "function") child.registerEvent(app.workspace.on("link-brain:refresh-pages", () => {
+            if (alive && el.isConnected) rerun().catch(() => {
+            });
+          }));
+          if (ctx && typeof ctx.addChild === "function") ctx.addChild(child);
+          else if (typeof child.load === "function") child.load();
+          live.add(entry);
+          try {
+            await rerun();
+          } catch (e) {
+            entry.lastError = e;
+            console.error("[lb] 页面没画上", e);
+            failBox(el, "页面没画上：" + (e && e.message || e));
+          }
+          return entry;
+        }
+        return {
+          LANG,
+          live,
+          process: processBlock,
+          attach() {
+            if (attached || typeof plugin.registerMarkdownCodeBlockProcessor !== "function") return false;
+            plugin.registerMarkdownCodeBlockProcessor(LANG, (source, el, ctx) => processBlock(source, el, ctx).catch((e) => {
+              console.error("[lb] lb-page 块出错", e);
+              failBox(el, "页面没画上：" + (e && e.message || e));
+            }));
+            attached = true;
+            return true;
+          },
+          // 插件卸载：已画出来的块逐个卸掉（页面的 onUnload 摘 host、停监听 / 定时器）
+          detach() {
+            for (const entry of [...live]) {
+              try {
+                entry.child.unload();
+              } catch {
+              }
+            }
+            live.clear();
+          },
+          // 别处（重建目录之后、设置里换了东西）要页面立刻重跑：和 Dataview 的 refresh-views 一样
+          refreshAll() {
+            for (const entry of [...live]) {
+              try {
+                if (entry.el.isConnected) entry.rerun();
+              } catch {
+              }
+            }
+          }
+        };
+      };
+      module.exports.parseBlock = parseBlock;
+      module.exports.lbLoadPage = lbLoadPage;
+      module.exports.LANG = LANG;
+      module.exports.RERUN_MS = RERUN_MS;
+    }
+  });
+  return require_page_host();
+})();
+// ── main.src.js ──
 const obsidian = require("obsidian");
 const { Plugin, Notice, TFile, Modal, PluginSettingTab, Setting, requestUrl } = obsidian;
-const { spawn } = require("child_process");
-const path = require("path");
-const fs = require("fs");
+// 1102 手机：Node 模块（child_process / path / fs / os / electron）手机上没有。模块一加载就引用会让整个插件在手机上起不来，
+// 所以一律用到时才加载：path / fs 是「第一次读属性时才 require」的代理，spawn 是调用时才 require。桌面上行为不变。
+function lazyNodeModule(name) {
+  let mod = null;
+  const load = () => mod || (mod = require(name));
+  return new Proxy({}, {
+    get(_, key) { const m = load(), v = m[key]; return typeof v === "function" ? v.bind(m) : v; },
+    has(_, key) { return key in load(); },
+    ownKeys() { return Reflect.ownKeys(load()); },
+    getOwnPropertyDescriptor(_, key) { const d = Object.getOwnPropertyDescriptor(load(), key); return d ? { ...d, configurable: true } : d; },
+  });
+}
+function spawn(...args) { return require("child_process").spawn(...args); }
+const path = lazyNodeModule("path");
+const fs = lazyNodeModule("fs");
+// 下载文件夹的默认值（模块加载时就算：手机上没有 os 模块，算不出来就留空，桌面上不会走到）
+function defaultDownloadsFolder() {
+  if (typeof process === "undefined" || !process.versions || !process.versions.node) return "";   // 手机（没有 Node）：不去碰 os / path
+  try { return path.join(require("os").homedir(), "Downloads"); } catch { return ""; }
+}
+// page-host.js 由 esbuild 打进 main.js（全局名 LBPageHost，tools/build_plugin.cjs）；直接跑 main.src.js（单测）时退回 require 同目录那份
+function pageHostFactory() {
+  if (typeof LBPageHost !== "undefined" && LBPageHost) return LBPageHost;
+  return require("./page-host.js");
+}
 
 function endpointHost(value) {
   try { return new URL(String(value).includes('://') ? value : 'https://' + value).hostname.toLowerCase().replace(/^www\./, '').replace(/^\[|\]$/g, ''); }
@@ -254,7 +547,7 @@ const DEFAULT_SETTINGS = {
   // 1028 作者：「存好了作为样式锁定，可以恢复默认或恢复样式 1」——存过的编排 [{name, layout}]（layout 和 catalogLayout 同一个形状）；当前用的是哪一个（空 = 没存过 / 默认）
   catalogStyles: [],
   catalogStyleCur: "",
-  downloads: {folder: path.join(require("os").homedir(), "Downloads"), waitMinutes: 5},
+  downloads: {folder: defaultDownloadsFolder(), waitMinutes: 5},
   nickname: "",   // 批注署名（留空 = 不署名）
   annotateMention: "",   // 批注留言对象：填名字后「@名字」开头的批注标成留言给它（10-03：默认不启用）
   // 收藏同步（0926）：自动拉取评论楼层 10/20/50/all（默认 10）。dailyNewLimit 默认 50、0 = 不限（第 5 批 4.1）。和 link_brain/ai_config.py 对齐。
@@ -808,6 +1101,8 @@ const TAB_ALIAS = { overview: ['overview'], general: ['overview'], status: ['ove
 class LinkBrainActions extends Plugin {
   async onload() {
     const started = Date.now();
+    // 1102：手机上只显示页面（同一个插件，桌面专用的部分一律不碰），见 onloadMobile
+    if (this.app && this.app.isMobile) return this.onloadMobile(started);
     this.running = null;
     this.importing = false;
     this.taskListeners = new Set();
@@ -817,9 +1112,7 @@ class LinkBrainActions extends Plugin {
     // 1102：LWA 的页面（目录 / 问收藏 / Wiki / 回收站 / B 站挑选 / 批注块）是 ```lb-page 代码块，由插件自己执行（page-host.js），不再要 Dataview。
     // 放在 onload 最前面：Obsidian 启动时已经打开的目录页一注册就能画，不等后面的 await
     try {
-      const p = path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir, 'page-host.js');
-      for (const r of [require, typeof window !== 'undefined' ? window.require : null]) { try { if (r && r.cache) delete r.cache[typeof r.resolve === 'function' ? r.resolve(p) : p]; } catch {} }
-      this.pageHost = require(p)(obsidian, this);
+      this.pageHost = pageHostFactory()(obsidian, this);
       this.pageHost.attach();
     } catch (e) { console.error('[lb] page-host.js 没加载上（目录页等显示不了）', e); }
     this.taskStatusEl.onclick = () => this.openSyncLog();
@@ -2093,7 +2386,31 @@ class LinkBrainActions extends Plugin {
   // 问收藏页用户开始打字时预热（同一页 60 秒内只调一次）：没有 worker、也不在卸载时才起；返回是否新起了
   warmAnswerWorker() { if(this.answerWorker||this.unloading)return false; try{this.ensureAnswerWorker();return true;}catch(e){console.error('[lb] 预热问答进程没成',e);return false;} }
   stopArchiveAnswer(tag) { let n=0; for(const [id,p] of [...(this.answerPending?.entries()||[])]) { if(tag!=null&&p.tag!==tag)continue; if(this.cancelAnswer(id)) n++; } return n; }
-  onunload(){this.unloading=true;if(this.syncTick)clearInterval(this.syncTick);clearTimeout(this.capsTimer);clearTimeout(this.onboardTimer);clearTimeout(this.fillTimer);clearTimeout(this.freshTimer);this.catalogCache=null;
+  // 1102 手机：同一个插件装在手机上只做两件事——注册 ```lb-page 处理器（目录 / 问收藏 / Wiki / 回收站 / B 站挑选 / 批注块照样显示），
+  // 把笔记样式 note.css 注入 head（从插件目录用 vault.adapter 读，手机上没有 fs）。不加命令、不加设置页、不起任何进程。
+  // 页面在手机上是只读的：lb-page-lib 的 LB.provider() 在手机上返回 null（和以前「手机上没有插件」完全一样），
+  // 要插件的按钮要么不画、要么点了说 lb-page-lib 的 MOBILE_ONLY_TEXT（LB.need / LB.ensure）；笔记里「现在抓全部评论」这类入口只在 body.lb-actions-on 时显示，手机上不加这个类。
+  async onloadMobile(started = Date.now()) {
+    this.mobileMode = true;
+    try {
+      this.pageHost = pageHostFactory()(obsidian, this);
+      this.pageHost.attach();
+    } catch (e) { console.error('[lb] 手机上页面处理器没注册上', e); }
+    try {
+      const doc = typeof document !== 'undefined' ? document : null;
+      const css = await this.app.vault.adapter.read(`${this.manifest.dir}/note.css`);
+      if (doc && doc.head && !this.unloading) {
+        doc.getElementById('lb-note-style')?.remove();
+        const el = doc.createElement('style');
+        el.id = 'lb-note-style';
+        el.textContent = css;
+        doc.head.appendChild(el);
+        this.mobileStyleEl = el;
+      }
+    } catch (e) { console.error('[lb] 手机上笔记样式没注入上', e); }
+    this.onloadMs = Date.now() - started;
+  }
+  onunload(){if(this.mobileMode){this.unloading=true;try{this.pageHost?.detach?.();}catch{}try{this.mobileStyleEl?.remove();}catch{}return;}this.unloading=true;if(this.syncTick)clearInterval(this.syncTick);clearTimeout(this.capsTimer);clearTimeout(this.onboardTimer);clearTimeout(this.fillTimer);clearTimeout(this.freshTimer);this.catalogCache=null;
     for(const k of ['noteActions','noteTools','imageActions','playerUI','indexUI','pageHost']){try{this[k]?.detach?.();}catch(e){console.error('[lb] '+k+' 卸载出错',e);}}   // 批次 D 地基：四个挂载点 + 10-10 索引树
     // 1102：互斥长任务（一键装好 / 同步）的子进程**不杀**——它自己把进度落盘（_archive/setup-run.json、同步记录），
     // stdout 断了会切到 ~/.link-brain/logs 接着写；重开 Obsidian 时设置页按 setup-run.json 续画。只说一句。

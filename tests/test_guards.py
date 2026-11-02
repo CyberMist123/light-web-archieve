@@ -136,6 +136,8 @@ def _files(globs, root: Path):
         for p in sorted(root.glob(g)):
             if "node_modules" in p.parts or not p.is_file() or p in seen:
                 continue
+            if p.suffix == ".js" and p.read_text(encoding="utf-8", errors="replace").startswith("// 构建产物，别手改"):
+                continue   # 1102：插件 main.js 是 main.src.js 的构建产物，扫源文件就够了，不重复计数
             seen.add(p)
             yield p
 
