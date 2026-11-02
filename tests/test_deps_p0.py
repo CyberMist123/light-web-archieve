@@ -2,13 +2,14 @@
 
 - jieba 缺失（sys.modules 置 None 模拟）：切词各处统一抛 deps.MissingDependency（NEEDS_HUMAN.MISSING_DEPENDENCY + 人话），
   不再有的崩成裸 ModuleNotFoundError、有的悄悄退化；MCP search / ask 返回的错误里带码和人话。
-- 计划任务 / 后台补评论注册的命令行用 deps.python_exe()：插件 data.json 的 pythonPath > 程序目录 .venv > 当前解释器，绝对路径。
+- 计划任务 / 后台补评论注册的命令行用 deps.python_exe()：插件 data.json 的 pythonPath > 托管环境 ~/.link-brain/py（1102）> 程序目录 .venv（只在源码仓库里猜）> 当前解释器，绝对路径。
 - doctor 缺依赖时照样跑完，列出缺什么。
 不起真进程、不注册真计划任务（_ps 换成记账）。
 """
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -139,6 +140,77 @@ def test_python_exe_order(tmp_path, monkeypatch):
     # 坏 data.json → 按默认找，不崩
     (vault / ".obsidian" / "plugins" / "link-brain-actions" / "data.json").write_text("{坏", encoding="utf-8")
     assert deps.python_exe() == str(venv)
+
+
+# ------------------------------------------------------------------ 1102 托管环境（~/.link-brain/py）
+
+def _managed(tmp_path, monkeypatch, sub="py") -> Path:
+    """在隔离的 LINK_BRAIN_HOME 下造一个托管 venv 的 python（按本平台的 Scripts/bin 布局）。"""
+    home = Path(os.environ["LINK_BRAIN_HOME"])
+    exe = deps._venv_exe(home / sub)
+    exe.parent.mkdir(parents=True, exist_ok=True)
+    exe.write_text("")
+    (exe.parent / "pythonw.exe").write_text("")
+    return exe
+
+
+def test_managed_env_beats_repo_venv_and_sys_executable(tmp_path, monkeypatch):
+    vault = storage.vault_root()
+    vault.mkdir(parents=True, exist_ok=True)
+    venv = _fake_python(tmp_path, "venv")
+    monkeypatch.setattr(deps, "venv_python", lambda root=None: venv)
+    assert deps.python_exe() == str(venv), "没有托管环境：照旧用 .venv"
+    managed = _managed(tmp_path, monkeypatch)
+    assert deps.python_exe() == str(managed.absolute()), "托管环境排在程序目录 .venv 之前"
+    assert deps.python_exe(windowless=True) == str(managed.with_name("pythonw.exe").absolute()), "计划任务用托管环境的 pythonw.exe"
+    # 插件配了「Python 路径」仍然最优先
+    own = _fake_python(tmp_path)
+    _plugin_data(vault, {"pythonPath": str(own)})
+    assert deps.python_exe() == str(own)
+
+
+def test_managed_env_follows_backend_dir_in_config(tmp_path, monkeypatch):
+    """升级：config.json 的 backend_dir 指到 py-<版本>/，python_exe 跟着走；相对路径按 ~/.link-brain 解析；坏文件不崩。"""
+    home = Path(os.environ["LINK_BRAIN_HOME"])
+    _managed(tmp_path, monkeypatch, "py")
+    new = _managed(tmp_path, monkeypatch, "py-0.3.0")
+    home.mkdir(parents=True, exist_ok=True)
+    (home / "config.json").write_text(json.dumps({"backend_dir": str(new.parent.parent)}), encoding="utf-8")
+    assert deps.managed_dir() == new.parent.parent
+    assert deps.python_exe() == str(new.absolute())
+    (home / "config.json").write_text(json.dumps({"backend_dir": "py-0.3.0"}), encoding="utf-8")
+    assert deps.python_exe() == str(new.absolute()), "相对的 backend_dir 按 ~/.link-brain 解析"
+    (home / "config.json").write_text("{坏", encoding="utf-8")
+    assert deps.managed_dir() == home / "py", "config.json 读不懂 → 默认 py/，不崩"
+
+
+def test_wheel_install_does_not_guess_venv_in_site_packages(tmp_path, monkeypatch):
+    """wheel 装进 site-packages 时 _repo_root() 是 site-packages：那里即使有个 .venv 也不是我们的，跳过，退回当前解释器。"""
+    site = tmp_path / "site-packages"
+    (site / "link_brain").mkdir(parents=True)
+    (site / "link_brain" / "__init__.py").write_text("")   # 有包、没有 pyproject.toml = 不是源码仓库
+    stray = deps._venv_exe(site / ".venv")
+    stray.parent.mkdir(parents=True)
+    stray.write_text("")
+    monkeypatch.setattr(deps, "_repo_root", lambda: site)
+    assert deps.is_source_checkout() is False
+    assert deps.python_exe() == str(Path(sys.executable).absolute()), "修前：把 site-packages/.venv 当成程序目录的 .venv"
+    (site / "pyproject.toml").write_text("[project]\nname='x'\n")
+    assert deps.is_source_checkout() is True
+    assert deps.python_exe() == str(stray.absolute()), "源码仓库才猜 .venv"
+
+
+def test_nightly_registration_uses_managed_python(tmp_path, monkeypatch):
+    """计划任务 / 远程服务 / 补评论 worker 都靠 deps.python_exe：装了托管环境、没配 pythonPath 时写的就是它。"""
+    from link_brain import sync_schedule
+    calls = []
+    monkeypatch.setattr(sync_schedule, "_ps", lambda cmd: (calls.append(cmd), (True, "ok"))[1])
+    managed = _managed(tmp_path, monkeypatch)
+    vault = tmp_path / "v"
+    vault.mkdir()
+    out = sync_schedule.install_nightly("04:00", str(vault), platform="win32")
+    assert out["ok"] is True
+    assert f"-Execute '{managed.with_name('pythonw.exe').absolute()}'" in calls[0]
 
 
 def test_nightly_registration_uses_configured_python(tmp_path, monkeypatch):

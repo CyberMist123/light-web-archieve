@@ -48,8 +48,21 @@ function makePlugin(base, saved = {}) {
   const has = set => f => set.has(f);
   assert.equal(Plugin.pickPython({ root: '/repo', configured: '', platform: 'win32', exists: has(new Set([winVenv])) }), winVenv, '有 .venv 用它');
   assert.equal(Plugin.pickPython({ root: '/repo', configured: '', platform: 'linux', exists: has(new Set([nixVenv])) }), nixVenv, '非 Windows 看 .venv/bin/python');
-  assert.equal(Plugin.pickPython({ root: '/repo', configured: '', platform: 'win32', exists: () => false }), 'python', '没 .venv 退回 python');
-  assert.equal(Plugin.pickPython({ root: null, configured: undefined, platform: 'win32', exists: () => true }), 'python', '没有程序目录也退回 python');
+  // 1102：没 .venv → whichCommand 找 python（托管目录 → PATH）：PATH 上有 → 裸 python（spawn 自己按 PATH 找）；哪都没有 → null = 没有 Python；
+  //       Windows 11 只找到商店别名桩 …\Microsoft\WindowsApps\python.exe → 也是 null（起了只弹商店、退出码 9009）
+  assert.equal(Plugin.pickPython({ root: '/repo', configured: '', platform: 'win32', exists: () => false }), null, '没 .venv、PATH 也没有 → null（找不到 Python）');
+  assert.equal(Plugin.pickPython({ root: null, configured: undefined, platform: 'win32', exists: () => false, which: () => null }), null, '没有程序目录、也找不到 → null');
+  assert.equal(Plugin.pickPython({ root: '/repo', configured: '', platform: 'win32', exists: () => false, which: c => (c === 'python' ? 'C:\\Python312\\python.exe' : null) }), 'python', 'PATH 上有 → 裸 python');
+  assert.equal(Plugin.pickPython({ root: '/repo', configured: '', platform: 'win32', exists: () => false, which: () => 'C:\\Users\\u\\AppData\\Local\\Microsoft\\WindowsApps\\python.exe' }), null, '商店别名桩 = 没有 Python');
+  assert.equal(Plugin.isWindowsAppsStub('C:\\Users\\u\\AppData\\Local\\Microsoft\\WindowsApps\\python3.exe'), true);
+  assert.equal(Plugin.isWindowsAppsStub('C:\\Python312\\python.exe'), false);
+  {   // 托管目录里的 python（不在 PATH 上）→ 给绝对路径
+    const mp = Plugin.managedPaths({ platform: 'win32', env: { LINK_BRAIN_HOME: 'C:\\lbhome' }, readFile: () => { throw new Error('no'); } });
+    assert.equal(mp.python, path.join('C:\\lbhome', 'py', 'Scripts', 'python.exe'));
+    const prevHome = process.env.LINK_BRAIN_HOME; process.env.LINK_BRAIN_HOME = 'C:\\lbhome';
+    try { assert.equal(Plugin.pickPython({ root: '/repo', configured: '', platform: 'win32', exists: f => f === mp.python }), mp.python, '托管目录的 python 给绝对路径'); }
+    finally { if (prevHome == null) delete process.env.LINK_BRAIN_HOME; else process.env.LINK_BRAIN_HOME = prevHome; }
+  }
   assert.equal(Plugin.pickPython({ root: '/repo', configured: '  D:/py311/python.exe ', platform: 'win32', exists: has(new Set([winVenv])) }), 'D:/py311/python.exe', '用户配了用配的（去首尾空白）');
   assert.equal(Plugin.pickPython({ root: '/repo', configured: '"C:/Program Files/Py/python.exe"', platform: 'win32', exists: () => false }), 'C:/Program Files/Py/python.exe', '带引号的路径去掉引号');
 

@@ -73,7 +73,7 @@ const context = { module: { exports: {} }, process, setTimeout, clearTimeout, co
   window: { confirm: () => true },
   // 插件按「库根 + manifest.dir」require 自己的几个文件；临时库里没拷插件，指回仓库里的源文件
   require: n => n === 'obsidian' ? obsidianStub : n === 'child_process' ? { spawn: fakeSpawn }
-    : /[\\/](onboarding-ui|media-nav|remote-ui|home-ui|schedule-ui|settings-pages|settings-v6|provider-icons|usage-ui|skills-ui)\.js$/.test(n) ? require(path.join(ROOT, PLUGIN_DIR, path.basename(n))) : require(n) };
+    : /[\\/](onboarding-ui|media-nav|remote-ui|home-ui|schedule-ui|settings-pages|settings-v6|provider-icons|usage-ui|skills-ui|backend-install)\.js$/.test(n) ? require(path.join(ROOT, PLUGIN_DIR, path.basename(n))) : require(n) };
 vm.createContext(context);
 vm.runInContext(fs.readFileSync(path.join(ROOT, PLUGIN_DIR, 'main.js'), 'utf8') + '\nmodule.exports.__SettingTab = LinkBrainSettingTab; module.exports.__merge = mergeSettings;', context);
 const Plugin = context.module.exports;
@@ -118,6 +118,21 @@ function makePlugin(base, { saved = {}, files = new Set(), manifestDir = '.obsid
   assert.deepEqual([...Plugin.backendArgv({ mode: 'repo' }, ['-m', 'link_brain', 'catalog'])], ['-m', 'link_brain', 'catalog'], '仓库模式原样');
   b = Plugin.pickBackend({ candidates: [], command: '', isRepo, which: () => null });
   assert.equal(b.mode, 'missing'); assert.equal(b.command, 'link-brain', '空 = 默认 link-brain');
+  // 1102 顺序：仓库 → 托管目录的 link-brain → PATH
+  b = Plugin.pickBackend({ candidates: ['/x'], isRepo, which: () => '/usr/bin/link-brain', managed: { exe: '/h/.link-brain/py/bin/link-brain', python: '/h/.link-brain/py/bin/python', dir: '/h/.link-brain/py' } });
+  assert.equal(b.mode, 'managed'); assert.equal(b.exe, '/h/.link-brain/py/bin/link-brain'); assert.equal(b.python, '/h/.link-brain/py/bin/python'); assert.deepEqual([...b.prefix], []);
+  assert.deepEqual([...Plugin.backendArgv(b, ['-m', 'link_brain', 'sync-favorites'])], ['sync-favorites'], '托管模式和后端命令模式一样去掉 -m link_brain');
+  b = Plugin.pickBackend({ candidates: ['/repo'], isRepo, which: () => '/usr/bin/link-brain', managed: { exe: '/h/.link-brain/py/bin/link-brain' } });
+  assert.equal(b.mode, 'repo', '仓库模式仍最优先（作者本机）');
+  b = Plugin.pickBackend({ candidates: ['/repo'], isRepo, which: () => null, python: () => null });
+  assert.equal(b.mode, 'repo'); assert.equal(b.exe, null, '仓库模式但找不到 Python：exe=null，runPy 那句「找不到 Python」');
+  assert.match(Plugin.backendMissingText(b), /一键装好/, '缺后端的提示说清 uv / 后端从哪来（设置页「一键装好」）');
+  assert.match(Plugin.PYTHON_MISSING_TEXT, /找不到 Python.*一键装好/);
+  // whichCommand：托管目录是固定候选，排在 PATH 前面
+  const mp = { scripts: '/h/.link-brain/py/bin', bin: '/h/.link-brain/bin' };
+  const have2 = new Set(['/h/.link-brain/py/bin/link-brain', '/bin1/link-brain', '/h/.link-brain/bin/uv']);
+  assert.equal(Plugin.whichCommand('link-brain', { env: { PATH: '/bin1' }, platform: 'linux', exists: f => have2.has(f), home: '/home/u', managed: mp }), '/h/.link-brain/py/bin/link-brain');
+  assert.equal(Plugin.whichCommand('uv', { env: { PATH: '/bin1' }, platform: 'linux', exists: f => have2.has(f), home: '/home/u', managed: mp }), '/h/.link-brain/bin/uv');
   assert.match(Plugin.backendMissingText(b), /没找到后端程序.*uv tool install link-brain/);
 
   // ── 1b. 真走 locateCollection：仓库里的库 → 仓库模式（作者本机现状），带 LINK_BRAIN_VAULT ──
@@ -178,8 +193,11 @@ function makePlugin(base, { saved = {}, files = new Set(), manifestDir = '.obsid
   let tab = new Plugin.__SettingTab({}, env.p); tab.display();
   let hint = tab.containerEl.querySelector('.lb-setup-hint');
   assert.ok(hint && /没找到后端程序/.test(hint.textContent), '设置页顶部有缺后端提示');
-  hint.querySelector('button').click(); await flush();
+  // 1102：第一个按钮是「一键装好」（插件自己装后端），「复制安装命令」退成第二个
+  assert.deepEqual(hint.querySelectorAll('button').map(b => b.textContent), ['一键装好', '复制安装命令']);
+  hint.querySelectorAll('button')[1].click(); await flush();
   assert.equal(context.clipboard, 'uv tool install link-brain');
+  assert.match(hint.textContent, /一键装好/, '提示里说清了 uv / 后端从哪来');
   // 1016 起「这台电脑」（一键装好 / 检查这台电脑）在「更多 → 高级」折叠里；后端找不到时那一栏照样画得出来，页顶提示照样在
   // 1018 v6：一页五张卡，「更多」里每一项点开才画（假 DOM 设 open 不发 toggle，这里补发）
   env.p.settings.onboarding = { ...(env.p.settings.onboarding || {}), guideDone: true };
@@ -197,10 +215,63 @@ function makePlugin(base, { saved = {}, files = new Set(), manifestDir = '.obsid
   assert.ok(tab.containerEl.querySelector('.lb-setup-hint'), '换一栏，提示照样在页顶');
   assert.equal(rowNamesOf().filter(n => n === '收藏放在哪').length, 1, '收藏放在哪只在「收藏与同步」一处');
   tab.hide(); env.p.settingsView = null;
-  // 启动检查：缺后端只提示，不弹引导
-  notices.length = 0;
+  // 启动检查（1102）：缺后端 → 先自己装；发布包还没发（BACKEND_RELEASE 哈希为空）→ 如实提示「没找到后端程序 + 自动安装没做成：…还没发布」，不弹引导
+  notices.length = 0; spawned.length = 0;
   assert.equal(await env.p.startupChecks(), 'backend-missing');
   assert.ok(notices.some(n => /没找到后端程序/.test(String(n?.textContent ?? n))));
+  assert.ok(notices.some(n => /自动安装没做成.*还没发布/.test(String(n?.textContent ?? n))), '说清为什么没装上');
+  assert.equal(spawned.length, 0, '没有后端就不起进程');
+  // 1102：needsOnboarding 在后端缺失时也返回 true（以前返回 false，首次引导整个被跳过）
+  env.p.settings.onboarding = {};
+  assert.equal(await env.p.onboardingUI().needsOnboarding(), true, '后端缺失也算要引导');
+  // 装上了（替身 ensureBackend 往托管目录放一个 link-brain）→ 后端变成 managed，启动检查接着走首次自动跑
+  {
+    const mhome = path.join(tmp, 'mhome'); const prevHome = process.env.LINK_BRAIN_HOME; process.env.LINK_BRAIN_HOME = mhome;
+    try {
+      const mp = Plugin.managedPaths();
+      assert.equal(mp.dir, path.join(mhome, 'py')); assert.equal(mp.bin, path.join(mhome, 'bin'));
+      const progress = [];
+      env.p.backendInstall = () => ({ BACKEND_RELEASE: { version: '0.2.0' }, managedInfo: () => ({ dir: mp.dir, prev: '' }),
+        ensureBackend: async (pl, { onProgress }) => {
+          for (const [st, label] of [['uv', '准备安装工具 uv'], ['python', '准备 Python 3.12'], ['venv', '建后端环境'], ['install', '安装 link-brain'], ['check', '自检']]) onProgress({ stage: st, label, done: null, total: null, text: '', state: 'ok' });
+          fs.mkdirSync(path.dirname(mp.exe), { recursive: true }); fs.writeFileSync(mp.exe, ''); fs.writeFileSync(mp.python, '');
+          await pl.locateCollection();
+          return { ok: true, code: '', message: '后端装好了：link-brain 0.2.0' };
+        } });
+      env.p.homeUI().state().backendRun = null;
+      const origInstall = env.p.homeUI().installBackend;
+      env.p.homeUI().installBackend = async o => { const r = await origInstall(o); progress.push(r); return r; };
+      const firstRuns = [];
+      const h = env.p.homeUI(); h.firstRun = async () => { firstRuns.push(1); return 'started'; };
+      env.p.settings.onboarding = {};
+      assert.equal(await env.p.startupChecks(), 'onboarding', '装好了接着走首次自动跑');
+      assert.equal(firstRuns.length, 1);
+      assert.equal(progress.length, 1); assert.equal(progress[0].ok, true);
+      const mb = env.p.currentBackend();
+      assert.equal(mb.mode, 'managed', '托管目录里的 link-brain 排在 PATH 之前'); assert.equal(mb.exe, mp.exe); assert.equal(mb.python, mp.python);
+      assert.deepEqual([...env.p.mcpArgv()], [mp.exe, 'mcp'], '外接 MCP 的命令也是托管的 link-brain');
+      spawned.length = 0;
+      await env.p.runPy(['-m', 'link_brain', 'catalog']);
+      assert.equal(spawned[0].exe, mp.exe); assert.deepEqual([...spawned[0].args], ['catalog']);
+      assert.equal(Plugin.whichCommand('link-brain'), mp.exe, 'whichCommand 的固定候选：托管目录');
+      // 设置页：后端命令 / Python 路径只读显示当前路径；多了「更新后端」「退回上一版后端」两行（次要动作 .lb-link）
+      env.p.settings.onboarding = { ...(env.p.settings.onboarding || {}), guideDone: true };
+      tab = new Plugin.__SettingTab({}, env.p); tab.display(); openAll(); await flush(); await flush();
+      const rowOf = name => tab.containerEl.querySelectorAll('.setting-item').find(e => e.querySelector('.setting-item-name')?.textContent.replace(/[?ⓘ]$/, '') === name);
+      const cmdRow = rowOf('后端命令'), pyRowEl = rowOf('Python 路径');
+      assert.ok(cmdRow && pyRowEl, '两行都在');
+      assert.match(cmdRow.querySelector('.setting-item-description').textContent, /托管.*link-brain/); assert.equal(cmdRow.querySelectorAll('input').length, 0, '只读：没有输入框');
+      assert.match(pyRowEl.querySelector('.setting-item-description').textContent, /当前：.*python.*托管环境/); assert.equal(pyRowEl.querySelectorAll('input').length, 0);
+      assert.ok(!tab.containerEl.querySelector('.lb-setup-hint'), '有后端了：页顶没有缺后端提示');
+      const up = rowOf('更新后端'), back = rowOf('退回上一版后端');
+      assert.ok(up && back, '更新 / 退回两行');
+      assert.ok(up.querySelector('button.lb-link') && back.querySelector('button.lb-link'), '次要动作用 .lb-link');
+      assert.equal(back.querySelector('button').disabled, true, '没有上一版：退回不能点');
+      assert.match(back.querySelector('.setting-item-description').textContent, /还没有上一版/);
+      tab.hide();
+      delete env.p.backendInstall;
+    } finally { if (prevHome == null) delete process.env.LINK_BRAIN_HOME; else process.env.LINK_BRAIN_HOME = prevHome; env.p.backend = null; }
+  }
 
   // ── 3. 首次引导 ──
   // 作者本机：仓库模式 + 已有 _archive → 不弹

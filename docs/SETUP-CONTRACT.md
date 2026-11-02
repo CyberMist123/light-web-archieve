@@ -1,5 +1,48 @@
 # 设置页「功能」与一键装好 / 跑完：前后端契约
 
+## 11-02 托管模式：插件装进任意一个 Obsidian 库、机器上没有 Python 也能自己装好后端
+
+目标（RELEASE-BAR P8）：安装 = 一个插件。后端（Python + `link_brain` 包 + 依赖）由插件自己装进用户目录，不要求机器上有 Python、Git、uv、pip。
+
+**目录布局**（`$LINK_BRAIN_HOME`，默认 `~/.link-brain`；Python `storage.link_brain_home()`、插件 `backend-install.js homeDir()` / `main.js managedPaths()` 同一规则）
+
+| 路径 | 内容 | 谁写 |
+|---|---|---|
+| `bin/uv(.exe)` | uv（从 astral-sh/uv 的 GitHub Release 下载，版本和每个资产的 sha256 写在 `backend-install.js UV_RELEASE`，对不上不装） | 插件 |
+| `python/` | uv 管的 CPython 3.12（`UV_PYTHON_INSTALL_DIR`；不往 `~/.local/bin` 放启动器、不写注册表） | uv |
+| `uv-cache/` | uv 缓存（`UV_CACHE_DIR`） | uv |
+| `py/` | 托管后端：uv 建的 venv，里面 `Scripts\link-brain.exe` / `Scripts\python.exe`（Windows）或 `bin/link-brain` / `bin/python`；装的是 LWA 自己 Release 的 wheel + 带哈希的 `requirements.lock`（`uv pip install --require-hashes`，wheel 也带 `--hash`；URL / sha256 在 `BACKEND_RELEASE`） | 插件 |
+| `py-<版本>/` | 「更新后端」装的新版（见下） | 插件 |
+| `downloads/` | 下载中的 `.part` 和下好的 lock / wheel（uv 压缩包装完即删） | 插件 |
+| `config.json` 的 `backend_dir` / `backend_prev_dir` | 当前托管目录（没写 = `py/`；相对路径按 `~/.link-brain` 解析）/ 上一版目录 | 插件 |
+
+**候选顺序**（插件 `pickBackend`，和 Python `deps.python_exe` 对齐）
+
+1. 仓库模式：收藏库上一级 / 插件目录上两级有 `link_brain/` 包 → `python -m link_brain`（作者本机）。这一档里的 Python：设置「Python 路径」→ 程序目录 `.venv` → `whichCommand('python')`（托管目录 → PATH）；找不到、或只找到 Windows 11 商店的别名桩 `…\Microsoft\WindowsApps\python.exe`（退出码 9009、没有 JSON）→ `exe=null`，起进程前就报「找不到 Python。到 Link Brain 设置页顶部点「一键装好」…」。
+2. **托管**（`mode: 'managed'`）：`backend_dir` 指的目录里有 `link-brain(.exe)` → 直接用它（命令 = 那个 exe，去掉 `-m link_brain`）。
+3. 后端命令（`mode: 'command'`）：设置「后端命令」（默认 `link-brain`）在 PATH / uv tool 目录里找得到。
+4. 都没有 → `missing`：设置页顶部提示 + 「一键装好」「复制安装命令」；启动检查（`onboarding-ui startup`）先调 `ensureBackend` 自己装，装好接着走首次自动跑；没装上才提示并停。`needsOnboarding()` 后端缺失时返回 **true**（以前返回 false，首次引导整个被跳过）。
+
+`whichCommand` 把托管目录（`py*/Scripts` 或 `bin`、`~/.link-brain/bin`）当固定候选排在 PATH 前面。Python 侧 `deps.python_exe()`：`pythonPath` → `$LINK_BRAIN_HOME/py` 托管环境（跟 `backend_dir`）→ 源码仓库的 `.venv`（程序目录下有 `link_brain/` 和 `pyproject.toml` 才猜；wheel 装进 site-packages 时不猜）→ `sys.executable`；`windowless=True` 取同目录 `pythonw.exe`。计划任务（`sync_schedule`）、远程服务（`remote/task`）、补评论 worker（`comment_fill`）都靠它，所以装好托管环境后它们写的就是托管的 python。
+
+**安装步骤**（`backend-install.js ensureBackend(plugin, {onProgress, upgrade})`，每一步 `onProgress({stage, label, done, total, text, state})`，失败返回 `{ok:false, code, message}` 不抛）
+
+| stage | 做什么 | 失败码 |
+|---|---|---|
+| `uv` | 按 `process.platform/arch` 选资产 → 下到 `downloads/*.part`（有残片带 `Range` 续传）→ sha256 对上才改名 → 解压到 `bin/`（zip：PowerShell `Expand-Archive`，不行退 `tar -xf`；tar.gz：`tar -xzf --strip-components=1`）→ `uv --version` | `TRANSIENT.NETWORK` / `TRANSIENT.HTTP_5XX` / `PERMANENT.CHECKSUM_MISMATCH`（删 .part 和目标）/ `PERMANENT.BAD_PACKAGE`（404、解不开、跑不起来）/ `PERMANENT.DISK_FULL` |
+| `python` | `uv python install 3.12` | 输出含下载 / 连接字样 → `TRANSIENT.NETWORK`，其余 `PERMANENT.BAD_PACKAGE` |
+| `venv` | `uv venv <目录> --python 3.12 --seed` | `PERMANENT.BAD_PACKAGE` |
+| `install` | 下 lock + wheel（各自 sha256）→ `uv pip install --python <py> --require-hashes -r requirements.lock -r <wheel 一行带 --hash>` | 同 `components.classify_install_failure` 的规则 |
+| `check` | `link-brain version`；子命令还没合进来就退回 `python -m link_brain --help` 也算过 | `PERMANENT.BAD_PACKAGE` |
+
+`BACKEND_RELEASE.wheelSha256 / lockSha256` 为空（Release 还没发）时直接返回 `SKIPPED.NOT_CONFIGURED`「后端发布包还没发布」，不下载。已装好且不是升级 → 只跑 `check`。
+
+**升级 / 回滚**：`upgrade:true` 装到 `py-<BACKEND_RELEASE.version>/`，自检过了才把 `config.json.backend_dir` 指过去、原目录记进 `backend_prev_dir`；再早的那一版（只删 `~/.link-brain` 下 `py*` 开头的目录）删掉——任何时候只留当前 + 上一版。`rollbackBackend()` 把两个键对调（上一版得还在、自检得过），不删任何目录。设置页 ⑥ 修复 → 更多 → 后台程序：「后端命令」「Python 路径」在托管模式下只读显示当前路径；「更新后端」「退回上一版后端」两行（次要动作 `.lb-link`，没有上一版时退回不能点）。进度和结果画在页顶「懒人安装」那一块（`home-ui installBackend` → `renderRun`），同一块里没有后端时主按钮就是「一键装好」。
+
+**补装依赖**（`components._pip_install`）：有 `~/.link-brain/bin/uv` → `uv pip install --python <sys.executable> …`；没有 uv 但有 pip → pip；都没有 → `SKIPPED.NOT_CONFIGURED`，一句话说到设置页「一键装好」装（uv 从哪来）。失败按输出分类：`Failed building wheel` / `No matching distribution` / `requires a different Python` → `PERMANENT.BAD_PACKAGE`；`ConnectionError` / `ReadTimeout` / `ProxyError` → `TRANSIENT.NETWORK`（认不出的也归网络）。
+
+测试：`tests/test_deps_p0.py`（托管环境那几条）、`tests/test_setup_pip_uv_1102.py`、`tests/test_backend_install_1102.cjs`（本地 http 假服务器 + 记账子进程，不真下载、不起 uv / Python）、`tests/test_batch5_delivery_ui.cjs`（候选顺序、缺后端 → 自装 → 首次自动跑、设置页只读两行）、`tests/test_home_ui.cjs` 2b、`tests/test_python_path.cjs`。云端是 Linux：Windows 首启、PowerShell 解压、计划任务注册、`uv python install` 真下载都没验，待作者在干净 Windows 上走（PR 描述里的验收步骤）。
+
 ## 10-10 修订（作者的裁决：恢复分栏，按「什么都不懂的新用户」重写；覆盖下面 10-09「一页」的布局部分）
 
 作者 10-10 的话：「原本的设置分栏还是需要的」——恢复成分栏（标签页），同时守住 10-09 的两条：**每个设置只出现在一处**；**装上自动跑轻量版、一键装好 / 跑完**（零配置首次、`setup run` 都不变）。

@@ -257,6 +257,8 @@
 | `PERMANENT.NOTE_GONE`（只上卡片） | 原帖打不开 | 删了 / 仅作者可见 / 审核中（分不清，所以不说「已删除」） | — | — | 不用处理，本地存档还在；30 天游客复查一次 |
 | `PERMANENT.REMOTE_TASK_FAILED` | 远程阅读的计划任务没弄好 | 计划任务注册失败 | — | — | 设置 → 远程阅读 关掉再打开 |
 | `PERMANENT.CHECKSUM_MISMATCH` / `BAD_PACKAGE` / `DISK_FULL` | 组件校验不过 / 包不对 / 磁盘不够 | 只在安装命令结果里出现 | — | — | 设置 →「开始」重装；先腾空间 |
+| `PERMANENT.BAD_PACKAGE`（补装 Python 依赖，1102） | 「依赖装不上（这个包在这台电脑 / 这个 Python 版本上没有能装的版本）：<pip 最后一行>」 | pip / uv 输出含 `Failed building wheel` / `No matching distribution` / `requires a different Python`：Python 版本太旧或平台没有现成 wheel | 不重试 | — | 人工：设置页顶部「一键装好」重装托管后端（Python 3.12）；回归 `tests/test_setup_pip_uv_1102.py::test_failure_classified_by_output` |
+| `TRANSIENT.NETWORK`（补装 Python 依赖，1102） | 「下载依赖时网络不通：<pip 最后一行>」 | pip / uv 输出含 `ConnectionError` / `ReadTimeout` / `ProxyError`；认不出的失败也归这里（最常见还是网） | 不重试 | — | 网通了再点一次「一键装好 / 跑完」；回归同上 |
 | `SKIPPED.*` | 未配置 / 已关闭 / 额度到了 / 已退回普通方式 / 旧设置已换算 | 没开、没配 | — | — | 不是问题，不计数 |
 | `PERMANENT.COMMENTS_INCOMPLETE`（step `comments.fill`） | 评论没补全：设置楼数内的楼中楼还缺 N 条、原因、连着几次没多拿到 | 展开按钮点不动 / 被限频 / 评论区滚不动，连着 3 次续读都没多拿到 | 同一篇隔 45 分钟再续；没进展计数 | — 不自动（同一篇反复开页伤号） | 「再试一次」= 续读这篇一次（`comments <id> --fill`）；补齐了自动消；不想看可隐藏；只缺 ≤2 条的算轻微、不进面板（第 16 条）；见第 15 条 |
 | `PERMANENT.NOTE_RESTRICTED`（step `note.restricted`） | 网页版要验证（卡片角标 + 问题面板一条 + 笔记页一行，都带「打开验证」） | 小红书网页版限制了这一篇（用户的浏览器里打开要验证），读取服务打开时页面上没有它；不是号的问题 | 今天没搜过就用标题搜一次新口令、歇一会儿再开一次 | — 不自动（要用户亲手过验证） | 「打开验证」= 开验证窗口到这篇（`note-verify <id> --wait`），过了自动补抓评论 / 附件；可隐藏；见第 17 条 |

@@ -228,6 +228,11 @@ module.exports = function homeUI(obsidian, plugin) {
   async function runAll({ quiet = false } = {}) {
     const st = S();
     if (plugin.running) { plugin.notify(plugin.busyText(), { kind: 'warn' }); return null; }
+    // 1102：还没有后端（新电脑）→ 先自己装（uv → Python → link-brain），装不上就把原因留在这一块，不往下跑
+    if (backendMissing()) {
+      const got = await installBackend({ quiet });
+      if (!got || !got.ok) return got;
+    }
     if (!Array.isArray(setup().selected)) { setup().selected = selected(); await save(); }
     st.run = { state: 'running', stages: {}, current: null, install: null, result: null, startedAt: Date.now() };
     repaint();
@@ -324,6 +329,34 @@ module.exports = function homeUI(obsidian, plugin) {
     st.resumeTimer = setInterval(tick, 3000);
   }
   async function stopRun() { await plugin.stopRunning?.(); }
+
+  // —— 1102 托管模式：没找到后端 → 插件自己装（backend-install.js ensureBackend：uv → Python 3.12 → venv → link-brain → 自检）——
+  //    进度就画在「懒人安装」这一块（renderRun 的 paintRun 读 S().backendRun）；装好后 loadPlan 重读这台电脑。upgrade=true 是「更新后端」。
+  async function installBackend({ upgrade = false, quiet = false } = {}) {
+    const st = S();
+    if (st.backendRun && st.backendRun.state === 'running') { plugin.notify('正在装后端，装完再点', { kind: 'warn' }); return null; }
+    if (plugin.running) { plugin.notify(plugin.busyText(), { kind: 'warn' }); return null; }
+    st.backendRun = { state: 'running', upgrade, stages: {}, result: null, startedAt: Date.now() };
+    repaint();
+    let frame = null;
+    let res;
+    try {
+      res = await plugin.backendInstall().ensureBackend(plugin, { upgrade, onProgress: ev => {
+        st.backendRun.stages[ev.stage] = ev;
+        plugin.runningProgress = (ev.label || '') + (ev.text ? '：' + ev.text : '');
+        plugin.taskChanged?.();
+        if (frame == null) frame = setTimeout(() => { frame = null; repaint(); }, 120);
+      } });
+    } catch (e) { res = { ok: false, code: 'PERMANENT.BAD_PACKAGE', message: '安装后端时出错：' + (e && e.message || e) }; }
+    plugin.runningProgress = ''; plugin.taskChanged?.();
+    st.backendRun.result = res; st.backendRun.state = 'done';
+    repaint();
+    if (!quiet) plugin.notify(res.message || (res.ok ? '后端装好了' : '后端没装上'), { kind: res.ok ? 'ok' : 'error', ms: res.ok ? 6000 : 12000,
+      actions: res.ok ? null : [{ label: '打开设置', run: () => plugin.openSetupPage?.() }] });
+    if (res.ok) { st.plan = null; st.planError = null; loadPlan(true).then(repaint).catch(() => {}); }
+    return res;
+  }
+  const backendMissing = () => { try { return plugin.currentBackend?.().mode === 'missing'; } catch { return false; } };
 
   // —— 首次（零配置）：新装、库里还没有收藏 → 按轻量版自动跑一次 ——
   async function firstRun() {
@@ -478,9 +511,18 @@ module.exports = function homeUI(obsidian, plugin) {
       const st = S(), run = st.run;
       const acts = runBox.createDiv({ cls: 'lb-run-actions' });
       const busy = !!(run && run.state === 'running');
+      const br = st.backendRun, installing = !!(br && br.state === 'running');
+      const missing = backendMissing();
       if (busy && run.resumed) acts.createEl('span', { cls: 'setting-item-description', text: '上次关 Obsidian 前启动的安装还在后台跑，这里停不了；进度照文件续画' });
       else if (busy) acts.createEl('button', { cls: 'lb-run-stop', text: '停止（做了的都留着）' }).onclick = () => stopRun();
-      else {
+      else if (missing || installing) {
+        // 1102：还没有后端（新电脑，可能连 Python 都没有）→ 这个主按钮先管「一键装好」：自己下载 uv / Python / link-brain
+        const go = acts.createEl('button', { cls: 'lb-run-go lb-run-install mod-cta', text: installing ? '正在装后端…' : '一键装好' });
+        go.disabled = installing;
+        go.onclick = () => installBackend();
+        acts.createEl('span', { cls: 'setting-item-description', text: installing ? '正在下载并安装后端程序（uv · Python 3.12 · link-brain），进度在下面。'
+          : '这台电脑还没有后端程序：点一下自动装到 ~/.link-brain（没有 Python 也行，约 100 MB）。装好后这里变成「一键装好 / 跑完」。' });
+      } else {
         const again = !!(run && run.result && run.result.interrupted);
         const go = acts.createEl('button', { cls: 'lb-run-go mod-cta', text: again ? '再跑一次' : '一键装好 / 跑完' });
         // 按钮不能点时，旁边一句为什么
@@ -489,6 +531,23 @@ module.exports = function homeUI(obsidian, plugin) {
         go.onclick = () => runAll();
         acts.createEl('span', { cls: 'setting-item-description' + (why ? ' lb-why' : ''),
           text: why || '装好打开的功能，再把同步小红书收藏、认图片里的字、概要、整理目录一口气跑完（没开 AI 就只跑免费的部分）。B 站视频占地方，不在这里下：到「收藏与同步 → B 站」手动同步。' });
+      }
+      // 装后端的五步（uv → Python → 环境 → link-brain → 自检）：跑的时候逐步画 ✓ / ⟳ / ✗ + 下载进度条；完了只留一句结果
+      if (br && (installing || (br.result && !run))) {
+        const steps = runBox.createDiv({ cls: 'lb-run-steps lb-backend-steps' });
+        if (installing) for (const sg of Object.values(br.stages)) {
+          const rowEl = steps.createDiv({ cls: 'lb-run-step is-' + (sg.state || 'running') });
+          rowEl.createSpan({ cls: 'lb-run-mark', text: STAGE_MARK[sg.state] || '○' });
+          rowEl.createSpan({ cls: 'lb-run-label', text: sg.label || sg.stage || '' });
+          if (sg.text) rowEl.createSpan({ cls: 'lb-run-text', text: sg.text });
+        }
+        const cur = installing ? Object.values(br.stages).find(sg => sg.state === 'running' && sg.total) : null;
+        if (cur) {
+          const pv = progressView(cur);
+          const bar = runBox.createDiv({ cls: 'lb-bar' });
+          bar.createDiv({ cls: 'lb-bar-fill' }).style.width = (pv && pv.pct != null ? pv.pct : 0) + '%';
+        }
+        if (br.result) runBox.createDiv({ cls: 'lb-run-result' + (br.result.ok ? ' is-done' : ' is-failed'), text: br.result.message || '' });
       }
       if (!run) return;
       // 1027b 作者：跑完了只留一句结果——每一步的 ✓ / ✗（比如没开的 CapsLock）不影响用，不再摆出来；跑的时候照旧一步步显示
@@ -515,8 +574,8 @@ module.exports = function homeUI(obsidian, plugin) {
     };
     painters.add(paintRun);
     paintRun();
-    if (!S().plan) loadPlan().then(() => { if (alive) repaint(); });
-    if (!S().run) resumeRun().catch(e => console.error('[lb] 上次的安装进度没读到', e));   // 1102：打开设置页时接上后台那一轮
+    if (!S().plan && !backendMissing()) loadPlan().then(() => { if (alive) repaint(); });   // 没后端时 setup plan 起不来，不白跑一趟
+    if (!S().run && !backendMissing()) resumeRun().catch(e => console.error('[lb] 上次的安装进度没读到', e));   // 1102：打开设置页时接上后台那一轮
     return () => { alive = false; painters.delete(paintRun); };
   }
 
@@ -595,7 +654,7 @@ module.exports = function homeUI(obsidian, plugin) {
   }
   const isOn = id => new Set(effective()).has(id);
 
-  return { renderStatus, renderRun, featureToggle, setFeature, applyPreset, isOn, aiReady, runAll, stopRun, firstRun, resumeRun, loadPlan, loadEstimate, state: S, bindToggle,
+  return { renderStatus, renderRun, featureToggle, setFeature, applyPreset, isOn, aiReady, runAll, stopRun, firstRun, resumeRun, loadPlan, loadEstimate, state: S, bindToggle, installBackend,
     _internals: { repaint, withDeps, withoutDependents, toggleSelection, initialSelection, totals, fmtMB, yuan, priceText, progressView, applyRunEvent, fillLine, resultKind, runFromState } };
 };
 module.exports._internals = { withDeps, withoutDependents, toggleSelection, initialSelection, totals, fmtMB, yuan, priceText, progressView, applyRunEvent, fillLine, resultKind, runFromState, LIGHT, FEATURE_TEXT, AI_ORDER, READER_CODES, NO_RESULT_TEXT, RUN_STATE_FILE };

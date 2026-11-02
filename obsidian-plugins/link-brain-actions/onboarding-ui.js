@@ -21,12 +21,17 @@ module.exports = function (obsidian, plugin) {
     return { ok: true, folder: parts.join('/') };
   }
 
-  // 要不要自己弹引导：走过了 / 后端没找到 / 收藏库已有 _archive（作者本机、老用户）→ 不弹
+  // 要不要自己弹引导：走过了 / 收藏库已有 _archive（作者本机、老用户）→ 不弹。
+  // 1102：后端没找到**也算要引导**（以前返回 false，首次引导整个被跳过）——startup 会先自己把后端装好（backend-install.js）再走首次自动跑。
   async function needsOnboarding() {
     if (plugin.settings?.onboarding?.done) return false;
-    if (plugin.currentBackend().mode === 'missing') return false;
     try { if (await plugin.app.vault.adapter.exists(plugin.lbPath('_archive'))) return false; } catch { return false; }
     return true;
+  }
+  // 1102：没有后端 → 调插件自己的安装（进度画在设置页顶部「懒人安装」那一块）。返回 ensureBackend 的结果（{ok, code, message}，不抛）
+  async function installBackend({ quiet = false } = {}) {
+    try { return await plugin.homeUI().installBackend({ quiet }); }
+    catch (e) { return { ok: false, code: 'PERMANENT.BAD_PACKAGE', message: '安装后端时出错：' + (e && e.message || e) }; }
   }
 
   function aiConfigured(s) {
@@ -47,7 +52,7 @@ module.exports = function (obsidian, plugin) {
     await plugin.locateCollection();
     let extra = '';
     // 命令行 / 外接 MCP / 计划任务不经插件起：后端命令模式下顺手写进 ~/.link-brain/config.json 的 vault（仓库模式不碰）
-    if (plugin.currentBackend().mode === 'command') {
+    if (['command', 'managed'].includes(plugin.currentBackend().mode)) {
       try { plugin.writeUserConfig({ vault: plugin.vaultDir }); extra = '（命令行也用这个位置）'; }
       catch (e) { extra = '（插件里已生效；命令行用的 ~/.link-brain/config.json 没写上：' + e.message + '）'; }
     }
@@ -99,6 +104,7 @@ module.exports = function (obsidian, plugin) {
     // 首次引导 = 设置页「开始」分页
     open() { return plugin.openSetupPage('features'); },
     needsOnboarding,
+    installBackend,
     renderFolder,
     saveFolder,
     aiConfigured,
@@ -107,7 +113,16 @@ module.exports = function (obsidian, plugin) {
       const dv = plugin.dataviewState();
       if (dv && dv !== 'ok') noticeWithButton(plugin.dataviewHint(dv), dataviewButtons(dv)[0][0], dataviewButtons(dv)[0][1], 20000);
       const b = plugin.currentBackend();
-      if (b.mode === 'missing') { noticeWithButton(plugin.backendMissingText(), '复制安装命令', () => copy(BACKEND_INSTALL), 30000); return 'backend-missing'; }
+      if (b.mode === 'missing') {
+        // 1102：不再只弹「复制安装命令」——新电脑（可能连 Python 都没有）由插件自己装后端；装好接着走首次自动跑，没装上才提示并停下
+        plugin.notify('Link Brain：这台电脑还没有后端程序，正在自动安装（uv · Python 3.12 · link-brain，约 100 MB）。进度在设置页顶部「懒人安装」。', { ms: 12000,
+          actions: [{ label: '打开设置', run: () => plugin.openSetupPage?.() }] });
+        const got = await installBackend({ quiet: true });
+        if (!got || !got.ok || plugin.currentBackend().mode === 'missing') {
+          noticeWithButton(plugin.backendMissingText() + (got && got.message ? '（自动安装没做成：' + got.message + '）' : ''), '复制安装命令', () => copy(BACKEND_INSTALL), 30000);
+          return 'backend-missing';
+        }
+      }
       if (await needsOnboarding()) {
         // 1009 作者：零配置——装上就按轻量版自动跑（装好缺的 → 同步 → OCR → 目录 → 索引），不弹分步向导
         plugin.settings.onboarding = { done: true, at: new Date().toISOString(), via: 'first-run' };
@@ -122,7 +137,7 @@ module.exports = function (obsidian, plugin) {
     renderSetupHints(c) {
       const shown = [];
       const b = plugin.currentBackend();
-      if (b.mode === 'missing') { hintBox(c, plugin.backendMissingText(), [['复制安装命令', () => copy(BACKEND_INSTALL)]], 'is-backend'); shown.push('backend'); }
+      if (b.mode === 'missing') { hintBox(c, plugin.backendMissingText(), [['一键装好', () => installBackend()], ['复制安装命令', () => copy(BACKEND_INSTALL)]], 'is-backend'); shown.push('backend'); }
       const dv = plugin.dataviewState();
       if (dv && dv !== 'ok') { hintBox(c, plugin.dataviewHint(dv), dataviewButtons(dv), 'is-dataview'); shown.push('dataview'); }
       if (plugin.mediaNav?.skipped) {
