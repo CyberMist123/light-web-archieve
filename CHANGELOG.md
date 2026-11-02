@@ -5,6 +5,7 @@
 
 ## 未发布
 
+- Python 包发布工作流：推 `v<版本>` 标签就发 GitHub Release（wheel + sdist + 带哈希的 `requirements.lock` + `SHA256SUMS`），标签、`pyproject.toml`、插件 `manifest.json` 三处版本不一致就不发；新命令 `link-brain version` 报版本和用的是哪个 Python；装成 wheel 后「复制报错」里的插件版本、MCP `guide` 的方法全文、读取组件查找目录都不再依赖源码仓库。
 - `bilibili sync`：登录后把自己全部 B 站收藏夹同步进归档，收藏夹名在目录里成「专辑」；超过 1 小时和多 P 的视频先只记链接到 `Web/Bilibili/B站待选清单.md`，想要哪条再 `--allow BV号` 放行。
 - 新来源 **Bilibili**（阶段一，单视频）：给 `ingest` / `catch` 一条 BV 链接或 BV 号，就把视频（可播放 MP4）、站点字幕（SRT）、弹幕（XML）、封面存进归档，笔记在 `Web/Bilibili`，字幕文字进机读版和检索；`bilibili login` 扫码一次后复用登录态（凭证只在 `~/.link-brain/bilibili/`）。下载引擎是 yt-dlp（随包带一个绕 B 站风控页面的小插件）。
 - 读取组件第一个预编译件发布：GitHub Release `reader-v0.2.0`（Windows x64）。程序里内置了它的地址和 sha256，首次引导的「读取组件」可以一键下载安装，不用再装 Go 自己编译。`reader install` 只给 `--url` 或只给 `--sha256` 时不再拿内置的另一半凑。

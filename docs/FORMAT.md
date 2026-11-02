@@ -1156,7 +1156,7 @@ CLI（stdout 最后一行 JSON，`read.outcome` 形状；退出码 0 成功 / 1 
 `index apply --id X [--id Y]` → `{results: [{id, status: ok|failed|missing, error}], unclassified}`。
 文本 AI 取法（起草 / 建议 / wiki 共用 `indextree.text_ai()`）：问收藏正在用的文本 AI（叠上选中的模型）；没有能用的 key 时退到归档摘要模型；本机接口不要 key。
 
-**节点 wiki**（`link_brain/wiki.py`，方法 `docs/deep-report.md`）：`wiki build "<节点路径>" [--estimate]` 只读这个节点收的笔记的机读版（每篇 ≤8000 字，按 24000 字一批抽对象，
+**节点 wiki**（`link_brain/wiki.py`，方法 `link_brain/assets/deep-report.md`）：`wiki build "<节点路径>" [--estimate]` 只读这个节点收的笔记的机读版（每篇 ≤8000 字，按 24000 字一批抽对象，
 3 路并发，再一次定稿分类排序），写 `vault/wiki/<各级名字>.md`（名字里 Windows 不认的字符换 `_`），旧版先备份进 `_archive/wiki-history/`；`--estimate` 不调模型，
 给 `{items, calls, tokens_in, tokens_out, model, yuan, message}`。没有能用的文本 AI → `code=SKIPPED.NOT_CONFIGURED`、退出码 2、message 指向 MCP（guide / index / read）。
 页面：frontmatter `lb-wiki: "<路径>"`、`cssclasses: [lb-wiki]`；标题下一行 `> 基于 N 篇，生成于 YYYY-MM-DD HH:MM；之后新增 M 篇（点「更新」重新生成）` /
@@ -1168,7 +1168,7 @@ CLI（stdout 最后一行 JSON，`read.outcome` 形状；退出码 0 成功 / 1 
 MCP（`mcp_tools.py`，本机 stdio 与远程同一份，只读）：`index`（无参数 = 整棵树 `{nodes: [{path, name, depth, count, wiki?, wiki_page?}], total, classified, unclassified, warnings?}`；
 `path` = 节点 → `{path, tags, wiki, children: [{path, count}], count, offset, next_offset, items: [{id, title, date, summary}]}`；`path='unclassified'` / `未归类` = 未归类）·
 `wiki`（无参数 = `pages`；`path` = 全文分页 `{path, exists, file, based, new_since, generated_at, total_chars, offset, next_offset, text}`）·
-`guide`（`docs/deep-report.md` 全文）。`index` / `wiki` 要收藏库开放给这个客户端（`@xhs`），`guide` 不限。
+`guide`（`link_brain/assets/deep-report.md` 全文）。`index` / `wiki` 要收藏库开放给这个客户端（`@xhs`），`guide` 不限。
 
 
 ## 2026-10-11 索引树按内容归类（`link_brain/indexai.py`）+ 解析器认用户的真写法

@@ -1,0 +1,135 @@
+# Python 包发布（1102，开源前「装上插件就一次装完依赖」的第 1 步）。
+# 为什么：以前只有读取组件有 Release（reader-release.yml），link_brain 本身只能 git clone 后 pip install -e；
+#   插件要「一次装完」就得有一个带哈希、可校验的 wheel 可下。
+# 做什么：推 `v<版本>` 标签 → 核对 标签版本 = pyproject.toml 版本 = 插件 manifest.json 版本（不等就失败，别发出名实不符的包）
+#   → `python -m build` 出 wheel + sdist → `uv pip compile --generate-hashes` 出带哈希的 requirements.lock（装的时候
+#   `pip install --require-hashes -r requirements.lock` 就是「可复现 + 防篡改」）→ SHA256SUMS → 一起发成 GitHub Release。
+# 怎么用：三处版本号改成一样（版本以 pyproject.toml 为准，tests/test_guards.py::test_version_single_source 守着），
+#   合进 main 后 `git tag v0.2.1 && git push origin v0.2.1`；也可以在 Actions 页手动跑（填版本号，标签由 action 新建在本次提交上）。
+# 不做什么：不发 PyPI（公开仓库，先只发 GitHub Release）；不跑测试（test.yml 已经在每次 push / PR 跑）；不碰读取组件的 Release。
+name: python-release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "版本号（如 0.2.1；要和 pyproject.toml / manifest.json 一致，产出标签 v<版本>）"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: 打 wheel / sdist / requirements.lock 并发 Release
+    runs-on: ubuntu-latest
+    env:
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 版本号三处核对（标签 = pyproject.toml = 插件 manifest.json）
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            ver="${{ github.event.inputs.version }}"
+          else
+            ver="${GITHUB_REF_NAME#v}"
+          fi
+          [[ "$ver" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]] || { echo "版本号不合法：$ver"; exit 1; }
+          py_ver="$(python -c 'import tomllib,sys; print(tomllib.load(open("pyproject.toml","rb"))["project"]["version"])')"
+          plugin_ver="$(python -c 'import json; print(json.load(open("obsidian-plugins/link-brain-actions/manifest.json", encoding="utf-8"))["version"])')"
+          echo "标签 $ver · pyproject.toml $py_ver · manifest.json $plugin_ver"
+          if [ "$ver" != "$py_ver" ] || [ "$ver" != "$plugin_ver" ]; then
+            echo "::error::版本号不一致：标签 v$ver，pyproject.toml $py_ver，obsidian-plugins/link-brain-actions/manifest.json $plugin_ver。以 pyproject.toml 为准改齐再打标签。"
+            exit 1
+          fi
+          echo "version=$ver" >> "$GITHUB_OUTPUT"
+          echo "tag=v$ver" >> "$GITHUB_OUTPUT"
+
+      - name: 装打包工具
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install build
+          python -m pip install uv
+
+      - name: python -m build（wheel + sdist）
+        run: python -m build --outdir dist
+
+      - name: 装一下 wheel 核对版本和随包文件
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m venv /tmp/probe
+          /tmp/probe/bin/python -m pip install --quiet dist/*.whl
+          got="$(/tmp/probe/bin/link-brain version)"
+          echo "$got"
+          echo "$got" | python -c 'import json,sys; d=json.loads(sys.stdin.readline()); assert d["ok"] and d["version"]=="${{ steps.meta.outputs.version }}", d'
+          /tmp/probe/bin/python -c 'import link_brain, link_brain.wiki as w; assert w.method_path().is_file(), w.method_path(); print("deep-report.md 随包在：", w.method_path())'
+
+      - name: requirements.lock（全部依赖钉版本 + sha256，--require-hashes 可装）
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m uv pip compile pyproject.toml --python-version 3.11 --generate-hashes --no-header \
+            --output-file dist/requirements.lock
+          echo "# link-brain ${{ steps.meta.outputs.version }} 的依赖锁（Linux x64 runner 上解的；pip install --require-hashes -r requirements.lock）" | cat - dist/requirements.lock > dist/requirements.lock.tmp
+          mv dist/requirements.lock.tmp dist/requirements.lock
+          head -20 dist/requirements.lock
+
+      - name: SHA256SUMS
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist
+          sha256sum *.whl *.tar.gz requirements.lock | tee SHA256SUMS
+
+      - name: Release 说明
+        shell: bash
+        run: |
+          set -euo pipefail
+          whl="$(cd dist && ls *.whl)"
+          sdist="$(cd dist && ls *.tar.gz)"
+          base="https://github.com/${GITHUB_REPOSITORY}/releases/download/${{ steps.meta.outputs.tag }}"
+          {
+            echo "link-brain ${{ steps.meta.outputs.version }}（Python 包；Obsidian 插件 link-brain-actions 同版本）。"
+            echo
+            echo "- wheel：\`$whl\`"
+            echo "- sdist：\`$sdist\`"
+            echo "- requirements.lock：全部依赖钉版本并带 sha256，\`pip install --require-hashes -r requirements.lock\` 后再装 wheel 就是可复现、防篡改的一套"
+            echo "- SHA256SUMS：以上三个文件的校验和，\`sha256sum -c SHA256SUMS\`"
+            echo
+            echo "装法："
+            echo '```'
+            echo "python -m venv .venv && . .venv/bin/activate   # Windows: .venv\\Scripts\\activate"
+            echo "pip install --require-hashes -r requirements.lock"
+            echo "pip install --no-deps $base/$whl"
+            echo "link-brain version"
+            echo '```'
+            echo
+            echo "源码提交：\`${GITHUB_SHA}\`。读取组件（link-brain-reader）另有 \`reader-v*\` 的 Release。"
+          } > dist/notes.md
+          cat dist/notes.md
+
+      - name: 发 Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          # 手动跑时标签还不存在、由 action 新建：钉在本次构建用的提交上（和 reader-release.yml 一样的理由）
+          target_commitish: ${{ github.sha }}
+          name: link-brain ${{ steps.meta.outputs.version }}
+          body_path: dist/notes.md
+          files: |
+            dist/*.whl
+            dist/*.tar.gz
+            dist/requirements.lock
+            dist/SHA256SUMS
+          fail_on_unmatched_files: true

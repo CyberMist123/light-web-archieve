@@ -23,9 +23,11 @@ import sys
 import traceback
 from typing import Any
 
+from . import __version__
+
 PROTOCOL_VERSION = "2024-11-05"
 SERVER_NAME = "light-web-archieve"
-SERVER_VERSION = "0.2.0"
+SERVER_VERSION = __version__  # 1102：版本只有一个来源（pyproject.toml → 包元数据）
 
 # 10-09：工具定义只有一份，在 mcp_tools.py（远程 remote serve 用的同一份）；这里只管 stdio 协议。
 from . import mcp_tools  # noqa: E402

@@ -37,6 +37,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--verbose", "-v", action="store_true", help="打印网络/MCP 调用等细节")
     sub = parser.add_subparsers(dest="command", metavar="<command>")
 
+    sub.add_parser("version", help="1102：报版本（stdout 一行 JSON：ok / version / python / executable；插件和安装脚本核对装的是哪一份用）")
+
     p = sub.add_parser('watch', help='实时进度黑框：号状态、正在抓什么、最近每次用号的结果（只读本机文件，不碰号）')
     p.add_argument('--interval', type=float, default=2, help='几秒刷新一次（默认 2）')
     p.add_argument('--once', action='store_true', help='只打印一屏就退出')
@@ -495,6 +497,11 @@ def main(argv: list[str] | None = None) -> int:
         except (AttributeError, ValueError):  # pytest 的捕获流没有 reconfigure
             pass
 
+    if (sys.argv[1:] if argv is None else list(argv)) == ["version"]:
+        # 不建 parser、不进 _dispatch：build_parser 会 import 一圈子模块（httpx / mcp …），依赖装坏了它就炸；
+        # `version` 是插件和安装脚本核对「装的是哪一份、哪个解释器」用的，恰恰要在装坏时也能回答。只读包元数据。
+        return _version()
+
     parser = build_parser()
     args = parser.parse_args(argv)
 
@@ -523,6 +530,29 @@ def main(argv: list[str] | None = None) -> int:
         # 10-03 同步记录：这一步攒下的结果并进这次同步那行（sync-log.jsonl）；插件「立即同步」自己开的那次收尾
         if args.command != "synclog":
             synclog.finish_command(args.command, args, code)
+
+
+def _version() -> int:
+    """`version`：CONVENTIONS §1 的 outcome 一行 JSON（ok / code / message + version / python / executable），退出码 0。
+    version 来自 `link_brain.__version__`（包元数据，装不上时退回 pyproject.toml）；python 是 `major.minor.micro`；
+    executable 是正在跑的解释器——插件选的 Python 和它对不上时一眼能看出来。"""
+    import platform
+
+    from . import __version__
+    py = platform.python_version()
+    # 外形同 read.outcome + read.dump_json（ok / code / message 在旧键之外；UTF-8 字节直写绕开 GBK 控制台），
+    # 但不 import read：它牵出 llm → yaml 等第三方依赖，依赖没装好时 version 就回答不了，和它的用途相悖
+    payload = {"version": __version__, "python": py, "executable": sys.executable,
+               "ok": True, "code": "", "message": f"link-brain {__version__}（Python {py}）"}
+    line = json.dumps(payload, ensure_ascii=False) + "\n"
+    buffer = getattr(sys.stdout, "buffer", None)
+    if buffer is None:  # pytest 的 capsys 之类没有 buffer
+        sys.stdout.write(line)
+    else:
+        sys.stdout.flush()
+        buffer.write(line.encode("utf-8"))
+        buffer.flush()
+    return EXIT_OK
 
 
 def _crashed(command: str, exc: Exception) -> int:

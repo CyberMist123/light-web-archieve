@@ -1489,11 +1489,16 @@ def redact(text: str, *, vault: Path | None = None, home: Path | None = None) ->
 
 
 def _plugin_version() -> str:
-    try:
-        manifest = storage.repo_root() / "obsidian-plugins" / "link-brain-actions" / "manifest.json"
-        return str(json.loads(manifest.read_text(encoding="utf-8")).get("version") or "?")
-    except (OSError, ValueError):
-        return "?"
+    """插件版本：从源码仓库跑时读 obsidian-plugins/ 里的 manifest.json；装成 wheel 没有这个目录（1102），
+    就用包自己的版本——两处版本号本来就守着相等（tests/test_guards.py），只是没仓库时读不到那份副本。"""
+    manifest = storage.repo_root() / "obsidian-plugins" / "link-brain-actions" / "manifest.json"
+    if manifest.is_file():
+        try:
+            return str(json.loads(manifest.read_text(encoding="utf-8")).get("version") or "?")
+        except (OSError, ValueError):
+            return "?"
+    from . import __version__
+    return __version__
 
 
 def export_redacted(limit: int = 50, *, plugin_version: str | None = None) -> str:

@@ -314,6 +314,29 @@ def test_write_baseline_refuses_growth_by_default(tmp_path, monkeypatch):
     assert write_baseline(base, allow_grow=True) == [] and load_baseline(base)["手拼异常文字"] == {"link_brain/a.py": 2}
 
 
+# ---- 版本号只有一个来源（1102）：pyproject.toml 为准，插件 manifest.json 是手抄副本，必须相等 ----
+# 为什么选 pyproject：wheel / sdist 的元数据、`importlib.metadata.version`、PyPI 页都从它来，改它一处 Python 侧全跟着变；
+# manifest.json 是 Obsidian 读的，没法 import，只能抄一份——这条守卫 + .github/workflows/python-release.yml 的 tag 核对保证抄对。
+def _pyproject_version() -> str:
+    import tomllib
+    with (ROOT / "pyproject.toml").open("rb") as fh:
+        return tomllib.load(fh)["project"]["version"]
+
+
+def _manifest_version() -> str:
+    return json.loads((ROOT / "obsidian-plugins" / "link-brain-actions" / "manifest.json").read_text("utf-8"))["version"]
+
+
+def test_version_single_source():
+    py, plugin = _pyproject_version(), _manifest_version()
+    assert re.fullmatch(r"\d+\.\d+\.\d+([.-][0-9A-Za-z.-]+)?", py), f"pyproject.toml 的版本号不合法：{py}"
+    assert py == plugin, (f"版本号两处不一致：pyproject.toml={py}，obsidian-plugins/link-brain-actions/manifest.json={plugin}。"
+                          "以 pyproject.toml 为准，把 manifest.json 改成一样（CHANGELOG 顶上的规矩；发布工作流也会核）")
+    import link_brain
+    assert link_brain.__version__ == py, (f"link_brain.__version__={link_brain.__version__} 和 pyproject.toml={py} 不一致："
+                                          "改了版本号要重新 `pip install -e .`（包元数据是装的时候记的）")
+
+
 # ---- import 契约（第二波 PR③，设计稿 §5）：.importlinter 是基线，tests/tools/import_scan.py 是扫描 ----
 sys.path.insert(0, str(ROOT / "tests" / "tools"))
 import import_scan  # noqa: E402

@@ -155,8 +155,13 @@ def tool_dir() -> Path:
 
 
 def tool_roots() -> tuple[Path, ...]:
-    """找组件 exe 的目录，按顺序：下载装好的 → 程序目录 tools/ → 组件目录。"""
-    return (bin_dir(), storage.repo_root() / 'tools', tool_dir())
+    """找组件 exe 的目录，按顺序：下载装好的 → 程序目录 tools/（源码仓库才有；装成 wheel 没有这个目录就不列，1102）→ 组件目录。"""
+    repo_tools = storage.repo_root() / 'tools'
+    roots = [bin_dir()]
+    if repo_tools.is_dir():
+        roots.append(repo_tools)
+    roots.append(tool_dir())
+    return tuple(roots)
 
 
 def executable(env: str, names: tuple[str, ...]) -> str | None:

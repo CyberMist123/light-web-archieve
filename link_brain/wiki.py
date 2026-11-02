@@ -1,4 +1,4 @@
-"""节点 wiki（10-10 v1）：索引里标了 `[wiki]` 的节点，按 `docs/deep-report.md` 的方法，**只读这个节点收的笔记**，
+"""节点 wiki（10-10 v1）：索引里标了 `[wiki]` 的节点，按 `link_brain/assets/deep-report.md` 的方法，**只读这个节点收的笔记**，
 生成 `vault/wiki/<节点路径>.md`（名字 / 链接 / 核实 / 出自 / 帖里 / 借鉴；7 类左右；先看这几个；读过不收的帖）。
 
 - RAW 一个字不动：只读每篇的机读版 `derived/agent.md`，写的只有 wiki 页、`_archive/wiki-meta.json`、`_archive/wiki-history/`（旧版备份）。
@@ -40,7 +40,8 @@ URL_RE = re.compile(r"https?://[^\s<>\"'）)\]】，。；！？]+", re.I)
 # ═══════════════════════════════════════════════════════════════════════════
 
 def method_path() -> Path:
-    return storage.repo_root() / "docs" / "deep-report.md"
+    """方法全文随包走：`link_brain/assets/deep-report.md`（1102 从 docs/ 搬进来——装成 wheel 后没有 docs/，MCP `guide` 读不到）。"""
+    return Path(__file__).resolve().parent / "assets" / "deep-report.md"
 
 
 def method_text() -> str | None:
@@ -435,7 +436,7 @@ def render(node_path: str, node_name: str, org: dict[str, Any], no_pick: list[di
     purpose = org.get("purpose") or f"以后用到「{node_name}」时，不翻原帖也知道收藏里推荐过什么、先看哪几个"
     lines += [f"- **为了什么**：{purpose}",
               f"- **怎么找的**：索引「{node_path}」收的 {based} 篇全部读了机读版（正文 / 图片文字 / 视频文字稿 / 评论），"
-              f"抽出 {n_objects} 个对象；由 {model or '文本 AI'} 按 docs/deep-report.md 的方法整理。",
+              f"抽出 {n_objects} 个对象；由 {model or '文本 AI'} 按 deep-report.md 的方法整理。",
               "- **注意**：链接只收原帖里写着的（标「帖内给出」），没有逐个打开核实；没给链接的写「看原帖」。"
               "这一页是生成的，原帖为准；重新生成会覆盖（旧版在 _archive/wiki-history/）。", ""]
     if org["top"]:
@@ -612,7 +613,7 @@ def read_page(ref: str, vault: Path | None = None) -> tuple[dict[str, Any] | Non
 # ═══════════════════════════════════════════════════════════════════════════
 
 def add_parser(sub) -> None:
-    p = sub.add_parser("wiki", help="节点 wiki：按 docs/deep-report.md 的方法，只读索引里这个节点的笔记，生成 vault/wiki/<节点路径>.md")
+    p = sub.add_parser("wiki", help="节点 wiki：按 link_brain/assets/deep-report.md 的方法，只读索引里这个节点的笔记，生成 vault/wiki/<节点路径>.md")
     wsub = p.add_subparsers(dest="wiki_command")
     pb = wsub.add_parser("build", help="生成 / 更新一个节点的 wiki（会花模型钱；--estimate 只估价）")
     pb.add_argument("node", help="节点路径，如 旅游/成都（也可以只写唯一的名字）")

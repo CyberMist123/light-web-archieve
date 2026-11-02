@@ -7,7 +7,7 @@ lwa:
   domains: [tech, study, work, other]
   depth_default: detailed
 ---
-（「对象 × 维度」矩阵流程改编自 Weizhena/Deep-Research-skills，MIT；并入本项目 docs/deep-report.md 的抽对象与出处规则）
+（「对象 × 维度」矩阵流程改编自 Weizhena/Deep-Research-skills，MIT；并入本项目 link_brain/assets/deep-report.md 的抽对象与出处规则）
 - 先定矩阵：对象 = 收藏里出现的具体候选（项目、工具、店、方案）；维度 = 用户问的比较点（没说就取 3–5 个最常被帖子讨论的）。
 - 用表格：行 = 对象，列 = 维度，格子里写帖子里的说法（短句，带出处 [n]）；帖里没提的格子写「—」，不用常识填。
 - 表格下：「结论」2–4 句——按用户的用途谁更合适、取舍在哪；推断要写明是推断。

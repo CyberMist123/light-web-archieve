@@ -20,7 +20,7 @@
             `unclassified` = 未归类。读 `_archive/index-data.json`（和 索引.md 对不上就当场重算，解析 / 归类只在 indextree）。
 - wiki      节点 wiki：无参数列出有哪些（已生成 / 标了还没生成）；带节点路径读全文（分页）。
 - pwiki     个人 Wiki（10-31，作者自己写的 vault/PersonalWiki/）：无参数列页面；query 搜；id 读整页。检索在 personal_wiki_search。
-- guide     收藏深度报告的方法（docs/deep-report.md）：GPT 要自己写某个节点的汇总时先取它；带 skill = 取某个问答技能。
+- guide     收藏深度报告的方法（link_brain/assets/deep-report.md）：GPT 要自己写某个节点的汇总时先取它；带 skill = 取某个问答技能。
 - skills    问收藏的技能（1015 第二批）：list 列出 / get 取正文（写法要求，只读）。
 
 上下文 `Ctx`：policy（路径白名单，见 remote/policy.py）、local（本机 stdio 给绝对路径，远程给 vault 相对路径）、
@@ -1053,7 +1053,7 @@ def guide(ctx: Ctx, args: dict[str, Any]) -> dict[str, Any]:
     from . import wiki as wiki_mod
     text = wiki_mod.method_text()
     if text is None:
-        raise Denied("NOT_FOUND", "方法文档（docs/deep-report.md）不在这个安装里")
+        raise Denied("NOT_FOUND", "方法文档（link_brain/assets/deep-report.md）不在这个安装里")
     return {"name": "收藏深度报告 / 节点 wiki 的方法", "text": text,
             "how": "index 看树、index(path) 拿某个节点的篇目 → read 逐篇读（核心帖连评论区、图片文字一起读）→ 按方法写；"
                    "已经生成过的用 wiki(path) 先看"}
