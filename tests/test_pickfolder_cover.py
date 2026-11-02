@@ -24,8 +24,8 @@ def test_ps_quote_escapes_single_quotes():
 def test_ps_template_takes_title_and_initial():
     script = pickfolder._PS.format(title=pickfolder._ps_quote("选一个文件夹"), initial="")
     assert "$d.Description='选一个文件夹'" in script and "{title}" not in script
-    script2 = pickfolder._PS.format(title=pickfolder._ps_quote("T"),
-                                    initial=f"$d.SelectedPath={pickfolder._ps_quote('D:\\\\x')};")
+    quoted = pickfolder._ps_quote("D:\\\\x")   # 1102：f-string 表达式里带反斜杠是 3.12 才允许的写法，CI 跑 3.11 会编译不过
+    script2 = pickfolder._PS.format(title=pickfolder._ps_quote("T"), initial=f"$d.SelectedPath={quoted};")
     assert "$d.SelectedPath='D:\\\\x';" in script2
 
 
