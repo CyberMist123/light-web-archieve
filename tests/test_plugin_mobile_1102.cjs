@@ -70,7 +70,7 @@ function loadMain(obs, { mobile = true, D = null } = {}) {
   // 1102 单文件：整个 main.src.js 由 esbuild 打包（CJS），同目录文件全打进去，产物里不再 require 任何相对路径
   assert.ok(!/require\((["'])\.{1,2}\//.test(MAIN), 'main.js 里没有 require 同目录文件（BRAT 只下 main.js / manifest.json / styles.css）');
   assert.ok(MAIN.includes('lb-page'), 'page-host.js 打进了 main.js');
-  if (esbuild) assert.strictEqual(MAIN.replace(/\r\n/g, '\n'), require(path.join(ROOT, 'tools', 'build_plugin.cjs')).build(), 'main.js 不是最新构建：npm run build');
+  if (esbuild) assert.strictEqual(MAIN.replace(/\r\n/g, '\n'), (await require(path.join(ROOT, 'tools', 'build_plugin.cjs')).build()).replace(/\r\n/g, '\n'), 'main.js 不是最新构建：npm run build（两边先去 \\r，Windows CRLF 检出也一致）');
   else console.log('（没装 esbuild：没核 main.js 是不是最新构建；CI 上 npm run build:check 全核）');
   const manifest = JSON.parse(fs.readFileSync(path.join(DIR, 'manifest.json'), 'utf8'));
   assert.strictEqual(manifest.isDesktopOnly, false, '手机上也能装');

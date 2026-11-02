@@ -18,18 +18,31 @@ const OUT = path.join(DIR, 'main.js');
 const EXTERNAL = ['obsidian', 'electron', '@electron/remote', ...builtinModules, ...builtinModules.map(m => 'node:' + m)];
 const BANNER = '// 构建产物，别手改：源在 main.src.js 和它 require 的同目录文件（page-host.js、各 *-ui.js、note.css 等），改完跑 npm run build（tools/build_plugin.cjs）。';
 
-function build() {
+// Windows 检出可能是 CRLF：esbuild 的 text loader 会把 note.css 的 \r\n 原样打进字符串，产物就和 Linux 上的不一样。
+// 所以插件目录里的 .js / .css 一律先读出来转成 LF 再交给 esbuild（onLoad 插件；插件只能用异步的 esbuild.build）。
+const LF_INPUTS = {
+  name: 'lf-inputs',
+  setup(b) {
+    b.onLoad({ filter: /\.(c?js|css)$/ }, async args => ({
+      contents: (await fs.promises.readFile(args.path, 'utf8')).replace(/\r\n/g, '\n'),
+      loader: args.path.endsWith('.css') ? 'text' : 'js',
+      resolveDir: path.dirname(args.path),
+    }));
+  },
+};
+
+async function build() {
   const esbuild = require('esbuild');
-  const r = esbuild.buildSync({
+  const r = await esbuild.build({
     entryPoints: [SRC], bundle: true, write: false, format: 'cjs', platform: 'node', target: 'es2020',
     external: EXTERNAL, loader: { '.css': 'text' }, charset: 'utf8', legalComments: 'none', logLevel: 'silent',
-    banner: { js: BANNER }, absWorkingDir: ROOT,
+    banner: { js: BANNER }, absWorkingDir: ROOT, plugins: [LF_INPUTS],
   });
   return r.outputFiles[0].text.replace(/\r\n/g, '\n');
 }
 
-if (require.main === module) {
-  const want = build();
+async function main() {
+  const want = await build();
   if (process.argv.includes('--check')) {
     const have = fs.existsSync(OUT) ? fs.readFileSync(OUT, 'utf8').replace(/\r\n/g, '\n') : '';
     if (have !== want) { console.error('obsidian-plugins/link-brain-actions/main.js 不是最新的构建产物：先跑 npm run build 再提交'); process.exit(1); }
@@ -39,4 +52,5 @@ if (require.main === module) {
     console.log('已构建 ' + path.relative(ROOT, OUT));
   }
 }
-module.exports = { build, OUT, SRC };
+if (require.main === module) main().catch(e => { console.error(e); process.exit(1); });
+module.exports = { build, OUT, SRC };   // build() 返回 Promise<string>
