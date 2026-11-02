@@ -187,7 +187,8 @@ function pickSyncTask(nightly, legacy) {
   if (exists(legacy)) return LEGACY_SYNC_TASK;
   return null;
 }
-// Dataview（首版必装依赖）：'ok' / 'missing'（没装）/ 'disabled'（装了没开）/ 'nojs'（没开 JS 查询）；拿不到插件表 = null（不提示）。
+// Dataview 的状态：'ok' / 'missing'（没装）/ 'disabled'（装了没开）/ 'nojs'（没开 JS 查询）；拿不到插件表 = null。
+// 1102 起 LWA 不再要 Dataview（页面是 ```lb-page 块，page-host.js 执行）；只用来判断「还开着旧 dataviewjs 页面、又没有 Dataview」时提示一次刷新目录。
 function dataviewState(app) {
   const pl = app && app.plugins;
   if (!pl || !pl.manifests) return null;
@@ -198,11 +199,10 @@ function dataviewState(app) {
   if (dv && dv.settings && dv.settings.enableDataviewJs === false) return "nojs";
   return "ok";
 }
-const DATAVIEW_HINT = {
-  missing: "目录页、问收藏页和笔记下面的批注靠 Dataview 插件显示：还没装。到「第三方插件 → 浏览」搜 Dataview 安装并启用，再在它的设置里打开 Enable JavaScript Queries。",
-  disabled: "目录页、问收藏页和笔记下面的批注靠 Dataview 插件显示：已装但没启用。在「第三方插件」里打开 Dataview，再在它的设置里打开 Enable JavaScript Queries。",
-  nojs: "目录页、问收藏页和笔记下面的批注靠 Dataview 的 JS 查询显示：在 Dataview 设置里打开 Enable JavaScript Queries。",
-};
+// 旧格式页面（md 里还是 ```dataviewjs）且没有可用的 Dataview：提示一次刷新目录，换成插件自己显示的 ```lb-page 块
+const LEGACY_PAGE_HINT = "这一页还是旧格式（要 Dataview 才显示）。点「刷新目录」换成新格式就能看，不用装 Dataview。";
+// 只看同一块里（不跨过 ```）：用户自己的 dataviewjs + 我们的新 lb-page 批注块（里面有 _archive/ 路径）不算
+const hasLegacyPageBlock = text => /```dataviewjs\r?\n(?:(?!```)[\s\S])*?(?:_archive\/|annotate-view\.js)/.test(String(text || ""));
 
 // AI 接口配置的默认值。**必须和 link_brain/ai_config.py 的 DEFAULTS 对齐**（改一处改两处）。
 // Owner 2026-09-16 授权在此配置各接口 endpoint/model/key；凭据只落本插件 data.json
@@ -813,6 +813,14 @@ class LinkBrainActions extends Plugin {
     this.taskStatusEl = this.addStatusBarItem();
     this.taskStatusEl.addClass?.('lb-task-status');   // 1031：类名带 lb，no-tooltip.js 认得它
     this.taskStatusEl.hidden = true;
+    // 1102：LWA 的页面（目录 / 问收藏 / Wiki / 回收站 / B 站挑选 / 批注块）是 ```lb-page 代码块，由插件自己执行（page-host.js），不再要 Dataview。
+    // 放在 onload 最前面：Obsidian 启动时已经打开的目录页一注册就能画，不等后面的 await
+    try {
+      const p = path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir, 'page-host.js');
+      for (const r of [require, typeof window !== 'undefined' ? window.require : null]) { try { if (r && r.cache) delete r.cache[typeof r.resolve === 'function' ? r.resolve(p) : p]; } catch {} }
+      this.pageHost = require(p)(obsidian, this);
+      this.pageHost.attach();
+    } catch (e) { console.error('[lb] page-host.js 没加载上（目录页等显示不了）', e); }
     this.taskStatusEl.onclick = () => this.openSyncLog();
     const refreshTask = async () => {
       const { raw, sum, fill } = await this.readSyncFiles();
@@ -909,13 +917,10 @@ class LinkBrainActions extends Plugin {
       const vs = leaf?.getViewState();
       if (vs?.state?.mode === 'source') leaf.setViewState({ ...vs, state: { ...vs.state, mode: 'preview' } });
     }));
-    // 第 5 批 B2：目录页 / 问收藏页 / 回收站（页头 lb-page）靠 Dataview 渲染——它不可用时在页面顶部放一条提示和打开插件设置的按钮
+    // 1102：目录页 / 问收藏页 / 回收站（页头 lb-page）由插件自己画（page-host.js）。旧库里这页还是 dataviewjs、又没有 Dataview 时提示一次刷新目录
     if (this.app.workspace?.on) this.registerEvent(this.app.workspace.on('file-open', (file) => {
       if (!(file instanceof TFile) || !this.app.metadataCache.getFileCache(file)?.frontmatter?.['lb-page']) return;
-      const dv = this.dataviewState();
-      if (!dv || dv === 'ok') return;
-      const view = this.app.workspace.getActiveViewOfType(obsidian.MarkdownView);
-      try { this.onboardingUI().dataviewBanner(view); } catch (e) { console.error('[lb] Dataview 提示没画上', e); }
+      this.legacyPageHint(file).catch(() => {});
     }));
 
     this.addCommand({
@@ -1377,12 +1382,22 @@ class LinkBrainActions extends Plugin {
   openOnboarding() { return this.onboardingUI().open(); }
   startupChecks() { return this.onboardingUI().startup(); }
   renderSetupHints(c) {
-    const dv = this.dataviewState();
-    if (this.currentBackend().mode !== 'missing' && (!dv || dv === 'ok') && !this.mediaNav?.skipped) return [];   // 都正常：什么也不加
+    if (this.currentBackend().mode !== 'missing' && !this.mediaNav?.skipped) return [];   // 都正常：什么也不加
     try { return this.onboardingUI().renderSetupHints(c); } catch (e) { console.error('[lb] 设置页提示没画上', e); return []; }
   }
   dataviewState() { return dataviewState(this.app); }
-  dataviewHint(state) { return DATAVIEW_HINT[state] || ''; }
+  // 1102：打开的页面 / 笔记里还是旧的 dataviewjs 块、Dataview 又不可用 → 这次打开 Obsidian 只提示一次（带「刷新目录」）。返回是否提示了
+  async legacyPageHint(file) {
+    if (this._legacyPageHinted || !file) return false;
+    const dv = this.dataviewState();
+    if (!dv || dv === 'ok') return false;
+    let text = '';
+    try { text = await this.app.vault.cachedRead(file); } catch { return false; }
+    if (!hasLegacyPageBlock(text) || this._legacyPageHinted) return false;
+    this._legacyPageHinted = true;
+    this.notify(LEGACY_PAGE_HINT, { kind: 'warn', ms: 15000, actions: [{ label: '刷新目录', run: () => this.refreshCatalog() }] });
+    return true;
+  }
   backendMissingText() { return backendMissingText(this.currentBackend()); }
   openPluginSettings(tab = 'community-plugins') { try { this.app.setting.open(); this.app.setting.openTabById(tab); } catch (e) { new Notice('没打开设置：' + e.message); } }
   commandTable() {
@@ -1851,7 +1866,7 @@ class LinkBrainActions extends Plugin {
     return r.json;
   }
 
-  // 本机环境（Python 包 / 插件 / Dataview / AI），只在设置页「运行环境」里展示。
+  // 本机环境（Python 包 / 插件 / AI），只在设置页「运行环境」里展示。
   async checkRuntime() {
     if (this.runtimeCheck) return this.runtimeCheck;
     this.runtimeCheck = (async () => {
@@ -2078,7 +2093,7 @@ class LinkBrainActions extends Plugin {
   warmAnswerWorker() { if(this.answerWorker||this.unloading)return false; try{this.ensureAnswerWorker();return true;}catch(e){console.error('[lb] 预热问答进程没成',e);return false;} }
   stopArchiveAnswer(tag) { let n=0; for(const [id,p] of [...(this.answerPending?.entries()||[])]) { if(tag!=null&&p.tag!==tag)continue; if(this.cancelAnswer(id)) n++; } return n; }
   onunload(){this.unloading=true;if(this.syncTick)clearInterval(this.syncTick);clearTimeout(this.capsTimer);clearTimeout(this.onboardTimer);clearTimeout(this.fillTimer);clearTimeout(this.freshTimer);this.catalogCache=null;
-    for(const k of ['noteActions','noteTools','imageActions','playerUI','indexUI']){try{this[k]?.detach?.();}catch(e){console.error('[lb] '+k+' 卸载出错',e);}}   // 批次 D 地基：四个挂载点 + 10-10 索引树
+    for(const k of ['noteActions','noteTools','imageActions','playerUI','indexUI','pageHost']){try{this[k]?.detach?.();}catch(e){console.error('[lb] '+k+' 卸载出错',e);}}   // 批次 D 地基：四个挂载点 + 10-10 索引树
     // 1102：互斥长任务（一键装好 / 同步）的子进程**不杀**——它自己把进度落盘（_archive/setup-run.json、同步记录），
     // stdout 断了会切到 ~/.link-brain/logs 接着写；重开 Obsidian 时设置页按 setup-run.json 续画。只说一句。
     if(this.runningChild){try{new Notice('安装在后台继续（进度在设置页和 _archive/setup-run.json）');}catch{}}
@@ -2396,7 +2411,7 @@ class LinkBrainActions extends Plugin {
     const Z = "​";
     return String(text)
       .replace(/(`{3,}|~{3,})([^\n`]*)/g, (all, fence, info) =>
-        info.toLowerCase().includes("dataview") ? fence + info.replace(/dataview(?:js)?/gi, "text") : all)
+        /dataview|lb-page/i.test(info) ? fence + info.replace(/dataview(?:js)?|lb-page/gi, "text") : all)
       .replace(/(`+)(?=[ \t]*\$?=)/g, (_, ticks) => ticks + Z)
       .replace(/^([ \t>]*)(?=\$?=)/gm, (_, lead) => lead + Z)
       .replace(/<(?=code[\s>/])/gi, "<" + Z);
@@ -2920,7 +2935,7 @@ class LinkBrainSettingTab extends PluginSettingTab {
     c.empty();
     c.addClass('lb-settings');
     const view = this.view();
-    // 缺后端程序 / 缺 Dataview / 旧图片导航插件还开着 → 最上面各一块提示（都正常时什么也不加），哪一栏都看得到
+    // 缺后端程序 / 旧图片导航插件还开着 → 最上面各一块提示（都正常时什么也不加），哪一栏都看得到
     this.hintsEl = c.createDiv({ cls: 'lb-setup-hints' });
     this.plugin.renderSetupHints?.(this.hintsEl);
     // 1027 作者批：不分页签，一页六组（左边锚点）；第一次用换成首次设置（settings-v6.js）。
@@ -3221,7 +3236,7 @@ class LinkBrainSettingTab extends PluginSettingTab {
     req.createEl('summary', { text: '这台电脑要什么' });
     const reqBox = req.createDiv({ cls: 'setting-item-description' });
     for (const line of [
-      '必需：Windows 10/11（macOS 能用，但没有 CapsLock 说话）· Python 3.11+ · Obsidian + Dataview 插件 · ffmpeg（视频）。',
+      '必需：Windows 10/11（macOS 能用，但没有 CapsLock 说话）· Python 3.11+（插件会自己装）· Obsidian · ffmpeg（视频）。',
       '内存：建议 8 GB 以上；同步收藏时会开一个后台浏览器（约 300–500 MB）。不装本地大模型，不要独立显卡。',
       '问收藏：文本模型（现在是 ' + (s.activeModel || '默认') + '）+ 向量模型（建索引一次，之后每问一次很便宜）。',
       '图片里的字：本地 OCR（CPU，免费）+ 识图模型（' + (s.visionAI.mode === 'off' || !s.visionAI.model ? '没配' : s.visionAI.model) + '）；流程图 / 大表格再用 ' + (s.visionAI.refineModel || '同一个模型') + ' 精细识别（只看挑出来的少数）。',
@@ -3473,7 +3488,7 @@ Object.assign(module.exports, { perRunLimitOf, fillGapOf, FILL_PACE, SETTING_TAB
 module.exports.scheduleStatusText = scheduleStatusText;
 module.exports.syncStateHead = syncStateHead;   // 给 node 单测（第 5 批 4.4）
 // 第 5 批 B2（单插件交付）：给 node 单测
-Object.assign(module.exports, { splitCommand, whichCommand, pickPython, pythonDesc, pickBackend, backendArgv, backendMissingText, pickSyncTask, dataviewState, managedPaths, isWindowsAppsStub, PYTHON_MISSING_TEXT,
+Object.assign(module.exports, { splitCommand, whichCommand, pickPython, pythonDesc, pickBackend, backendArgv, backendMissingText, pickSyncTask, dataviewState, hasLegacyPageBlock, managedPaths, isWindowsAppsStub, PYTHON_MISSING_TEXT,
   BACKEND_DEFAULT, BACKEND_INSTALL, NIGHTLY_TASK, LEGACY_SYNC_TASK });
 Object.assign(module.exports, { effectiveTextAI, modelState, endpointHost, normalizeEndpoint, aiGate, resultMessage, scheduleShort });
 module.exports.lastRiskNote = lastRiskNote;   // 1008（L6）：给 node 单测（设置页「立即同步」旁的验证说明）

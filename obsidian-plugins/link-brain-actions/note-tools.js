@@ -65,7 +65,7 @@ function noteDamage(text) {
   else if (count(lines[0], '<div') !== count(lines[0], '</div>')) out.push('NOTE_BLOCK_SPLIT');
   const cs = text.indexOf(COMMENTS_START), ce = text.indexOf(COMMENTS_END);
   if (cs === -1 || ce === -1 || ce < cs) out.push('COMMENTS_MARKERS_MISSING');
-  const blocks = text.match(/```dataviewjs\r?\n[\s\S]*?```/g) || [];
+  const blocks = text.match(/```(?:dataviewjs|lb-page)\r?\n[\s\S]*?```/g) || [];
   if (!blocks.some(b => b.includes('annotate-view.js'))) out.push('ANNOTATE_BLOCK_MISSING');
   return out;
 }

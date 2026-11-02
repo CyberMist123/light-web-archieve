@@ -20,6 +20,13 @@
 
 ## 进程模型
 
+- **页面怎么画出来**（1102 起不要 Dataview）：目录 / 星标 / 问收藏 / Wiki / 回收站 / B 站挑选这几张页，和每篇笔记底部的批注块，
+  md 里都只有一小段 ` ```lb-page ` 代码块（脚本名 + 几行 JSON 参数，`catalog._page_bootstrap()` / `render.annotate_block()` 生成）。
+  插件在 `onload` 里 `registerMarkdownCodeBlockProcessor('lb-page', …)`（`page-host.js`）：找仓根 → 读（同一版本复用已编译的）
+  `_archive/<页面脚本>`（`catalog-page.js` 等，`catalog build` 由 `link_brain/assets/lb-page-lib.js` + 各 view 拼出来）→ 给一个和 Dataview 同样大小的
+  `dv`（容器、component、`current()`）跑起来；库里 `.md` 变了 2.5 秒防抖重跑（和 Dataview 一样，页面靠 `reuseDom` 原样挂回旧 DOM）。
+  载入核心只有一份（`page-bootstrap.js` 的 `lb-page-core`，插件里是 `tools/sync_tokens.py` 拷的逐字副本）。手机上没有插件：要在手机上看页面，
+  插件设置 `pageBlock` 改成 `dataviewjs`（或环境变量 `LINK_BRAIN_PAGE_BLOCK`），下次 `catalog` 重建就换回旧的 dataviewjs 写法、靠手机上的 Dataview 显示。
 - **插件拉 Python**：插件只有一个起进程入口 `spawnPy`，每次调用 `python -m link_brain <子命令> --json`，**只认 stdout 最后一行 JSON**（`{ok, code, message, …}`）；stderr 最后一行是人话原因。长任务互斥（同一时刻一个），轻量调用并行。
 - **Python 拉读取服务**：所有要登录小红书的操作经本机 HTTP 服务 `link-brain-reader`（`reader/` 里的 Go 补丁版 xiaohongshu-mcp，默认端口 18061）。它**不是任何 Python 的子进程**（经短命中转拉起），所以杀 Python 进程树不会杀掉浏览器会话；一个号只有一个浏览器 profile，操作串行。
 - **夜跑**：`python -m link_brain nightly` 按步骤顺序起子进程（同步收藏 → 补附件 → 补评论 → 概要 / 打标 → 识图 → 转写 → 向量 → 目录），每步带时限，超时只杀这一步；碰号的步骤一旦撞风控 / 掉登录（退出码 5）后面碰号的全跳过。Windows 上由计划任务 `LinkBrainNightly` 触发，插件设置里开关。
@@ -34,7 +41,7 @@ vault 里 `_archive/` 下的文件分两类。真相文件丢了就是丢了（�
 |---|---|---|---|
 | `xiaohongshu/<id>/raw/vNNNN/`（source.json、manifest.json、原始 assets） | 归档，**写完不再改** | `xiaohongshu/<id>/derived/`（agent.md、vision.json、extracted.json、previews） | `enrich` / `vision` / `render` |
 | `xiaohongshu/<id>/meta.json`、`notes.json`（批注）、`comments.jsonl`（留言层） | 归档、用户操作 | `index.db`（SQLite 索引，含 tombstones 缓存表） | `index` 重建 / 每次 `connect` 对齐 |
-| `tombstones.jsonl`（删除屏蔽事件） | 回收站 | `catalog-data.json`、`index-data.json`、`trash-data.json`、`fonts/` | `catalog build` |
+| `tombstones.jsonl`（删除屏蔽事件） | 回收站 | `catalog-data.json`、`index-data.json`、`trash-data.json`、`fonts/`、页面脚本 `*-page.js` / `annotate-view.js`、`page-blocks.json` | `catalog build` |
 | `problems.jsonl` + `problems.pending/`（问题记录） | 各步骤 `problems.report` | `problems-summary.json` | `problems` 每次写成功后 |
 | `sync-log.jsonl`、`usage/YYYY-MM.jsonl`、`post-tags-history.jsonl` | 同步、调模型、改标签 | `semantic.db`、`topic-vectors.json`、`query-expand-cache.json` | `embed` / `index catch-up` |
 | 库根 `索引.md`（用户写的分类树）、`albums.json`、`topics.json`、`selections` | 用户 | `index-ai.json`、`index-suggestions.json` | `indexai` |

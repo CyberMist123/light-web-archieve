@@ -71,7 +71,7 @@ def test_publish_writes_page_script_and_data_and_follows_renamed_page(vault):
     sync.publish_pending(max_duration_s=3600)
     page = vault / "B站挑选.md"
     text = page.read_text(encoding="utf-8")
-    assert text.startswith("---\nlb-page: bili-pending\ncssclasses: [lb-bilipage]\n---\n\n```dataviewjs\n")
+    assert text.startswith("---\nlb-page: bili-pending\ncssclasses: [lb-bilipage]\n---\n\n```lb-page\nbili-pending-page.js\n```")
     assert "_archive/bili-pending-page.js" in text.replace('"', "") or "bili-pending-page.js" in text
     script = (vault / "_archive" / "bili-pending-page.js").read_text(encoding="utf-8")
     assert "function lbPageLib" in script and "lbPageLib(dv, app, 'bili-pending')" in script

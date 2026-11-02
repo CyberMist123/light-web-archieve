@@ -25,6 +25,11 @@
   "expected": "~~~text\ndv.paragraph(1)\n~~~"
  },
  {
+  "name": "fence_lb_page",
+  "input": "前言\n```lb-page\nannotate-view.js\nitemId: \"x\"\n```\n~~~ LB-Page\ncatalog-page.js\n~~~",
+  "expected": "前言\n```text\nannotate-view.js\nitemId: \"x\"\n```\n~~~ text\ncatalog-page.js\n~~~"
+ },
+ {
   "name": "fence_in_list_and_quote",
   "input": "- 评论：\n  ```dataviewjs\n  x\n  ```\n> ```dataviewjs\n> y\n> ```",
   "expected": "- 评论：\n  ```text\n  x\n  ```\n> ```text\n> y\n> ```"

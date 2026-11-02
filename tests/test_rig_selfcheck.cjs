@@ -68,8 +68,12 @@ const DATA = '_archive/catalog-data.json';
   assert.equal(L.container.nextSibling, L.section.querySelector('.embed-actions'), '容器在 .embed-actions 前面');
   assert.ok(shell.SUBSET_CSS.includes('.markdown-source-view.mod-cm6 .cm-content>[contenteditable=false]{contain:paint!important;}'), '外壳 CSS 有 contain:paint');
   assert.ok(/\/\* 出处：Obsidian 1\.14\.4 app\.css \*\//.test(shell.SUBSET_CSS) && /CodeMirror 6/.test(shell.SUBSET_CSS), '每段注明出处版本');
-  for (const host of ['page-reading', 'page-live']) assert.ok(shell.hostHtml(host).includes('<div class="block-language-dataviewjs node-insert-event" style="overflow-x: auto;"></div>'), host + '：容器带行内 overflow-x:auto');
-  assert.ok(/cm-embed-block markdown-rendered cm-lang-dataviewjs" contenteditable="false"><div class="block-language-dataviewjs/.test(shell.hostHtml('page-live')), 'page-live：容器在 .cm-embed-block 里');
+  for (const host of ['page-reading', 'page-live']) assert.ok(shell.hostHtml(host, { runner: 'dataview' }).includes('<div class="block-language-dataviewjs node-insert-event" style="overflow-x: auto;"></div>'), host + '：容器带行内 overflow-x:auto');
+  assert.ok(/cm-embed-block markdown-rendered cm-lang-dataviewjs" contenteditable="false"><div class="block-language-dataviewjs/.test(shell.hostHtml('page-live', { runner: 'dataview' })), 'page-live：容器在 .cm-embed-block 里');
+  // 1102：默认宿主是 Obsidian 给 lb-page 代码块处理器的容器（插件 page-host.js 执行）：没有 Dataview 的行内 overflow-x，实时预览外层是 .cm-lang-lb-page
+  for (const host of ['page-reading', 'page-live']) assert.ok(shell.hostHtml(host).includes('<div class="block-language-lb-page"></div>'), host + '：默认是 lb-page 容器');
+  assert.ok(/cm-embed-block markdown-rendered cm-lang-lb-page" contenteditable="false"><div class="block-language-lb-page/.test(shell.hostHtml('page-live')), 'page-live：lb-page 容器在 .cm-embed-block 里');
+  assert.ok(shell.hostHtml('page-reading', { mobile: true }).includes('block-language-dataviewjs'), '手机（没有 LWA 插件）照旧是 Dataview 容器');
   assert.ok(/markdown-preview-view markdown-rendered[^"]*"><div class="markdown-preview-sizer markdown-preview-section">/.test(shell.hostHtml('page-reading')), 'page-reading：阅读视图层级');
   const note = shell.hostHtml('note-reading', { variant: 'background', mdHtml: '<div class="lb-note"></div>' });
   assert.ok(note.includes('workspace-ribbon') && note.includes('mod-left-split') && note.includes('status-bar') && note.includes('view-header') && note.includes('xhs-note'), '笔记页宿主：ribbon / 侧栏 / 视图头 / 状态栏');

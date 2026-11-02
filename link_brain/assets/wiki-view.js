@@ -35,11 +35,16 @@ const fontFace = (family, rel, range, extra = '') => {
 LB.style('lb-wiki-style', LB.brandFontCss() + fontFace('LB Digits Inline', FONT_FILE, 'U+0030-0039', 'size-adjust:114%;') + `
 .markdown-preview-view.lb-wikipage,.markdown-source-view.lb-wikipage{--file-line-width:100%;}
 .lb-wikipage .markdown-preview-sizer,.lb-wikipage .markdown-preview-section,.lb-wikipage .cm-sizer,.lb-wikipage .cm-contentContainer,.lb-wikipage .cm-content,.lb-wikipage .block-language-dataviewjs{width:100%!important;max-width:none!important;}
+.lb-wikipage .markdown-preview-sizer,.lb-wikipage .markdown-preview-section,.lb-wikipage .cm-sizer,.lb-wikipage .cm-contentContainer,.lb-wikipage .cm-content,.lb-wikipage .block-language-lb-page{width:100%!important;max-width:none!important;}
 .lb-wikipage .inline-title,.lb-wikipage .metadata-container{display:none!important;}
 .lb-wikipage .block-language-dataviewjs{overflow:visible!important;}
 .markdown-source-view.lb-wikipage .cm-embed-block.cm-lang-dataviewjs,.markdown-source-view.lb-wikipage .cm-embed-block.cm-lang-dataviewjs:hover{overflow:visible!important;}
 .lb-wikipage :is(.el-pre:has(.block-language-dataviewjs),pre:has(.block-language-dataviewjs),.block-language-dataviewjs,.cm-embed-block:has(.block-language-dataviewjs),.cm-preview-code-block.cm-lang-dataviewjs),.lb-wikipage :is(.cm-embed-block:has(.block-language-dataviewjs),.cm-preview-code-block.cm-lang-dataviewjs):hover{border:0!important;background:transparent!important;box-shadow:none!important;outline:0!important;border-radius:0!important;}
 .lb-wikipage :is(.cm-embed-block:has(.block-language-dataviewjs),.cm-lang-dataviewjs) .edit-block-button{display:none!important;}
+.lb-wikipage .block-language-lb-page{overflow:visible!important;}
+.markdown-source-view.lb-wikipage .cm-embed-block.cm-lang-lb-page,.markdown-source-view.lb-wikipage .cm-embed-block.cm-lang-lb-page:hover{overflow:visible!important;}
+.lb-wikipage :is(.el-pre:has(.block-language-lb-page),pre:has(.block-language-lb-page),.block-language-lb-page,.cm-embed-block:has(.block-language-lb-page),.cm-preview-code-block.cm-lang-lb-page),.lb-wikipage :is(.cm-embed-block:has(.block-language-lb-page),.cm-preview-code-block.cm-lang-lb-page):hover{border:0!important;background:transparent!important;box-shadow:none!important;outline:0!important;border-radius:0!important;}
+.lb-wikipage :is(.cm-embed-block:has(.block-language-lb-page),.cm-lang-lb-page) .edit-block-button{display:none!important;}
 /* 根：纸和墨；「LB Digits Inline」只挂在这里的宋体 / 黑体栈最前（正文里随手写的数字也斜，别的页不受影响） */
 .lbw{--lbw-serif:"LB Digits Inline",var(--lb-font-serif);--lbw-sans:"LB Digits Inline",var(--lb-font-body);--lbw-mono:var(--font-monospace);--lbw-print:5px 5px 0 var(--lb-ink);
   position:relative;box-sizing:border-box;padding:30px 56px 0;color:var(--lb-ink);background:var(--lb-surface);font:400 15px/1.7 var(--lbw-serif);font-variant-numeric:lining-nums;-webkit-font-smoothing:antialiased;}

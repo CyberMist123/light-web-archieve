@@ -6,12 +6,12 @@ Owner 2026-09-15 拍板改法（推翻 09-07 的「小模型 category 分文件�
   天生贴合用户「加减 tag」的习惯，也给以后的模糊搜索留好轴。tag 数据本来就在每篇 frontmatter 里
   （Lot 4 归一 + 合并 + 用户手写），这里直接拿来当筛选轴。
 - 页面 = 无标签封面墙 + 本地模糊检索；右键卡片编辑后台标签。
-- 硬约束 #8「不做 Obsidian 插件」：页面靠 **Dataview 的 dataviewjs**（用户装的社区插件，不是我们自研）
-  渲染——它能渲染真·Obsidian 链接（绕开「裸 HTML 的 a href 打不开本地笔记」那个坑）、能跑 JS、
-  样式由 JS 自注入（不依赖用户手动开 CSS snippet）。
+- 页面渲染：md 里是一小段 ```lb-page 代码块（脚本名 + 参数），由 LWA 插件的 page-host.js 执行（1102 起；以前是 Dataview 的
+  dataviewjs，早期「硬约束 #8 不做 Obsidian 插件」已作废——插件现在是主体）。它能渲染真·Obsidian 链接、能跑 JS、
+  样式由 JS 自注入（不依赖用户手动开 CSS snippet）。旧库 / 手机端要 Dataview 的，设置 pageBlock=dataviewjs 照旧生成 dataviewjs 块。
 - Python 这侧只做**数据管线**：纯程序拼，不联网、不花钱——概要读 derived/extracted.json，
   封面取 manifest 第一张成功图，tag 读可见笔记 frontmatter，其余读 meta.json，
-  全部落 `_archive/catalog-data.json`；md 页面里那段 dataviewjs 读它来渲染。
+  全部落 `_archive/catalog-data.json`；md 页面里那段 lb-page 块载入的页面脚本读它来渲染。
 """
 
 from __future__ import annotations
@@ -573,7 +573,7 @@ def collect(vault: Path, source: str | None = None) -> list[dict[str, Any]]:
     return items
 
 
-# ── dataviewjs 页面（样式自注入，不依赖 CSS snippet；读 catalog-data.json 渲染） ──
+# ── 页面（```lb-page 块 → 插件 page-host.js 执行；样式自注入，不依赖 CSS snippet；读 catalog-data.json 渲染） ──
 _ASSETS = Path(__file__).parent / "assets"
 # 第 2 批：三张页和批注块共用的前导（CONVENTIONS §5：仓根 / 插件 / 页面状态 / 数据版本与缓存 / 旧 DOM 复用 / 计时），内联在最前面
 _PAGE_LIB = (_ASSETS / "lb-page-lib.js").read_text(encoding="utf-8")
@@ -619,23 +619,79 @@ def publish_fonts(vault: Path) -> list[str]:
     return written
 
 
-def _page_bootstrap(script_name: str) -> str:
-    """md 里那一小段 dataviewjs（assets/page-bootstrap.js）：找仓根 → 读（或复用编译好的）_archive/<script_name> → 照原样跑。"""
-    return "```dataviewjs\n" + _BOOTSTRAP.replace("__LB_SCRIPT__", script_name).rstrip("\n") + "\n```"
+# 1102：页面块的写法。默认 lb-page（LWA 插件自己执行，不要 Dataview）；dataviewjs = 旧写法（手机上没有 LWA 插件、要靠 Dataview 看的库）。
+# 来源：环境变量 LINK_BRAIN_PAGE_BLOCK > 插件设置 pageBlock > 默认。认不得的值当默认。
+PAGE_BLOCK_MODES = ("lb-page", "dataviewjs")
+PAGE_BLOCK_ENV = "LINK_BRAIN_PAGE_BLOCK"
 
 
-_DATAVIEWJS = _page_bootstrap(CATALOG_SCRIPT_NAME)
+def page_block_mode() -> str:
+    raw = os.environ.get(PAGE_BLOCK_ENV, "").strip().lower()
+    if not raw:
+        try:
+            from . import ai_config
+            raw = str(ai_config.load().get("pageBlock") or "").strip().lower()
+        except Exception:  # noqa: BLE001 — 设置读不到就用默认，页面照样生成
+            raw = ""
+    return raw if raw in PAGE_BLOCK_MODES else PAGE_BLOCK_MODES[0]
+
+
+def _page_bootstrap(script_name: str, params: dict[str, Any] | None = None, mode: str | None = None) -> str:
+    """md 里那一小段页面块。
+
+    lb-page（默认）：块内第一行是脚本名，其余 `名字: JSON 值` 是参数——插件 page-host.js 找仓根 → 读（或复用编译好的）
+    _archive/<script_name> → 照原样跑（以 Path 结尾的参数是仓根相对路径，运行时补仓根前缀）。
+    dataviewjs：旧写法（assets/page-bootstrap.js，同一段 lb-page-core），要 Dataview；不支持参数。"""
+    mode = mode or page_block_mode()
+    if mode == "dataviewjs":
+        if params:
+            raise ValueError("dataviewjs 引导不带参数")
+        return "```dataviewjs\n" + _BOOTSTRAP.replace("__LB_SCRIPT__", script_name).rstrip("\n") + "\n```"
+    lines = [script_name] + [f"{k}: {json.dumps(v, ensure_ascii=False)}" for k, v in (params or {}).items()]
+    return "```lb-page\n" + "\n".join(lines) + "\n```"
+
+
 # 收藏搜索页 = 极简对话版（chat-view.js），跟浏览目录页分开（Owner 2026-09-17）。
 # 1019：问收藏页也走引导（以前 247KB 烤在 md 里，每次切过去 Obsidian 先解析约 290ms 才开跑——perf-log 实测）
 CHAT_SCRIPT_NAME = "chat-page.js"
 _CHAT_SCRIPT = _PAGE_LIB + "\n" + (_ASSETS / "catalog-search.js").read_text(encoding="utf-8") + "\n" + (_ASSETS / "chat-view.js").read_text(encoding="utf-8") + "\n"
-_CHATJS = _page_bootstrap(CHAT_SCRIPT_NAME)
 # 10-29 个人 Wiki 页（wiki-view.js；数据在 PersonalWiki/，写盘只经插件 wikiCall → `pwiki` 命令）：和问收藏同一个引导做法
 WIKI_SCRIPT_NAME = "wiki-page.js"
 _WIKI_SCRIPT = _PAGE_LIB + "\n" + (_ASSETS / "catalog-search.js").read_text(encoding="utf-8") + "\n" + (_ASSETS / "wiki-view.js").read_text(encoding="utf-8") + "\n"
 _WIKI_HEADER = "---\nlb-page: wiki\ncssclasses: [lb-wikipage]\n---\n\n"
 _PAGE_HEADER = "---\ncssclasses: [lb-catalog]\n---\n\n"
 _CHAT_HEADER = "---\ncssclasses: [lb-chatpage]\n---\n\n"
+
+
+PAGE_BLOCKS_NAME = "page-blocks.json"   # 1102：每篇笔记的批注块已经换成哪种写法（{"notes": mode}）
+
+
+def migrate_note_blocks(vault: Path, notes: list[Any], mode: str) -> int:
+    """把可见笔记里的批注块换成 mode 的写法（只换那一块，正文 / 留言 / 用户手写不动）。返回改了几篇。
+
+    page-blocks.json 记着上次换成的 mode：一样就什么也不做（不是每次重建都扫全库）；换了 mode（或第一次升级）才扫一遍。
+    这一块是机器生成、每次重渲都整块贴回的，所以不存快照。"""
+    marker = vault / "_archive" / PAGE_BLOCKS_NAME
+    try:
+        if json.loads(marker.read_text(encoding="utf-8")).get("notes") == mode:
+            return 0
+    except (OSError, ValueError, AttributeError):
+        pass
+    from .render import convert_annotate_block
+    changed = 0
+    for rel in dict.fromkeys(n for n in notes if isinstance(n, str) and n):
+        path = vault / rel
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        new = convert_annotate_block(text, mode)
+        if new != text:
+            storage.atomic_write_text(path, new)
+            changed += 1
+    storage.atomic_write_text(marker, json.dumps({"notes": mode, "at": datetime.now().astimezone().isoformat(), "changed": changed},
+                                                 ensure_ascii=False) + "\n")
+    return changed
 
 
 def library_pages(vault):
@@ -645,7 +701,7 @@ def library_pages(vault):
     for file in vault.glob("*.md"):
         text = file.read_text(encoding="utf-8")
         role = next((key for key in defaults if f"lb-page: {key}\n" in text[:300]), None)
-        if not role and "```dataviewjs" in text:
+        if not role and ("```dataviewjs" in text or "```lb-page" in text):
             if "cssclasses: [lb-chatpage]" in text[:150]:
                 role = "chat"
             elif "cssclasses: [lb-catalog]" in text[:150]:
@@ -898,19 +954,27 @@ def build(vault: Path | None = None, *, source: str | None = None) -> tuple[Path
     _write_if_changed(vault / "_archive" / CHAT_SCRIPT_NAME, _CHAT_SCRIPT)
     _write_if_changed(vault / "_archive" / WIKI_SCRIPT_NAME, _WIKI_SCRIPT)
     publish_fonts(vault)
-    _write_if_changed(catalog_path, _PAGE_HEADER.replace("---\n", "---\nlb-page: catalog\n", 1) + _DATAVIEWJS + "\n")
+    # 1102：页面块按 page_block_mode() 写（默认 lb-page）；旧库的 dataviewjs 页在这里自然换掉（内容不同才写）
+    mode = page_block_mode()
+    _write_if_changed(catalog_path, _PAGE_HEADER.replace("---\n", "---\nlb-page: catalog\n", 1) + _page_bootstrap(CATALOG_SCRIPT_NAME, mode=mode) + "\n")
 
-    _write_if_changed(vault / pages["chat"], _CHAT_HEADER.replace("---\n", "---\nlb-page: chat\n", 1) + _CHATJS + "\n")
-    _write_if_changed(vault / pages["wiki"], _WIKI_HEADER + _page_bootstrap(WIKI_SCRIPT_NAME) + "\n")
+    _write_if_changed(vault / pages["chat"], _CHAT_HEADER.replace("---\n", "---\nlb-page: chat\n", 1) + _page_bootstrap(CHAT_SCRIPT_NAME, mode=mode) + "\n")
+    _write_if_changed(vault / pages["wiki"], _WIKI_HEADER + _page_bootstrap(WIKI_SCRIPT_NAME, mode=mode) + "\n")
 
-    _write_if_changed(vault / pages["starred"], _PAGE_HEADER.replace("---\n", "---\nlb-page: starred\n", 1) + _page_bootstrap(STARRED_SCRIPT_NAME) + "\n")
+    _write_if_changed(vault / pages["starred"], _PAGE_HEADER.replace("---\n", "---\nlb-page: starred\n", 1) + _page_bootstrap(STARRED_SCRIPT_NAME, mode=mode) + "\n")
 
-    # 部署笔记底部批注块用的共享脚本（每篇笔记的 bootstrap 会 adapter.read 它）；前面拼上共享前导。
-    # 每篇笔记里烤死的 bootstrap（render._annotate_block）不动：改它要重渲全部笔记，它只负责找仓根、载入这份脚本。
+    # 部署笔记底部批注块用的共享脚本（每篇笔记的批注块会 adapter.read 它）；前面拼上共享前导。
     _write_if_changed(
         vault / "_archive" / "annotate-view.js",
         _PAGE_LIB + "\n" + (_ASSETS / "annotate-view.js").read_text(encoding="utf-8"),
     )
+    # 1102：每篇笔记里的批注块按 mode 换写法（dataviewjs ↔ lb-page），只换那一块、不重渲；做过的 mode 记在 page-blocks.json，换了 mode 才再扫一遍
+    try:
+        migrate_note_blocks(vault, [it.get("note") for it in items], mode)
+    except Exception as exc:  # noqa: BLE001 — 迁移失败不影响目录重建；下次重建再试
+        import sys
+        from .errtext import errtext
+        print(f"[catalog] 批注块没换成新写法：{errtext(exc)}", file=sys.stderr)
 
     storage.atomic_write_text(
         vault / "_archive" / STATE_NAME,
@@ -1034,11 +1098,7 @@ def run(args) -> int:
             result['message'] += f"；第一次建了 {LAST_INDEX.get('file')}（按原来的分类，顶部分类不变）"
         elif LAST_INDEX.get('warnings'):
             result['message'] += f"；{LAST_INDEX.get('file')} 有 {LAST_INDEX['warnings']} 处写法要看一眼（目录页「索引」里有）"
-    # 只在真没装 / 没开 JS 查询时提示（10-03 作者：已经装了还每次刷新目录都弹这句）
-    from .doctor import dataview_ready
-    if not dataview_ready(storage.vault_root() / ".obsidian"):
-        result['dataview_hint'] = 'Dataview 的 JS 查询没开，页面显示不出来'
-        result['message'] += '；提示：' + result['dataview_hint']
+    # 1102：不再提示 Dataview——页面是 ```lb-page 块，由 LWA 插件自己显示
     dump_json(result)
     return 0
 

@@ -6,6 +6,8 @@
   link-brain.css 和它的逐字副本 note.css（笔记页的 CSS 片段，手机上也加载）。
 - 用户的「Aa 样式」→ 行内变量的那段 JS：源在 lb-page-lib.js 的 /* lb-theme:begin ... lb-theme:end */，
   副本在插件 lb-theme.js（设置页 / 插件侧用同一套换算）。
+- 1102 页面载入核心（找仓根 → 读 / 编译 / 按版本缓存 _archive/<页面脚本>）：源在 assets/page-bootstrap.js 的
+  // lb-page-core:begin ... // lb-page-core:end，副本在插件 page-host.js（```lb-page 块的执行器）。tests/test_page_host.cjs 锁。
 副本里只替换标记之间那一段，标记外面的东西不动。tests/test_tokens_1027.py 锁住逐字相同。
 """
 
@@ -23,15 +25,19 @@ TOKENS_SRC = ASSETS / "lb-tokens.css"
 TOKENS_COPIES = [ASSETS / "lb-page-lib.js", PLUGIN / "styles.css", ASSETS / "link-brain.css", PLUGIN / "note.css"]
 THEME_SRC = ASSETS / "lb-page-lib.js"
 THEME_COPIES = [PLUGIN / "lb-theme.js"]
+PAGE_CORE_SRC = ASSETS / "page-bootstrap.js"
+PAGE_CORE_COPIES = [PLUGIN / "page-host.js"]
 
 BLOCKS = {
     "lb-tokens": (TOKENS_SRC, TOKENS_COPIES),
     "lb-theme": (THEME_SRC, THEME_COPIES),
+    "lb-page-core": (PAGE_CORE_SRC, PAGE_CORE_COPIES),
 }
 
 
 def block_rx(name: str) -> re.Pattern:
-    return re.compile(r"/\* " + re.escape(name) + r":begin[\s\S]*?" + re.escape(name) + r":end \*/")
+    # 两种标记：/* name:begin … name:end */（CSS / 模板字符串里）和 // name:begin … // name:end（JS 行注释）
+    return re.compile(r"(?:/\* |// )" + re.escape(name) + r":begin[\s\S]*?" + re.escape(name) + r":end(?: \*/)?")
 
 
 def read(p: Path) -> str:
@@ -75,6 +81,6 @@ if __name__ == "__main__":
     check = "--check" in sys.argv[1:]
     changed = sync(check=check)
     if check:
-        print("不一致：" + "、".join(changed) if changed else "四份 lb-tokens + lb-theme 副本都和源一致")
+        print("不一致：" + "、".join(changed) if changed else "lb-tokens / lb-theme / lb-page-core 副本都和源一致")
         sys.exit(1 if changed else 0)
     print("已同步：" + "、".join(changed) if changed else "都已是最新，没写文件")

@@ -37,6 +37,7 @@ PLUGIN_FILES = ('main.js', 'manifest.json', 'library-ui.js', 'remote-ui.js', 'pr
                 'settings-pages.js', 'settings-v6.js', 'provider-icons.js',
                 'no-tooltip.js',  # 1031 LWA 界面悬停不出提示气泡
                 'danmaku.js',  # 1031 B 站视频弹幕（media-nav 按相对路径 require）
+                'page-host.js',  # 1102 目录页等 ```lb-page 块的执行器（不再要 Dataview）
                 'backend-install.js',  # 1102 托管模式：没有 Python 也能自己装后端（uv → Python 3.12 → venv → link-brain）
                 'lb-theme.js')  # 1027 样式集（Aa 样式换算，和页面 LB.applyTheme 同一段）；1016 设置页排版；1018 v6 一页五张卡 + 首次设置；图标取自 Claudian（MIT）
 
@@ -95,13 +96,6 @@ def _plain_row(key: str, label: str, state: str, message: str, next_step: str = 
                 optional=optional, action=action, account=account)
 
 
-def dataview_ready(obs: Path) -> bool:
-    """Dataview 装了、启用了、开了 JS 查询（目录 / 问答 / 回收站页都靠它渲染）。"""
-    enabled = read_json(obs / 'community-plugins.json', [])
-    dv = read_json(obs / 'plugins' / 'dataview' / 'data.json', {})
-    return 'dataview' in enabled and dv.get('enableDataviewJs') is True
-
-
 def diagnose(*, obsidian_dir: str | None = None, only=None) -> dict:
     try:
         from . import accounts
@@ -127,10 +121,7 @@ def diagnose(*, obsidian_dir: str | None = None, only=None) -> dict:
     rows.append(row('obsidian', 'Obsidian 插件', 'ready' if plugin_ready else 'missing',
                              '已安装并启用' if plugin_ready else ('尚未启用' if installed else '未安装'),
                              '' if plugin_ready else '按 README 复制插件，然后在 Obsidian 社区插件中启用。', optional=True))
-    dv_ready = dataview_ready(obs)
-    rows.append(row('dataview', 'Dataview', 'ready' if dv_ready else 'missing',
-                             '已启用 JS 查询' if dv_ready else '未检测到 / 未开启 JS',
-                             '' if dv_ready else '安装并启用 Dataview，打开 Enable JavaScript Queries（目录页靠它显示，首版必装）。'))
+    # 1102：不再检查 Dataview——目录页等是 ```lb-page 块，由上面这个插件自己显示（page-host.js）
     # 1025 第二波 PR④：RAW 目录健康——老代码崩在下载中留下的半截 vNNNN（没 manifest.json，不算版本、不动）、
     # 过期暂存目录（下次同一篇入库时自动清）。只报数，不改文件。
     try:
@@ -154,7 +145,7 @@ def diagnose(*, obsidian_dir: str | None = None, only=None) -> dict:
                              '已配置（未调用验证）' if configured else '可选，未配置',
                              '在下方 AI 设置中配置并点击「测试」。', optional=True))
     if only:
-        rows = [r for r in rows if r['id'] == only or (r['id'] == 'xhs' and only in ('favorites', 'attachments')) or (only == 'local' and r['id'] in ('python', 'archive', 'obsidian', 'dataview', 'raw', 'ai'))]
+        rows = [r for r in rows if r['id'] == only or (r['id'] == 'xhs' and only in ('favorites', 'attachments')) or (only == 'local' and r['id'] in ('python', 'archive', 'obsidian', 'raw', 'ai'))]
     return {'core_ready': ready, 'xhs_ready': any(r['id'] == 'xhs' and r['state'] == 'ready' for r in rows),
             'vault': str(vault), 'python': info, 'checks': rows}
 

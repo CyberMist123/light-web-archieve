@@ -224,6 +224,9 @@ R = {"status": "ok|failed|skipped", "text": str|None, "code": "<故障码或空>
 
 ## 5. 页面状态与重绘（Dataview 2.5 秒刷新前提下）
 
+1102 起页面默认由插件 `page-host.js` 执行（` ```lb-page ` 块，不要 Dataview），它照 Dataview 的语义重跑（同一个容器先清空再跑、`.md` 变了 2.5 秒防抖、`component.render()`），
+所以下面说的「Dataview 重跑」「dv.container」「dv.component」对两种宿主都成立；新页面别依赖 Dataview 的查询 API（`dv.pages` 之类，插件不提供）。
+
 **规则**
 1. **数据版本** = `catalog-data.json` 的 `adapter.stat().mtime` + `built_at`。页面每次被 Dataview 重跑时先比版本：**版本没变且上一次的 DOM 还在 → 把旧 DOM 整块挂回新的 `dv.container`，不重读文件、不重建**；变了才重读 + 重建。
 2. 解析后的数据缓存在插件对象 `provider().catalogCache = {version, data}`（5 MB JSON 只解析一次）；插件没加载时退回每次读。

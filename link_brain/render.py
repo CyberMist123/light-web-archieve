@@ -423,7 +423,25 @@ MACHINE_FRAGMENT = re.compile(
     r'class="lb-|<!--\s*link-brain|\[!(?:link-brain|lb-)|^```|annotate-view\.js|'
     r'^</?(?:div|section|figure|article|img|video|audio|details|summary|span|br|p)\b'
 )
-_DVJS_RE = re.compile(r"```dataviewjs\r?\n.*?```", re.S)
+_DVJS_RE = re.compile(r"```(?:dataviewjs|lb-page)\r?\n.*?```", re.S)
+_ANNOT_ID_RE = re.compile(r'^(?:const itemId = |itemId: )("(?:[^"\\]|\\.)*")', re.M)
+_ANNOT_PATH_RE = re.compile(r'(?:lbPath\(|^notePath: )("(?:[^"\\]|\\.)*")', re.M)
+
+
+def convert_annotate_block(text: str, mode: str) -> str:
+    """把笔记里的批注块换成 mode 的写法（dataviewjs ↔ lb-page，1102 迁移用）；别的块、正文一个字不动。认不出的块原样留着。"""
+    def swap(m: re.Match) -> str:
+        block = m.group(0)
+        if "annotate-view.js" not in block:
+            return block
+        mi, mp = _ANNOT_ID_RE.search(block), _ANNOT_PATH_RE.search(block)
+        if not mi or not mp:
+            return block
+        try:
+            return annotate_block(json.loads(mi.group(1)), json.loads(mp.group(1)), mode)
+        except (ValueError, TypeError):
+            return block
+    return _DVJS_RE.sub(swap, text) if text else text
 
 
 def stray_human_lines(text: str | None) -> tuple[list[str], list[str]]:
@@ -443,7 +461,7 @@ def stray_human_lines(text: str | None) -> tuple[list[str], list[str]]:
         body = body[:s] + "\n" + body[e + len(CONTENT_END):]
     elif s != -1:
         # 只剩 START：到下一个已知边界都算机器层
-        cands = [x for x in (body.find(COMMENTS_START, s), body.find("```dataviewjs", s)) if x != -1]
+        cands = [x for x in (body.find(COMMENTS_START, s), body.find("```dataviewjs", s), body.find("```lb-page", s)) if x != -1]
         body = body[:s] + "\n" + body[min(cands) if cands else len(body):]
     elif e != -1:
         body = body[e + len(CONTENT_END):]
@@ -1211,11 +1229,22 @@ def render_visible_md(
     return "\n\n".join(parts) + "\n"
 
 
-def _annotate_block(meta: dict[str, Any]) -> str:
-    """正文底部的批注块：一小段 bootstrap，载入共享 annotate-view.js（读写 notes.json）。
-    批注/⭐ 全存 sidecar，不进正文；每次重渲染这段模板照样贴回来，数据在 sidecar 不丢。"""
-    item_id = json.dumps(meta["item_id"])
-    note_path = json.dumps(f"_archive/{meta['source']}/{meta['source_id']}/notes.json")
+def _annotate_block(meta: dict[str, Any], mode: str | None = None) -> str:
+    """正文底部的批注块：一小段引导，载入共享 annotate-view.js（读写 notes.json）。
+    批注/⭐ 全存 sidecar，不进正文；每次重渲染这段模板照样贴回来，数据在 sidecar 不丢。
+    1102：默认写成 ```lb-page 块（LWA 插件 page-host.js 执行，不要 Dataview）；mode=dataviewjs 照旧写 dataviewjs（catalog.page_block_mode）。"""
+    return annotate_block(meta["item_id"], f"_archive/{meta['source']}/{meta['source_id']}/notes.json", mode)
+
+
+def annotate_block(item_id: str, note_rel: str, mode: str | None = None) -> str:
+    if mode is None:
+        from .catalog import page_block_mode
+        mode = page_block_mode()
+    if mode != "dataviewjs":
+        from .catalog import _page_bootstrap
+        return _page_bootstrap("annotate-view.js", {"itemId": item_id, "notePath": note_rel}, mode="lb-page")
+    item_id = json.dumps(item_id)
+    note_path = json.dumps(note_rel)
     return (
         "```dataviewjs\n"
         f"const itemId = {item_id};\n"

@@ -96,10 +96,6 @@ module.exports = function (obsidian, plugin) {
     return box;
   }
 
-  function dataviewButtons(state) {
-    return [[state === 'nojs' ? '打开 Dataview 设置' : '打开第三方插件', () => plugin.openPluginSettings(state === 'nojs' ? 'dataview' : 'community-plugins')]];
-  }
-
   return {
     // 首次引导 = 设置页「开始」分页
     open() { return plugin.openSetupPage('features'); },
@@ -108,10 +104,9 @@ module.exports = function (obsidian, plugin) {
     renderFolder,
     saveFolder,
     aiConfigured,
-    // 启动时（窗口开好后）：Dataview 缺了 / 后端程序找不到 → 提示一次（带按钮）；还没准备好的新库 → 打开「开始」页（只自动开这一次）
+    // 启动时（窗口开好后）：后端程序找不到 → 自动装、装不上提示一次（带按钮）；还没准备好的新库 → 打开「开始」页（只自动开这一次）。
+    // 1102：不再查 Dataview（页面由插件自己画）
     async startup() {
-      const dv = plugin.dataviewState();
-      if (dv && dv !== 'ok') noticeWithButton(plugin.dataviewHint(dv), dataviewButtons(dv)[0][0], dataviewButtons(dv)[0][1], 20000);
       const b = plugin.currentBackend();
       if (b.mode === 'missing') {
         // 1102：不再只弹「复制安装命令」——新电脑（可能连 Python 都没有）由插件自己装后端；装好接着走首次自动跑，没装上才提示并停下
@@ -133,30 +128,17 @@ module.exports = function (obsidian, plugin) {
       try { await plugin.homeUI().firstRun(); } catch (e) { console.error('[lb] 首次标记没记上', e); }
       return 'ready';
     },
-    // 设置页最上面：缺后端 / 缺 Dataview / 旧图片导航插件还开着 → 各一块提示（都正常就什么也不加）
+    // 设置页最上面：缺后端 / 旧图片导航插件还开着 → 各一块提示（都正常就什么也不加）
     renderSetupHints(c) {
       const shown = [];
       const b = plugin.currentBackend();
       if (b.mode === 'missing') { hintBox(c, plugin.backendMissingText(), [['一键装好', () => installBackend()], ['复制安装命令', () => copy(BACKEND_INSTALL)]], 'is-backend'); shown.push('backend'); }
-      const dv = plugin.dataviewState();
-      if (dv && dv !== 'ok') { hintBox(c, plugin.dataviewHint(dv), dataviewButtons(dv), 'is-dataview'); shown.push('dataview'); }
       if (plugin.mediaNav?.skipped) {
         hintBox(c, '图片导航已经并进本插件。旧插件「Link Brain Native Media Nav」还开着，现在由它负责；在「第三方插件」里停用它并重启 Obsidian，就由本插件接管（两个同时开会重复）。',
           [['打开第三方插件', () => plugin.openPluginSettings('community-plugins')]], 'is-medianav');
         shown.push('medianav');
       }
       return shown;
-    },
-    // 目录页 / 问收藏页（lb-page）打开时：Dataview 不可用就在页面顶部放一条提示（页面本身靠它渲染，缺了只剩代码块）
-    dataviewBanner(view) {
-      const host = view && (view.contentEl || view.containerEl?.querySelector?.('.view-content'));
-      if (!host) return null;
-      host.querySelector?.('.lb-dataview-hint')?.remove();
-      const dv = plugin.dataviewState();
-      if (!dv || dv === 'ok') return null;
-      const box = hintBox(host, plugin.dataviewHint(dv), dataviewButtons(dv), 'lb-dataview-hint');
-      if (host.firstChild && host.firstChild !== box && host.insertBefore) host.insertBefore(box, host.firstChild);
-      return box;
     },
     _internals: { normalizeFolder, aiConfigured, noticeWithButton },
   };

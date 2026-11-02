@@ -68,6 +68,11 @@ function makeObsidian(document, opts) {
     registerInterval(id) { this.register(() => clearInterval(id)); return id; }
   }
 
+  // 1102：代码块处理器（registerMarkdownCodeBlockProcessor）给每一块配的子组件；containerEl = 那一块的容器（page-host.js 用）
+  class MarkdownRenderChild extends Component {
+    constructor(containerEl) { super(); this.containerEl = containerEl; }
+  }
+
   // ── Notice ──
   class Notice {
     constructor(message, duration) {
@@ -327,7 +332,7 @@ function makeObsidian(document, opts) {
   const requestUrl = async () => { throw new Error('假 obsidian：测试里不联网（requestUrl）'); };
   const normalizePath = p => String(p || '').replace(/\\/g, '/').replace(/\/+/g, '/').replace(/^\/|\/$/g, '');
   const debounce = (fn, ms) => { let t = null; const d = (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms || 0); }; d.cancel = () => clearTimeout(t); return d; };
-  return { Notice, Menu, MenuItem, Modal, SuggestModal, Scope, Setting, PluginSettingTab, ItemView, Plugin, Component, Events,
+  return { Notice, Menu, MenuItem, Modal, SuggestModal, Scope, Setting, PluginSettingTab, ItemView, Plugin, Component, MarkdownRenderChild, Events,
     ButtonComponent, ExtraButtonComponent, TextComponent, TextAreaComponent, ToggleComponent, DropdownComponent, SliderComponent,
     TAbstractFile, TFile, TFolder, MarkdownView, MarkdownRenderer, Platform, requestUrl, normalizePath, debounce, setIcon,
     notices, menus };

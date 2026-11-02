@@ -6,7 +6,7 @@
 //   N9  正文标签（原帖话题）点了 → plugin.pendingCatalogQuery='#标签' → 同一窗格开目录（Ctrl 开新标签）→ 'link-brain:catalog-query'
 //   N10 阅读视图选中正文 / 评论文字右键「划重点 / 取消重点」（只走 <mark>，先乐观包上、没写上的退回）
 //   N11「问这篇」1026 作者：笔记右键 / 命令面板都不要这个入口了，已拿掉
-//   N17 没开 Dataview（或它的 JS 查询）时打开归档笔记也挂提示条（复用目录页那条）
+//   N17 1102 起只在这篇还是旧 dataviewjs 批注块、Dataview 又不可用时提示一次「刷新目录」（批注块由插件 page-host.js 画）
 // 图片右键（F2）归 image-actions.js，这里遇到图片上的右键直接让开。
 'use strict';
 const fs = require('fs');
@@ -228,14 +228,11 @@ class NoteActions {
   }
 
   // ── N17 ──
+  // 1102：批注块由插件自己画（```lb-page），不再要 Dataview；只有这篇还是旧的 dataviewjs 批注块、Dataview 又不可用时提示一次刷新目录
   onFileOpen(file) {
     if (!this.itemIdOf(file)) return;
-    let ds = null;
-    try { ds = typeof this.plugin.dataviewState === 'function' ? this.plugin.dataviewState() : null; } catch {}
-    if (!ds || ds === 'ok') return;
-    const MV = this.obsidian.MarkdownView;
-    const view = MV && typeof this.app.workspace.getActiveViewOfType === 'function' ? this.app.workspace.getActiveViewOfType(MV) : null;
-    try { this.plugin.onboardingUI().dataviewBanner(view); } catch (e) { console.error('[lb] Dataview 提示没画上', e); }
+    try { const r = typeof this.plugin.legacyPageHint === 'function' ? this.plugin.legacyPageHint(file) : null; if (r && typeof r.catch === 'function') r.catch(() => {}); }
+    catch (e) { console.error('[lb] 旧格式提示没做', e); }
   }
 
   // ── N10 划重点 ──

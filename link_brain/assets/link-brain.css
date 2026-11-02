@@ -712,6 +712,8 @@ body.lb-actions-on .xhs-note .lb-tags .lb-tag { cursor: pointer; }
 body.lb-actions-on .xhs-note .lb-tags .lb-tag:hover { text-decoration: underline; text-underline-offset: 2px; }
 /* N17：Dataview（或它的 JS 查询）没开时不露批注 bootstrap 的源码，由页顶提示条说明原因 */
 .xhs-note pre.language-dataviewjs, .xhs-note pre:has(> code.language-dataviewjs) { display: none; }
+/* 1102：插件没开时 ```lb-page 批注块同样不露源码 */
+.xhs-note pre.language-lb-page, .xhs-note pre:has(> code.language-lb-page) { display: none; }
 /* N15：钉住时视频的倍速 / 循环行浮在视频左上角（仍只在悬停时出现），让出位置给批注框；视频本身不缩 */
 .xhs-note .lb-media-locked .lb-media:has(video) .lb-media-tools { position: absolute; left: 8px; top: 8px; z-index: 6; margin: 0; gap: 4px; padding: 0 6px; border-radius: 999px; background: rgb(0 0 0 / .45); }
 .xhs-note .lb-media-locked .lb-media:has(video) .lb-media-tools button { color: #fff; }

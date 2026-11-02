@@ -176,7 +176,8 @@ def test_plan_shape(capsys):
     assert plan["ok"] is True and plan["code"] == ""
     ids = [c["id"] for c in plan["components"]]
     assert ids == components.IDS
-    assert set(ids) >= {"core", "ocr", "asr", "capslock", "ai_text", "ai_vision", "reader", "dataview", "remote"}
+    assert set(ids) >= {"core", "ocr", "asr", "capslock", "ai_text", "ai_vision", "reader", "remote"}
+    assert "dataview" not in ids, "1102：页面由 LWA 插件自己显示，不再要 Dataview"
     for c in plan["components"]:
         for key in ("id", "name", "desc", "required", "default", "needs_key", "local", "disk_mb", "ram_mb", "installed",
                     "status", "detail", "depends", "settings_tab", "basis", "check_only", "later"):
@@ -187,14 +188,14 @@ def test_plan_shape(capsys):
         assert c["basis"]
         assert all(d in ids for d in c["depends"])
     by = {c["id"]: c for c in plan["components"]}
-    assert by["dataview"]["check_only"] is True and by["remote"]["later"] is True
+    assert by["remote"]["later"] is True
     assert by["ai_text"]["needs_key"] and by["ai_text"]["disk_mb"] == 0 and by["ai_text"]["ram_mb"] == 0
     # 没装 CapsWriter：磁盘按官方包 + 模型解压大小
     asr = by["asr"]
     assert asr["status"] == "missing" and asr["installed"] is False
     want = (capswriter.PACKAGE["unpacked"] + capswriter.MODELS[capswriter.DEFAULT_MODEL]["unpacked"]) / (1 << 20)
     assert abs(asr["disk_mb"] - want) <= 1
-    assert plan["presets"]["light"] == ["core", "reader", "dataview", "ocr"]
+    assert plan["presets"]["light"] == ["core", "reader", "ocr"]
     assert plan["presets"]["full"] == ids
     assert all(i in ids for p in plan["presets"].values() for i in p)
     assert plan["totals_basis"].startswith("磁盘 / 内存是估计值")
@@ -413,10 +414,17 @@ def test_unzip_rejects_zip_slip(tmp_path):
 # install：其它组件
 # --------------------------------------------------------------------------
 
-def test_install_manual_only_component_exit_5(capsys):
-    code, lines = _run_cli(capsys, "install", "--component", "dataview")
+def test_install_manual_only_component_exit_5(capsys, monkeypatch):
+    # 1102 以前的例子是 dataview（已退役）；只能手动的项用识图（要填 key、装不了）照样退 5
+    code, lines = _run_cli(capsys, "install", "--component", "ai_vision")
     assert code == 5
     assert lines[-1]["ok"] is False and lines[-1]["manual"] is True and lines[-1]["check"]["fix"] == "manual"
+
+
+def test_install_retired_dataview_is_ok(capsys):
+    """1102：老设置里还有 dataview：装它直接算成（不再需要），不报「不认识」。"""
+    code, lines = _run_cli(capsys, "install", "--component", "dataview")
+    assert code == 0 and lines[-1]["ok"] is True and "不再需要" in lines[-1]["message"]
 
 
 def test_install_unknown_component(capsys):

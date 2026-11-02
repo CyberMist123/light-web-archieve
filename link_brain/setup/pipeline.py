@@ -12,8 +12,9 @@
 1102（安装审查 6/7/8）：
   - 读取组件没起来（被杀毒隔离 / 端口被占 / 崩了 → `DISCONNECTED`）和没装（`NOT_INSTALLED`）不算号的事：login 记 failed，
     result 的 code 分别是 `TRANSIENT.DISCONNECTED` / `NEEDS_HUMAN.NOT_INSTALLED`，message 让人点重试或看 reader.log，不引导扫码。
-  - Dataview 这种只能检查、要用户自己在 Obsidian 里装的（check_only + fix=manual）单列 `needs_you`，不算 failed：
-    其余都成时 ok=true、退出 0，message 末尾附「还要你装 Dataview（打开第三方插件）」。
+  - 只能检查、要用户自己在 Obsidian 里装的（check_only + fix=manual）单列 `needs_you`，不算 failed：
+    其余都成时 ok=true、退出 0，message 末尾附一句要用户做什么。（当时唯一的一项 Dataview 1102 起不再需要——页面由
+    LWA 插件自己显示——眼下没有 check_only 项，分类逻辑留着给以后同类的项。）
   - 每个步骤状态一变就写 `_archive/setup-run.json`（running / pid / started_at / current / stages / result）：
     Obsidian 关掉、stdout 管道断了之后进度仍落盘，插件重开时按它续画或说「上次没跑完，停在 X 步」。
 """
@@ -31,7 +32,7 @@ from typing import Any, Callable
 from .common import Emit
 from ..errtext import errtext
 
-LIGHT = ["core", "reader", "dataview", "ocr"]
+LIGHT = ["core", "reader", "ocr"]
 STAGES = [
     ("install", "装好要用的组件"),
     ("login", "确认小红书登录"),
@@ -47,7 +48,7 @@ STATE_FILE = "setup-run.json"
 READER_DOWN_CODES = ("DISCONNECTED", "TIMEOUT", "BUSY", "BROWSER_STUCK")
 READER_MESSAGE = "读取组件没起来，点重试或看 reader.log"
 # 要用户自己在 Obsidian 里做的（check_only + fix=manual）：给人话，不算 failed
-NEEDS_YOU_TEXT = {"dataview": "还要你装 Dataview（打开第三方插件）"}
+NEEDS_YOU_TEXT: dict[str, str] = {}   # 功能 id → 一句人话；1102 起 Dataview 不再需要，眼下是空的
 
 
 def state_path():
@@ -205,7 +206,7 @@ def run(emit: Emit, *, child=_child, account_check=None, bili_check=None) -> dic
             if not out.get("ok"):
                 manual.append(f"{r['item_id']}：{out.get('message') or '没装上'}")
         elif r["item_id"] in check_only:
-            # 1102：只能检查、要用户自己在 Obsidian 里装的（Dataview）：单列 needs_you，不算这一步失败
+            # 1102：只能检查、要用户自己在 Obsidian 里装的：单列 needs_you，不算这一步失败
             hint = r.get("fix_hint") or r.get("detail") or "要手动装"
             needs_you.append({"item_id": r["item_id"], "status": r["status"],
                               "text": NEEDS_YOU_TEXT.get(r["item_id"]) or f"还要你装 {r['item_id']}（{hint}）", "hint": hint})

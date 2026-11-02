@@ -73,7 +73,7 @@
 
 - 设置页是**一页**，从上到下：
   - **状态**：小红书账号（扫码 / 验证就在这一行）· 收藏同步（立即同步 / 定时…）· 评论补齐进度（后台在补 / 都补齐了 / 几篇补不上）· 问题（几件要你处理 + 打开问题面板）。
-  - **功能**：`setup plan` 的每一项一行（磁盘 / 内存 / 状态）；必需项（归档、读取组件、Dataview）只显示状态；其余一个开关，开关就是唯一入口
+  - **功能**：`setup plan` 的每一项一行（磁盘 / 内存 / 状态）；必需项（归档、读取组件）只显示状态（1102 起没有 Dataview：页面由插件自己显示）；其余一个开关，开关就是唯一入口
     （OCR 开关 = `ocr.mode`、本机语音识别开关 = `asrAI.mode` 的 capswriter、CapsLock 开关 = 起 / 停 CapsWriter 客户端）；
     AI 问答 · 概要 · 打标、识图打开了就**在原地**出接口 / Key / 模型 / 测试 + 每 100 篇参考价（`setup estimate`）+「用建议的接口」；
     没选过 = **轻量版**；下面一个「轻量版（不要 key）」快捷和合计；最后是 **「一键装好 / 跑完」**（`setup run`，进度就在按钮下面，底部状态栏同步显示、可停）。
@@ -95,7 +95,7 @@
 {"type":"progress","stage":"install|login|sync|enrich|catalog|embed|comments","label":"…","index":3,"count":7,"state":"running|ok|skipped|failed","text":"…"}
 {"type":"progress","stage":"install","component":"asr","phase":"下载","done":12345,"total":67890,"text":"…"}   // 装组件的进度（同 setup install）
 {"type":"result","ok":false,"code":"NEEDS_HUMAN","message":"先处理小红书：……；处理好再点一次「一键装好 / 跑完」","stages":[{"id","label","state","text"}],"selected":[…],
- "needs_you":[{"item_id":"dataview","status":"missing","text":"还要你装 Dataview（打开第三方插件）","hint":"…"}]}
+ "needs_you":[{"item_id":"<check_only 项>","status":"missing","text":"还要你装 …（打开第三方插件）","hint":"…"}]}   // 1102 起眼下是空的
 ```
 退出码：0 都成 · 1 有步没成 · 5 号要人处理（掉登录 / 验证：碰号的步骤跳过，离线的照跑）。
 
@@ -103,8 +103,9 @@
 - **result 的 `code` 分三种**：号的事（掉登录 / 验证 / 风控 / 开发副本）`NEEDS_HUMAN`（退 5，插件给「去扫码 / 验证」）；读取组件没起来
   （被杀毒隔离 / 端口被占 / 刚崩了：`DISCONNECTED` / `TIMEOUT` / `BUSY`）`TRANSIENT.DISCONNECTED`（退 1，message「读取组件没起来，点重试或看 reader.log：…」，
   插件给「重试」）；没装读取组件 `NEEDS_HUMAN.NOT_INSTALLED`（退 5，同一句话、同「重试」按钮）。后两种不引导扫码。
-- **`needs_you`**：只能检查、要用户自己在 Obsidian 里装的（`check_only` + `fix=manual`，眼下只有 Dataview）单列，不算 install 那一步失败；
-  其余都成时 `ok=true`、退 0，`message` 末尾附「还要你装 Dataview（打开第三方插件）」。Python 太旧这类非 check_only 的手动项照旧算 failed。
+- **`needs_you`**：只能检查、要用户自己在 Obsidian 里装的（`check_only` + `fix=manual`）单列，不算 install 那一步失败；
+  其余都成时 `ok=true`、退 0，`message` 末尾附一句要用户做什么（`pipeline.NEEDS_YOU_TEXT`）。Python 太旧这类非 check_only 的手动项照旧算 failed。
+  （当时唯一的一项 Dataview 1102 起不再需要——页面是 ` ```lb-page ` 块、由插件 `page-host.js` 显示——眼下没有 check_only 项，分类逻辑留着。）
 - **进度落盘** `_archive/setup-run.json`（每步状态一变就写；形状见 FORMAT「2026-11-02」）：Obsidian 关掉后 stdout 管道断了，
   `setup.common.stdout_emit` 不再抛（切到 `~/.link-brain/logs/setup-run.log` 接着写、fd 1 指到空设备免得退出时再撞一次），子进程接着跑完；
   插件 `onunload` 不杀它、只提示「安装在后台继续」；重开 Obsidian 时 home-ui 读这份文件：还在跑（pid 活着）就续画进度（盯文件 + 3 秒一读，
@@ -143,9 +144,8 @@ Claude Desktop 改 `claude_desktop_config.json` 的 `mcpServers.lwa`（只动这
    {"id":"ai_text","name":"AI 问答 · 概要 · 打标（要 API key）","needs_key":true,"local":false,"default":false, …},
    {"id":"ai_vision","name":"识图（要 API key）","needs_key":true,"default":false, …},
    {"id":"reader","name":"读取组件（读小红书收藏 / 评论 / 附件）","required":true, …},
-   {"id":"dataview","name":"Dataview（目录页显示用，Obsidian 插件）","required":true,"check_only":true, …},
    {"id":"remote","name":"远程阅读（MCP，高级，要自备域名）","default":false,"later":true, …}],
- "presets":{"light":["core","reader","dataview","ocr"],"recommended":["core","reader","dataview","ocr","asr","capslock","ai_text"],"full":[…全部…]},
+ "presets":{"light":["core","reader","ocr"],"recommended":["core","reader","ocr","asr","capslock","ai_text"],"full":[…全部…]},
  "totals_basis":"磁盘 / 内存是估计值：<怎么算的>"}
 ```
 - disk_mb / ram_mb：实测或有出处的估计（本机已装的组件量真实占用；没装的按官方包大小 / 模型大小），写清 `basis`。
@@ -160,7 +160,8 @@ Claude Desktop 改 `claude_desktop_config.json` 的 `mcpServers.lwa`（只动这
 - ocr：本地 OCR 模型（现有 RapidOCR 档位，见 `link_brain/visual.py` / ai_config）。
 - asr：CapsWriter-Offline 一键安装（下载官方发布包 + 模型到用户目录、校验、写好插件设置里的地址 / 端口、能启动服务端并自检）。发布地址 / 校验和 / 大小以官方 GitHub Release 为准，查到写进常量并注明出处和日期；查不到就留空并 `fix:"manual"` 给指引，不编。
 - reader：调现有 `reader install`（发布地址空时如实 manual）。
-- dataview：check_only（前端负责打开社区插件页）。
+- ~~dataview：check_only（前端负责打开社区插件页）~~ 1102 删掉：页面由插件自己显示。老设置 `setup.selected` 里还留着的 `dataview` 当退役项
+  （`components.RETIRED`）：`check` 不查也不报「不认识」，`install --component dataview` 直接算成（「不再需要 Dataview」），轻量版判断不算它。
 
 ### `python -m link_brain setup estimate [--posts 100]`
 ```jsonc
