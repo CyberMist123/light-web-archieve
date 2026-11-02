@@ -46,8 +46,9 @@ WORKERS_MAX = 8          # 1031 作者：同时下几路放到 8（撞 412/429 �
 # 1031：停下来时给用户的下一步（设置页直接显示 message；码是 CONVENTIONS §2 的细分码，裸写，和原来的 NOT_LOGGED_IN 一样）
 HINTS = {
     "NOT_LOGGED_IN": "在设置页「账号登录 → B 站」点「扫码登录」重新扫一次，再点「立即同步」（已经下好的不会重下）",
-    "MISSING_DEPENDENCY": ("yt-dlp 要装进 LWA 用的那个 Python：在程序目录运行 pip install -e .（.venv 是 uv 建的就用 uv pip install -e .）；"
-                           "ffmpeg 要另装并加进 PATH。装好再点「立即同步」，从没下的接着下"),
+    # 1102：yt-dlp 在 `bilibili` 功能包里（link_brain/extras.py），装进 LWA 用的那个 Python
+    "MISSING_DEPENDENCY": ("功能包要装进 LWA 用的那个 Python（装法见上一句）；ffmpeg 要另装并加进 PATH。"
+                           "装好再点「立即同步」，从没下的接着下"),
     "HTTP_429": "B 站限流 / 风控了：先停一停（建议过 1 小时），并行路数调成 1 再同步；已经下好的不会重下",
     "NETWORK": "网络不通或 B 站接口没响应，稍后再试",
     "DISK_LOW": "磁盘快满了：腾出空间后再点「立即同步」，会从没下的接着下",

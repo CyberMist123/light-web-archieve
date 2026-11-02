@@ -86,6 +86,18 @@
 **做法**：① PyPI 发包（或先 GitHub Release 的 wheel + 可下载地址，二选一带推荐问 Owner——发 PyPI 要定包名归属，属对外动作）；② Go 读取组件出 Release 预编译件 + 填 RELEASE_URL/SHA256；③ MCP 命令改 `link-brain mcp`（包内入口）；④ CapsWriter 一键装在没装过的环境真机走一遍（默认引擎等 Owner 定，见「等作者定」）。
 **验收**：干净 venv `uv tool install` 装得上、`link-brain --help` 可用；reader_install 能从 Release 拉起；setup install 全流程真机过。
 
+**依赖拆分（1102）**：核心只留归档 / 同步 / 浏览 / 搜索要的；`ocr` / `bilibili` / `docs` 三个 extra，`full` 全装（`uv pip install link-brain[full]`）。清单唯一来源 `pyproject.toml`（`link_brain/extras.py` 读包元数据；守卫 `tests/test_guards.py`）。onnxruntime 的 wheel 下限按 Python 版本写了环境标记（3.11/3.12 ≥1.17，3.13 ≥1.20，3.14 ≥1.24.1——1.23.x 没有 cp314 wheel）；rapidocr ≥3.10 才依赖 opencv-python-headless。
+**jieba（PyPI 只有 sdist）**：系统 Python 3.13 + 发行版改过的 setuptools 上现场构建会失败。两条路：
+- ① Release 里附一个自己打的 wheel（纯 Python，`py3-none-any`，一个 wheel 全平台通用，约 19 MB，含词典）。在干净 venv 里打：
+  ```
+  uv venv --seed --python 3.13 .wheel-venv
+  .wheel-venv/bin/python -m pip wheel --no-deps -w dist jieba==0.42.1      # Windows：.wheel-venv\Scripts\python.exe
+  .wheel-venv/bin/python -m pip install dist/jieba-0.42.1-py3-none-any.whl && .wheel-venv/bin/python -c "import jieba; print(list(jieba.cut('我来到北京清华大学')))"
+  ```
+  1102 在云端 Linux 上照这三步验过：产出 `jieba-0.42.1-py3-none-any.whl`（19314509 字节，sha256 `13f8c3bb…db6c`），装上能切词、词典在包里。自举时 `pip install --find-links <Release 目录> link-brain[full]` 就不用现场构建。
+- ② 自举时先装 setuptools 再 `pip install --no-build-isolation jieba`：不用自己发文件，但依赖用户机器上的 setuptools 版本（发行版打过补丁的还是会坏），每台机器都要构建一次。
+  推荐 ①（发布工作流归另一条线加，本条只记命令）。
+
 ### Lot F3：文档与状态（P11 / P12 / RELEASE-BAR 本身）
 
 **做法**：① RELEASE-BAR 状态栏按现状改（P1「还剩 N 篇」已在同步记录、P12 第 4 批已做仍写 ❌、P5/P8/P11/P13 补第 7–10 批进展）；② README 补「问答/识图/概要需自备 key」及「远程阅读/依赖/边界/安装」节（**措辞先给 Owner 过目**，安装节草稿要点在 STATE 第 5 批 B1 段）；③ 公开仓已有个人痕迹（accounts.py 的 momo-profile、注释里的「LER Vault」、docs/tests 里真实 doc_id）：代码与注释直接清，**git 历史要不要重写问 Owner**。

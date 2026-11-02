@@ -170,7 +170,9 @@ def test_run_sync_stops_before_scanning_when_ytdlp_missing(vault, monkeypatch):
     monkeypatch.setattr(favorites, "default_client", lambda: pytest.fail("缺下载器时不该去连 B 站"))
     out = sync.run_sync(gap_s=0, log=lambda m: None)
     assert out["ok"] is False and out["code"] == "MISSING_DEPENDENCY"
-    assert "yt-dlp" in out["stopped"] and "pip install -e ." in out["message"]
+    # 1102：装法是 extras 那一句（yt-dlp 在 `bilibili` 功能包里），不再叫人 pip install -e .
+    assert "yt-dlp" in out["stopped"] and "uv pip install link-brain[bilibili]" in out["stopped"]
+    assert "pip install -e ." not in out["message"] and "立即同步" in out["message"]
     for text in (out["stopped"], out["message"]):
         assert "NeedsHuman" not in text and "python.exe" not in text and "No module" not in text
     last = storage.read_json(favorites.sync_root() / "last-sync.json")
@@ -201,6 +203,7 @@ def test_missing_dependency_from_ytdlp_is_plain_words(vault, monkeypatch):
     out = sync.run_sync(gap_s=0, workers=1, tv=False, log=lambda m: None)
     assert out["code"] == "MISSING_DEPENDENCY", out
     assert out["stopped"].startswith("要人处理：缺下载器 yt-dlp")
+    assert "要用 B 站下载，先装 `uv pip install link-brain[bilibili]`" in out["stopped"]
     assert "NeedsHuman" not in out["stopped"] and "python.exe" not in out["stopped"] and "退出码" not in out["stopped"]
 
 

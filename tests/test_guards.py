@@ -388,6 +388,63 @@ def test_import_scan_contract_semantics():
     assert import_scan.largest_cycle({("a", "b"), ("b", "c"), ("c", "a"), ("c", "d")}) == 3
 
 
+# ---- 依赖清单只有一个来源（1102）：pyproject ↔ extras.FALLBACK ↔ setup check / doctor 推出来的表 ----
+import tomllib  # noqa: E402
+
+from link_brain import doctor, extras  # noqa: E402
+from link_brain.setup import components  # noqa: E402
+
+
+def _pyproject_deps() -> dict[str, list[str]]:
+    data = tomllib.loads((ROOT / "pyproject.toml").read_text("utf-8"))
+    out = {"": list(data["project"]["dependencies"])}
+    out.update({k: list(v) for k, v in data["project"]["optional-dependencies"].items()})
+    return out
+
+
+def test_extras_fallback_matches_pyproject():
+    """元数据读不到时的后备表要和 pyproject 逐字一致（含环境标记）——改依赖两处同一个提交。"""
+    want = _pyproject_deps()
+    assert {k: list(v) for k, v in extras.FALLBACK.items()} == want
+    assert set(extras.EXTRAS) | set(extras.META_EXTRAS) == set(want) - {""}, "新加的 extra 要登进 extras.EXTRAS（或 META_EXTRAS）"
+
+
+def test_installed_metadata_matches_pyproject():
+    """装着的 link-brain 元数据（pip install -e . 写的）和 pyproject 要一致：不一致 = 没重装，守卫按真包核。"""
+    table, source = extras.raw_requirements()
+    if source != "metadata":
+        pytest.skip("link-brain 没 pip install，读的是后备表")
+    want = _pyproject_deps()
+
+    def canon(spec: str) -> tuple[str, frozenset[str]]:
+        # setuptools 会把版本区间重排（'mcp>=1.27,<2' → 'mcp<2,>=1.27'）、把 extra 列表排序、引号换成双引号：
+        # 按「包名 + 条件集合」比，和写法无关
+        s = re.sub(r"\s+", "", spec.replace('"', "'"))
+        name = extras.dist_name(s)
+        return extras.norm(name), frozenset(x for x in re.split(r"[,\[\];]|and", s[len(name):]) if x)
+
+    for extra, specs in want.items():
+        got = sorted(canon(s) for s in table.get(extra, []))
+        exp = sorted(canon(s) for s in specs)
+        assert got == exp, f"extra {extra!r}：pyproject 改了但包没重装（pip install -e .），或 extras._raw_by_extra 解析漏了"
+
+
+def test_setup_and_doctor_tables_come_from_the_single_source():
+    """setup check 的 core / ocr 两项和 doctor 的关键依赖都由 pyproject 推出来：发行名集合一致，import 名有对应。"""
+    core = extras.dist_names("")
+    assert list(components.CORE_REQS) == core and list(components.CORE_SPECS) == core
+    assert list(components.OCR_REQS) == extras.dist_names("ocr")
+    everything = extras.dist_names("", *extras.EXTRAS)
+    assert [d[0] for d in doctor.KEY_DEPS] == everything
+    by_name = {d[0]: d for d in doctor.KEY_DEPS}
+    for name in everything:
+        assert by_name[name][1] == extras.import_name(name) and by_name[name][2], f"{name} 缺用途说明（extras.PURPOSES）"
+        assert by_name[name][4] == extras.extra_of(name)
+    # 以前漂移掉的三个：B 站 / 二维码 / 模糊匹配 都在，且 B 站下载器不在核心里
+    assert {"yt-dlp", "qrcode", "rapidfuzz", "websockets"} <= set(everything)
+    assert "yt-dlp" not in core and extras.extra_of("yt-dlp") == "bilibili"
+
+
 if __name__ == "__main__":
     if "--write" in sys.argv[1:]:
         refused = write_baseline(allow_grow="--allow-grow" in sys.argv[1:])
