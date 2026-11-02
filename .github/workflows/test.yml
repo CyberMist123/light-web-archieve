@@ -11,12 +11,14 @@ on:
 
 jobs:
   python:
-    name: pytest (${{ matrix.os }})
+    name: pytest (${{ matrix.os }}, py${{ matrix.python }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
+        # 1102：3.11 是 requires-python 下限；3.13 是系统 Python 常见版本（onnxruntime 要 ≥1.20、jieba 要现场构建）；3.14 等 onnxruntime 稳定再加
+        python: ["3.11", "3.12", "3.13"]
     env:
       PYTHONIOENCODING: utf-8
       PYTHONUTF8: "1"
@@ -24,7 +26,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python }}
           cache: pip
       # 时区：Linux 用 TZ 环境变量；Windows 用 tzutil 改系统时区——**不能**在 Windows 上设 TZ，MSVC 运行库把 "Australia/Sydney"
       # 这种名字解析成 +01:00（第一跑就是这样红的），conftest 里也只在有 tzset 的平台设 TZ

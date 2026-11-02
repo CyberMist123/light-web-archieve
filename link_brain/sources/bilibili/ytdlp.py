@@ -146,10 +146,11 @@ def missing_tools() -> list[str]:
 
 
 def missing_text(names: list[str]) -> str:
-    """缺什么 → 一句人话（不带命令行和路径；怎么装见 sync.HINTS["MISSING_DEPENDENCY"]）。"""
+    """缺什么 → 一句人话（不带解释器路径；1102：yt-dlp 是 `bilibili` 功能包，装法就是 extras.missing_text 那一句）。"""
+    from ... import extras
     parts = []
     if "yt-dlp" in names:
-        parts.append(f"缺下载器 yt-dlp（{python_label()} 里没装）")
+        parts.append(f"缺下载器 yt-dlp（{python_label()} 里没装）：{extras.missing_text('bilibili')}")
     if "ffmpeg" in names:
         parts.append("这台电脑没装 ffmpeg（合并、校验视频要用）")
     return "；".join(parts)

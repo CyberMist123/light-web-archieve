@@ -7,33 +7,48 @@ name = "link-brain"
 version = "0.2.0"
 description = "light-web-archieve: 小红书链接归档基座（RAW 不可变 + Obsidian 可见笔记）"
 requires-python = ">=3.11"
+# 1102：核心只留「归档 · 同步 · 浏览 · 关键词搜索」要的；OCR / B 站 / PDF·Word / 远程 MCP 各是一个 extra，
+# `link-brain[full]` 全装。这份清单是唯一来源：link_brain/extras.py 经已装包的元数据读它（读不到才用那里的后备表），
+# setup check 的 core / ocr 两项和 doctor 的「关键依赖」都从这里推；tests/test_guards.py 核三处一致。
+# 改依赖只改这里 + extras.FALLBACK（同一个提交）。
 dependencies = [
-    # mcp 2.x 改了接口（streamablehttp_client / Server.list_tools 没了），小红书适配器和远程 MCP 服务直接抛错：封顶在 2 以下
+    # mcp 2.x 改了接口（streamablehttp_client / Server.list_tools 没了），小红书适配器和远程 MCP 服务直接抛错：封顶在 2 以下。
+    # 1102 审查想把它挪进 extra：不行——小红书读取组件就是 MCP 服务，适配器用 mcp 的客户端调它（sources/xiaohongshu/adapter.py），
+    # 没有它收藏同步就起不来，所以留在核心。
     "mcp>=1.27,<2",
     "httpx>=0.27",
     "pyyaml>=6.0",
     "pillow>=10.0",
     "pypinyin>=0.55",
+    # PyPI 只有 sdist（要现场用 setuptools 构建；系统 Python 3.13 + 发行版改过的 setuptools 上装过不去）：
+    # 打 py3-none-any wheel 的命令见 docs/TASKBOOK.md Lot F2
     "jieba>=0.42.1",
-    # 本地 OCR（带位置框，判断表格用）与视频画面文字；CPU 即可，首次用到才加载
-    "rapidocr>=3.9",
-    "onnxruntime>=1.17",
     "rapidfuzz>=3.0",
-    # B 站下载器（以 python -m yt_dlp 跑在同一个解释器里，见 sources/bilibili/ytdlp.py）；B 站接口常变，旧版会解析失败
-    "yt-dlp>=2025.1",
     # 1031 B 站扫码登录：设置页弹窗里的二维码图（没有它只能给链接）
     "qrcode>=7.0",
     # 语义检索（向量索引 semantic.db）；缺了会静默退回纯关键词。也用于语音切段
     "numpy>=1.26",
-    # 附件 PDF / Word 转 Markdown（随包自带，不依赖仓库外脚本）：pypdfium2 Apache-2.0/BSD-3，python-docx MIT
-    "pypdfium2>=4.30",
-    "python-docx>=1.1",
     # 语音识别连本机 CapsWriter-Offline 服务端（websocket）：BSD-3
     "websockets>=12",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0"]
+# 本地 OCR（带位置框，判断表格用）与视频画面文字；CPU 即可，首次用到才加载。
+# rapidocr 3.10 起依赖 opencv-python-headless（3.9.x 还是带 GUI 的 opencv-python，多 60 MB 还拉 Qt）：下限定在 3.10。
+# onnxruntime 在 PyPI 上各版本的 wheel（1102 核过）：≤1.19 只到 cp312；cp313 从 1.20.0 起；cp314 从 1.24.1 起（1.23.x 没有）。
+ocr = [
+    "rapidocr>=3.10",
+    "onnxruntime>=1.17; python_version < '3.13'",
+    "onnxruntime>=1.20; python_version == '3.13'",
+    "onnxruntime>=1.24.1; python_version >= '3.14'",
+]
+# B 站下载器（以 python -m yt_dlp 跑在同一个解释器里，见 sources/bilibili/ytdlp.py）；B 站接口常变，旧版会解析失败
+bilibili = ["yt-dlp>=2025.1"]
+# 附件 PDF / Word 转 Markdown（随包自带，不依赖仓库外脚本）：pypdfium2 Apache-2.0/BSD-3，python-docx MIT
+docs = ["pypdfium2>=4.30", "python-docx>=1.1"]
+full = ["link-brain[ocr,bilibili,docs]"]
+# 测试要全部功能都在（test_docconv_cover 直接 import pypdfium2 等）
+dev = ["link-brain[full]", "pytest>=8.0"]
 
 [project.scripts]
 link-brain = "link_brain.cli:main"

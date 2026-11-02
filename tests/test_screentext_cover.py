@@ -10,7 +10,7 @@ from link_brain import screentext, visual
 def test_skipped_when_no_local_ocr(tmp_path, monkeypatch):
     monkeypatch.setattr(visual, "available", lambda: False)
     out = screentext.extract(tmp_path / "v.mp4")
-    assert out == {"status": "skipped", "error": "未安装本地 OCR（pip install rapidocr）"}
+    assert out == {"status": "skipped", "error": "未安装本地 OCR：要用本地 OCR，先装 `uv pip install link-brain[ocr]`"}
 
 
 def test_ffmpeg_failure_returns_failed_with_exc_name(tmp_path, monkeypatch):

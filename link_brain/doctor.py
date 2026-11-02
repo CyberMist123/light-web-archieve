@@ -12,24 +12,13 @@ import platform
 import sys
 from pathlib import Path
 
-from . import ai_config, deps, storage
+from . import ai_config, deps, extras, storage
 
-# 关键依赖（pyproject 的 dependencies）：(pip 名, 模块名, 用途, 当场导入?)。
-# 轻的真导一次（装坏了也看得出）；重的（OCR 模型 / numpy）只看装没装，不为体检加载几秒。
-KEY_DEPS = (
-    ('jieba', 'jieba', '问答 / 搜索切词', True),
-    ('pypinyin', 'pypinyin', '拼音搜索、目录', True),
-    ('httpx', 'httpx', '调 AI 接口、读取组件', True),
-    ('pyyaml', 'yaml', '笔记元数据', True),
-    ('pillow', 'PIL', '图片', True),
-    ('rapidocr', 'rapidocr', '本地认字', False),
-    ('onnxruntime', 'onnxruntime', '本地认字', False),
-    ('numpy', 'numpy', '语义检索', False),
-    ('mcp', 'mcp', '接其他 AI', False),
-    ('pypdfium2', 'pypdfium2', 'PDF 附件', False),
-    ('python-docx', 'docx', 'Word 附件', False),
-    ('yt-dlp', 'yt_dlp', 'B 站下载', False),
-)
+# 关键依赖：(pip 名, 模块名, 用途, 当场导入?, 属于哪个 extra——'' 是核心)。1102 起清单从包元数据推（extras.py 是唯一来源，
+# 和 pyproject 一致），核心 + 每个功能包都列。轻的真导一次（装坏了也看得出）；重的（OCR 模型 / numpy）只看装没装，不为体检加载几秒。
+LOAD_NOW = frozenset({'jieba', 'pypinyin', 'httpx', 'pyyaml', 'pillow'})
+KEY_DEPS = tuple((name, extras.import_name(name), extras.purpose(name), extras.norm(name) in LOAD_NOW, extra)
+                 for extra in ('', *extras.EXTRAS) for name in extras.dist_names(extra))
 
 
 def read_json(path: Path, default):
@@ -66,21 +55,31 @@ def _importable(module: str, load: bool) -> bool:
 
 def python_checks() -> dict:
     """当前解释器 + 关键依赖能不能导入；scheduled = 计划任务注册时会写的解释器（deps.python_exe）。"""
-    rows = [dict(name=name, module=module, purpose=purpose, ok=_importable(module, load))
-            for name, module, purpose, load in KEY_DEPS]
+    rows = [dict(name=name, module=module, purpose=purpose, extra=extra, ok=_importable(module, load))
+            for name, module, purpose, load, extra in KEY_DEPS]
     scheduled_error = ''
     try:
         scheduled = deps.python_exe()
     except OSError as exc:  # PythonNotFound：设置里的 Python 路径找不到，照实说
         scheduled, scheduled_error = '', str(exc)
+    # missing = 核心缺的（Python 那一行判红）；功能包（extras）没装是可选，单列，用到那一步才提示
     return {'executable': sys.executable, 'version': platform.python_version(), 'scheduled': scheduled,
-            'scheduled_error': scheduled_error, 'deps': rows, 'missing': [r['name'] for r in rows if not r['ok']]}
+            'scheduled_error': scheduled_error, 'deps': rows,
+            'missing': [r['name'] for r in rows if not r['ok'] and not r['extra']],
+            'missing_extras': sorted({r['extra'] for r in rows if not r['ok'] and r['extra']})}
 
 
 def _python_row(row, info: dict) -> dict:
     missing = info['missing']
+    optional = info.get('missing_extras') or []
     message = f"{info['executable']}（Python {info['version']}）" + (f"；缺 {'、'.join(missing)}" if missing else '；依赖齐')
-    step = (f"请用项目 .venv 启动（设置 → 开发者 → Python 路径），或 pip install {' '.join(missing)}" if missing else '')
+    if optional:
+        lacking = {e: [d['name'] for d in info['deps'] if d.get('extra') == e and not d['ok']] for e in optional}
+        message += '；没装的功能包：' + '、'.join(
+            f"{e}（{extras.EXTRA_PURPOSES.get(e, e)}，缺 {' '.join(lacking[e])}）" for e in optional)
+    step = (f"请用项目 .venv 启动（设置 → 开发者 → Python 路径），或 {extras.install_hint()}" if missing else '')
+    if optional and not step:
+        step = '要用这些功能再装：' + '；'.join(extras.install_hint(e) for e in optional)
     detail = f"计划任务会用：{info['scheduled']}" if info.get('scheduled') else (info.get('scheduled_error') or '')
     bad = bool(missing or info.get('scheduled_error'))
     if info.get('scheduled_error') and not step:

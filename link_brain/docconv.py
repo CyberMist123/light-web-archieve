@@ -21,7 +21,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from . import providers
+from . import deps, extras, providers
 from .errtext import errtext
 
 DAMAGED_RANGES = ((0x2E80, 0x2EFF), (0x2F00, 0x2FDF), (0xFE30, 0xFE4F))
@@ -67,9 +67,17 @@ def _fail(code: str, note: str, method: str | None = None) -> dict[str, Any]:
 # PDF
 # --------------------------------------------------------------------------
 
+def _missing(extra: str, what: str, method: str) -> dict[str, Any]:
+    """缺功能包（1102）：NEEDS_HUMAN.MISSING_DEPENDENCY（CONVENTIONS §2.2：留在撞见的那一步、不停号），一句话说装法。"""
+    return _fail(deps.CODE, extras.missing_text(extra, what), method)
+
+
 def open_pdf(path: Path):
     """打开 PDF。返回 (文档 或 None, 失败时的 R)。"""
-    import pypdfium2 as pdfium
+    try:
+        import pypdfium2 as pdfium
+    except ImportError:
+        return None, _missing("docs", "PDF 附件转文字", "pdf")
     try:
         return pdfium.PdfDocument(str(path)), None
     except pdfium.PdfiumError as exc:
@@ -135,7 +143,7 @@ def pdf_to_markdown(path: Path, *, force_ocr: bool = False, verbose: bool = Fals
         from . import providers as prov, visual
         ocr_ready = bool(ocr_pages) and (ocr_cfg or prov.resolve("ocr")) is not None and visual.available()
         if damaged and not ocr_ready:
-            reason = prov.why_not("ocr") or "没装本地 OCR（pip install rapidocr）"
+            reason = prov.why_not("ocr") or extras.missing_text("ocr")
             return _fail("SKIPPED.NOT_CONFIGURED", f"{why}，要本地 OCR 才转得出来：{reason}", "ocr")
         lines = [f"# {path.name}", "", f"（{total} 页" + ("，OCR 逐页识别）" if damaged else "）"), ""]
         failed = 0
@@ -267,7 +275,7 @@ def docx_to_markdown(path: Path, *, verbose: bool = False) -> dict[str, Any]:
     try:
         import docx  # noqa: F401
     except ImportError:
-        return _fail("SKIPPED.NOT_CONFIGURED", "没装 python-docx（pip install -e . 会装上）", "docx")
+        return _missing("docs", "Word 附件转文字", "docx")
     try:
         body = docx_markdown_text(path)
     except Exception as exc:  # noqa: BLE001 - 坏文件 / 不是真 docx

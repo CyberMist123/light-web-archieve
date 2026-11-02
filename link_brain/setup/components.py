@@ -14,6 +14,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from .. import extras
 from . import capswriter, fetch, sysinfo
 from .common import Emit, SetupError, apply_settings_patch, mb, progress
 
@@ -35,16 +36,12 @@ READER_EXE_MB = 27        # 发布包 reader-v0.2.0 解出来的实量：link-br
 DATAVIEW_RELEASE = {"version": "0.5.70", "bytes": 2377634 + 357 + 2965,
                     "source": "https://api.github.com/repos/blacksmithgu/obsidian-dataview/releases/latest（2026-10-03）"}
 
-# pyproject 的依赖（发行名 → import 名）。OCR 的两个包算进 ocr 那一项。
-CORE_REQS = {"mcp": "mcp", "httpx": "httpx", "pyyaml": "yaml", "pillow": "PIL", "pypinyin": "pypinyin",
-             "jieba": "jieba", "rapidfuzz": "rapidfuzz", "numpy": "numpy", "pypdfium2": "pypdfium2",
-             "python-docx": "docx", "websockets": "websockets"}
-CORE_SPECS = {"mcp": "mcp>=1.27", "httpx": "httpx>=0.27", "pyyaml": "pyyaml>=6.0", "pillow": "pillow>=10.0",
-              "pypinyin": "pypinyin>=0.55", "jieba": "jieba>=0.42.1", "rapidfuzz": "rapidfuzz>=3.0",
-              "numpy": "numpy>=1.26", "pypdfium2": "pypdfium2>=4.30", "python-docx": "python-docx>=1.1",
-              "websockets": "websockets>=12"}
-OCR_REQS = {"rapidocr": "rapidocr", "onnxruntime": "onnxruntime"}
-OCR_SPECS = {"rapidocr": "rapidocr>=3.9", "onnxruntime": "onnxruntime>=1.17"}
+# pyproject 的依赖（发行名 → import 名 / 依赖说明），1102 起从包元数据推（link_brain/extras.py，唯一来源）：
+# core = pyproject 的 dependencies；ocr = extra `ocr`（B 站 / PDF·Word 的 extra 没有对应的功能项，缺了在用到那一步提示）。
+CORE_REQS = extras.import_map("")
+CORE_SPECS = extras.spec_map("")
+OCR_REQS = extras.import_map("ocr")
+OCR_SPECS = extras.spec_map("ocr")
 
 COMPONENTS: list[dict[str, Any]] = [
     {"id": "core", "name": "归档·同步·浏览·关键词搜索", "desc": "把收藏存成 Obsidian 笔记、目录页、关键词搜索；不要任何 key。",
@@ -172,7 +169,8 @@ def _ocr() -> dict[str, Any]:
              f"{'（实量）' if models_ok and model_bytes else '（按官方模型文件大小）'}；"
              f"内存：临时进程里加载 {tier} 档认一张 1080×1440 图的峰值实测约 {ram} MB，只在处理图片时占用")
     if not pkgs_ok:
-        row = _row("ocr", "missing", "没装 rapidocr / onnxruntime", fix="auto", hint="点「安装」用 pip 补装")
+        row = _row("ocr", "missing", "没装 rapidocr / onnxruntime", fix="auto",
+                   hint=f"点「安装」用 pip 补装，或自己装：{extras.install_hint('ocr')}")
     elif mode == "off":
         row = _row("ocr", "partial", "OCR 在设置里关着", fix="manual", hint="设置 → AI → 本地 OCR 打开")
     elif not models_ok:
