@@ -51,7 +51,9 @@ for (const t of plan) {
     }
   }
   const started = Date.now();
-  const r = spawnSync(process.execPath, [full], { cwd: ROOT, encoding: 'utf8', timeout: TIMEOUT_MS, env: { ...process.env } });
+  // 1102：每个用例进程都拿一个隔离的 LINK_BRAIN_HOME——作者本机 ~/.link-brain 里真有托管后端，不隔离会被 pickPython 找到、用例以为 PATH 上的 python 变成了它
+  const isolatedHome = fs.mkdtempSync(path.join(require('os').tmpdir(), 'lb-node-home-'));
+  const r = spawnSync(process.execPath, [full], { cwd: ROOT, encoding: 'utf8', timeout: TIMEOUT_MS, env: { ...process.env, LINK_BRAIN_HOME: isolatedHome } });
   const ms = Date.now() - started;
   const out = (r.stdout || '').trim(), err = (r.stderr || '').trim();
   let status = r.status === 0 ? 'PASS' : r.status === SKIP_CODE ? 'SKIP' : 'FAIL';

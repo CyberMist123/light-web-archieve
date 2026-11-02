@@ -60,7 +60,7 @@ function makePlugin(base, saved = {}) {
   assert.equal(Plugin.isWindowsAppsStub('C:\\Python312\\python.exe'), false);
   {   // 托管目录里的 python（不在 PATH 上）→ 给绝对路径
     const mp = Plugin.managedPaths({ platform: 'win32', env: { LINK_BRAIN_HOME: 'C:\\lbhome' }, readFile: () => { throw new Error('no'); } });
-    assert.equal(mp.python, path.join('C:\\lbhome', 'py', 'Scripts', 'python.exe'));
+    assert.equal(mp.python, path.win32.join('C:\\lbhome', 'py', 'Scripts', 'python.exe'));   // 按 win32 拼，Linux 上跑也一致
     const prevHome = process.env.LINK_BRAIN_HOME; process.env.LINK_BRAIN_HOME = 'C:\\lbhome';
     try { assert.equal(Plugin.pickPython({ root: '/repo', configured: '', platform: 'win32', exists: f => f === mp.python }), mp.python, '托管目录的 python 给绝对路径'); }
     finally { if (prevHome == null) delete process.env.LINK_BRAIN_HOME; else process.env.LINK_BRAIN_HOME = prevHome; }
