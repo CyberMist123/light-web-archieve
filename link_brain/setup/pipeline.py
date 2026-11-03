@@ -5,6 +5,7 @@
   装好缺的（能自动装的逐项装，装不了的如实给做法、不挡后面）→ 确认小红书登录（只问读取服务内存状态，不开页）→
   同步收藏（含本地 OCR、开了 AI 就顺手识图 / 概要）→ 补识图 / 概要（开了 AI 才跑）→ 整理目录 →
   语义索引（开了 AI 才跑）→ 评论补齐转后台（读不完的接着补）。
+1103：同步之后读一次小红书专辑（以前只在夜跑读）；和读收藏共用限频，离上次读收藏不满 30 分钟先等够。
 每一步是带时限的子进程（超时只结束这一步、放过读取服务和它的浏览器）；stdout 一行一个进度事件
 `{"type":"progress","stage","label","index","count","state":"running|ok|skipped|failed","text"}`，最后一行 result
 （CONVENTIONS §1 形状 + stages[]）。号要人处理（掉登录 / 验证）→ 碰号的步骤跳过、离线的照跑，结果里一句话说清先做哪一步。
@@ -33,20 +34,26 @@ from .common import Emit
 from ..errtext import errtext
 
 LIGHT = ["core", "reader", "ocr"]
+# 1103 作者：视频说话转文字（CapsWriter，约 2 GB）不进自动安装：用户勾上才由插件单独起 `setup install --component asr` 后台下载
+INDEPENDENT = ("asr", "capslock")
 STAGES = [
+    ("catalog_first", "生成目录页"),
     ("install", "装好要用的组件"),
     ("login", "确认小红书登录"),
     ("sync", "同步收藏（含 OCR / 识图 / 概要）"),
     ("enrich", "补识图 / 概要"),
+    ("albums", "读小红书专辑"),
     ("catalog", "整理目录"),
     ("embed", "建语义索引"),
     ("comments", "评论补齐（读不完的后台接着补）"),
 ]
-TIMEOUT_MIN = {"sync": 170, "enrich": 70, "catalog": 10, "embed": 25}
+TIMEOUT_MIN = {"catalog_first": 10, "sync": 170, "enrich": 70, "albums": 30, "catalog": 10, "embed": 25}
+ALBUMS_WAIT_MAX_S = 35 * 60   # 1103：专辑列表和读收藏共用限频，同步完最多等这么久再读（自律间隔 30 分钟）
 STATE_FILE = "setup-run.json"
 # 读取组件那一侧的码（不是号的事）：服务没起来 / 没应答 → 自动可重试；没装 → 要人点一下「一键装好」
 READER_DOWN_CODES = ("DISCONNECTED", "TIMEOUT", "BUSY", "BROWSER_STUCK")
 READER_MESSAGE = "读取组件没起来，点重试或看 reader.log"
+LOGIN_WAIT_TEXT = "还没登录小红书：扫码登录后自动开始同步"
 # 要用户自己在 Obsidian 里做的（check_only + fix=manual）：给人话，不算 failed
 NEEDS_YOU_TEXT: dict[str, str] = {}   # 功能 id → 一句人话；1102 起 Dataview 不再需要，眼下是空的
 
@@ -156,8 +163,19 @@ def _child(args: list[str], *, timeout_min: float, on_line: Callable[[str], None
     return (None if timed_out else p.returncode), timed_out
 
 
-def run(emit: Emit, *, child=_child, account_check=None, bili_check=None) -> dict[str, Any]:
+def _albums_wait_s() -> float:
+    try:
+        from ..sources.xiaohongshu import albums
+        return albums.list_gap_left_s()
+    except Exception:  # noqa: BLE001 - 算不出来就按现在能读
+        return 0.0
+
+
+def run(emit: Emit, *, child=_child, account_check=None, bili_check=None, albums_wait=_albums_wait_s,
+        sleep: Callable[[float], None] = time.sleep) -> dict[str, Any]:
     from . import components
+    from .. import storage
+    # 1103 作者：边跑边选——没跑到的步骤按「到它时最新的设置」。selected() 每次现读 data.json，各步开始时重读
     sel = selected()
     stages: list[dict[str, Any]] = []
     count = len(STAGES)
@@ -165,10 +183,12 @@ def run(emit: Emit, *, child=_child, account_check=None, bili_check=None) -> dic
     blocked_code = ""   # 1102：login 那一步的 result 码（NEEDS_HUMAN / TRANSIENT.DISCONNECTED / NEEDS_HUMAN.NOT_INSTALLED）
     reader_down = False
     xhs_off = False   # 1101：没登小红书、登了 B 站 = 只用 B 站，小红书那几步跳过，不算要人处理
+    login_wait = False   # 1103：小红书还没登录 = 等扫码（不算失败）
     needs_you: list[dict[str, str]] = []
     started_at = time.strftime("%Y-%m-%dT%H:%M:%S%z")
+    # vault：这一轮实际写到哪（进程环境里钉死的收藏位置）。插件那边改了位置是下一轮生效，续画按这里读（1103）
     state: dict[str, Any] = {"running": True, "pid": os.getpid(), "started_at": started_at, "updated_at": started_at,
-                             "current": None, "stages": stages, "result": None}
+                             "current": None, "stages": stages, "result": None, "vault": str(storage.vault_root())}
 
     def flush_state() -> None:
         state["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%S%z")
@@ -191,49 +211,6 @@ def run(emit: Emit, *, child=_child, account_check=None, bili_check=None) -> dic
               "text": text})
         return row
 
-    # 1) 装好要用的组件（不要 key、不是「以后」的）
-    say("install", "running", "检查中…")
-    targets = [c["id"] for c in components.COMPONENTS if c["id"] in sel and not c.get("later") and not c.get("needs_key")]
-    check_only = {c["id"] for c in components.COMPONENTS if c.get("check_only")}
-    chk = components.check(targets)
-    manual: list[str] = []
-    for r in chk.get("results") or []:
-        if r["status"] in ("ready", "needs_key"):
-            continue
-        if r.get("fix") == "auto":
-            say("install", "running", f"安装 {r['item_id']}…")
-            out = components.install(r["item_id"], lambda ev: emit({**ev, "stage": "install"}))
-            if not out.get("ok"):
-                manual.append(f"{r['item_id']}：{out.get('message') or '没装上'}")
-        elif r["item_id"] in check_only:
-            # 1102：只能检查、要用户自己在 Obsidian 里装的：单列 needs_you，不算这一步失败
-            hint = r.get("fix_hint") or r.get("detail") or "要手动装"
-            needs_you.append({"item_id": r["item_id"], "status": r["status"],
-                              "text": NEEDS_YOU_TEXT.get(r["item_id"]) or f"还要你装 {r['item_id']}（{hint}）", "hint": hint})
-        else:
-            manual.append(f"{r['item_id']}：{r.get('fix_hint') or r.get('detail') or '要手动装'}")
-    install_text = "全部就绪" if not manual else "；".join(manual)[:300]
-    if needs_you:
-        install_text = ("；".join(x["text"] for x in needs_you) if not manual else install_text + "；" +
-                        "；".join(x["text"] for x in needs_you))[:300]
-    say("install", "ok" if not manual else "failed", install_text)
-
-    # 2) 小红书登录（只看内存状态，不开页）
-    say("login", "running", "")
-    check = account_check or _account_state
-    code, why = check()
-    if code in ("NOT_LOGGED_IN", "NOT_INSTALLED") and (bili_check or _bili_logged_in)():
-        xhs_off = True
-        say("login", "skipped", "没登小红书，只用 B 站：小红书的几步跳过（要用小红书就去扫码，再点一次）")
-    elif code:
-        blocked_code = login_code(code)
-        reader_down = blocked_code != "NEEDS_HUMAN"
-        blocked_why = why
-        say("login", "failed", why)
-    else:
-        say("login", "ok", "已登录")
-
-    # 3) 同步收藏
     def step(stage: str, args: list[str], env_extra: dict[str, str] | None = None) -> int | None:
         say(stage, "running", "")
         last = {"t": 0.0}
@@ -258,8 +235,66 @@ def run(emit: Emit, *, child=_child, account_check=None, bili_check=None) -> dic
             say(stage, "failed", f"出错退出（{rc}），原因见问题面板 / 同步记录")
         return rc
 
+    # 0) 目录页先有（1103 作者：想看目录不该等几小时的同步）：不依赖登录、不等组件；空库也出一个空目录页，同步中边存边填
+    step("catalog_first", ["catalog"])
+
+    # 1) 装好要用的组件（不要 key、不是「以后」的；语音那两项单独装，见 INDEPENDENT）
+    sel = selected()
+    say("install", "running", "检查中…")
+    targets = [c["id"] for c in components.COMPONENTS
+               if c["id"] in sel and not c.get("later") and not c.get("needs_key") and c["id"] not in INDEPENDENT]
+    check_only = {c["id"] for c in components.COMPONENTS if c.get("check_only")}
+    chk = components.check(targets)
+    manual: list[str] = []
+    for r in chk.get("results") or []:
+        if r["status"] in ("ready", "needs_key"):
+            continue
+        if r.get("fix") == "auto":
+            say("install", "running", f"安装 {r['item_id']}…")
+            out = components.install(r["item_id"], lambda ev: emit({**ev, "stage": "install"}))
+            # 1103：每装完一项就报一条结果（插件据此清掉「正在装 X」、重读功能清单，不等整轮跑完）
+            emit({"type": "progress", "stage": "install", "component": r["item_id"], "state": "ok" if out.get("ok") else "failed",
+                  "status": out.get("status") or "", "text": out.get("message") or ""})
+            if not out.get("ok"):
+                manual.append(f"{r['item_id']}：{out.get('message') or '没装上'}")
+        elif r["item_id"] in check_only:
+            # 1102：只能检查、要用户自己在 Obsidian 里装的：单列 needs_you，不算这一步失败
+            hint = r.get("fix_hint") or r.get("detail") or "要手动装"
+            needs_you.append({"item_id": r["item_id"], "status": r["status"],
+                              "text": NEEDS_YOU_TEXT.get(r["item_id"]) or f"还要你装 {r['item_id']}（{hint}）", "hint": hint})
+        else:
+            manual.append(f"{r['item_id']}：{r.get('fix_hint') or r.get('detail') or '要手动装'}")
+    install_text = "全部就绪" if not manual else "；".join(manual)[:300]
+    if needs_you:
+        install_text = ("；".join(x["text"] for x in needs_you) if not manual else install_text + "；" +
+                        "；".join(x["text"] for x in needs_you))[:300]
+    say("install", "ok" if not manual else "failed", install_text)
+
+    # 2) 小红书登录（只看内存状态，不开页）
+    say("login", "running", "")
+    check = account_check or _account_state
+    code, why = check()
+    if code in ("NOT_LOGGED_IN", "NOT_INSTALLED") and (bili_check or _bili_logged_in)():
+        xhs_off = True
+        say("login", "skipped", "没登小红书，只用 B 站：小红书的几步跳过（要用小红书就去扫码，再点一次）")
+    elif code == "NOT_LOGGED_IN":
+        # 1103 作者：扫码可以慢慢来——没登录不算这一轮失败：组件照装、目录照建，小红书那几步等扫码后自动接上
+        login_wait = True
+        blocked_code = "NEEDS_HUMAN.NOT_LOGGED_IN"
+        say("login", "waiting", LOGIN_WAIT_TEXT)
+    elif code:
+        blocked_code = login_code(code)
+        reader_down = blocked_code != "NEEDS_HUMAN"
+        blocked_why = why
+        say("login", "failed", why)
+    else:
+        say("login", "ok", "已登录")
+
+    # 3) 同步收藏
     if xhs_off:
         say("sync", "skipped", "没登小红书；B 站收藏在「收藏与同步 → B 站」手动同步")
+    elif login_wait:
+        say("sync", "skipped", LOGIN_WAIT_TEXT)
     elif reader_down:
         say("sync", "skipped", "读取组件没起来（见上一步）")
     elif blocked_why:
@@ -269,18 +304,34 @@ def run(emit: Emit, *, child=_child, account_check=None, bili_check=None) -> dic
         if rc == 5:
             blocked_why = blocked_why or "小红书要你处理（验证 / 登录）"
             blocked_code = blocked_code or "NEEDS_HUMAN"
+    sel = selected()
     if _ai_on(sel, "summaryAI") or _ai_on(sel, "visionAI"):
         step("enrich", ["enrich", "--pending", "--budget-min", "60"])
     else:
         say("enrich", "skipped", "没开 AI（轻量版）：不做概要 / 识图" if not ({"ai_text", "ai_vision"} & set(sel))
             else "勾了 AI 但接口 / key 没配好：到「功能」里填上再跑")
+    # 1103 作者：小红书专辑第一次就读出来（以前只在夜跑读）——号能用才读；和读收藏共用限频，离上次读收藏不满 30 分钟就等够再读
+    if xhs_off or login_wait or reader_down or blocked_why:
+        say("albums", "skipped", "小红书没登录 / 要你处理：专辑等扫码后的夜跑再读")
+    else:
+        wait = min(max(0.0, float(albums_wait() or 0)), ALBUMS_WAIT_MAX_S)
+        if wait > 0:
+            say("albums", "running", f"刚读过收藏，歇 {wait / 60:.0f} 分钟再读专辑（不连读，免得被限频）")
+            sleep(wait)
+        rc = step("albums", ["albums", "sync", "--max", "6", "--budget-min", "25"])
+        if rc == 5:
+            blocked_why = blocked_why or "小红书要你处理（验证 / 登录）"
+            blocked_code = blocked_code or "NEEDS_HUMAN"
     step("catalog", ["catalog"])
+    sel = selected()
     if _ai_on(sel, "embedAI"):
         step("embed", ["embed"])
     else:
         say("embed", "skipped", "没开 AI：关键词搜索照常能用")
     if xhs_off:
         say("comments", "skipped", "没登小红书，不用补评论")
+    elif login_wait:
+        say("comments", "skipped", "扫码登录小红书后，同步完自动补评论")
     elif reader_down:
         say("comments", "skipped", "读取组件没起来，补不了评论")
     elif blocked_why:
@@ -305,6 +356,8 @@ def run(emit: Emit, *, child=_child, account_check=None, bili_check=None) -> dic
         message = f"先处理小红书：{blocked_why}；处理好再点一次「一键装好 / 跑完」"
     elif failed:
         message = "跑完了，有 " + str(len(failed)) + " 步没成：" + "；".join(f"{s['label']}（{s['text']}）" for s in failed)[:300]
+    elif login_wait:
+        message = "装好了；" + LOGIN_WAIT_TEXT
     else:
         message = "都跑完了" + ("（轻量版）" if not ({"ai_text", "ai_vision"} & set(sel)) else "")
         if xhs_off:

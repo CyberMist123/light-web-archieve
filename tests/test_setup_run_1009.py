@@ -35,10 +35,10 @@ def test_light_mode_runs_sync_catalog_and_hands_comments_to_background(monkeypat
     _settings(["core", "reader", "ocr"])
     out, calls, events = _fake_env(monkeypatch)
     assert out["ok"] is True and "轻量版" in out["message"]
-    assert [c[0] for c in calls] == ["sync-favorites", "catalog"]  # 没开 AI：不跑概要 / 索引
-    assert calls[0] == ["sync-favorites", "--limit", "0", "--extract"]
+    assert [c[0] for c in calls] == ["catalog", "sync-favorites", "albums", "catalog"]  # 1103 目录先有；没开 AI：不跑概要 / 索引
+    assert calls[1] == ["sync-favorites", "--limit", "0", "--extract"]
     st = {s["id"]: s["state"] for s in out["stages"]}
-    assert st == {"install": "ok", "login": "ok", "sync": "ok", "enrich": "skipped", "catalog": "ok", "embed": "skipped",
+    assert st == {"catalog_first": "ok", "install": "ok", "login": "ok", "sync": "ok", "enrich": "skipped", "albums": "ok", "catalog": "ok", "embed": "skipped",
                   "comments": "ok"}
     assert any(e.get("type") == "progress" and e.get("stage") == "sync" and "跑着" in e.get("text", "") for e in events)
 
@@ -47,24 +47,26 @@ def test_ai_selected_and_configured_adds_enrich_and_embed(monkeypatch):
     _settings(["core", "reader", "ocr", "ai_text", "ai_vision"])
     monkeypatch.setattr(pipeline, "_ai_on", lambda sel, cap: True)
     out, calls, _ = _fake_env(monkeypatch)
-    assert [c[0] for c in calls] == ["sync-favorites", "enrich", "catalog", "embed"]
+    assert [c[0] for c in calls] == ["catalog", "sync-favorites", "enrich", "albums", "catalog", "embed"]
     assert out["ok"] is True and "轻量版" not in out["message"]
 
 
-def test_not_logged_in_skips_account_steps_but_still_tidies_and_says_what_to_do(monkeypatch):
+def test_not_logged_in_waits_for_scan_without_failing_the_run(monkeypatch):
+    """1103 作者：扫码可以慢慢来——没登录小红书不算这一轮失败：组件照装、目录照建，小红书那几步等扫码后接上。"""
     _settings(["core", "reader", "ocr"])
     out, calls, _ = _fake_env(monkeypatch, account=("NOT_LOGGED_IN", "小红书掉登录了：扫码登录"))
-    assert [c[0] for c in calls] == ["catalog"]
-    assert out["ok"] is False and out["code"] == "NEEDS_HUMAN" and "扫码登录" in out["message"]
+    assert [c[0] for c in calls] == ["catalog", "catalog"]   # 1103：目录先有 + 收尾
+    assert out["ok"] is True and out["code"] == "NEEDS_HUMAN.NOT_LOGGED_IN"
+    assert out["message"] == "装好了；" + pipeline.LOGIN_WAIT_TEXT
     st = {s["id"]: s["state"] for s in out["stages"]}
-    assert st["sync"] == "skipped" and st["comments"] == "skipped" and st["login"] == "failed"
+    assert st["login"] == "waiting" and st["sync"] == "skipped" and st["comments"] == "skipped" and st["install"] == "ok"
 
 
 def test_bili_only_user_skips_xhs_steps_without_needs_human(monkeypatch):
     """1101：只登了 B 站（没登小红书）→ 小红书的同步 / 补评论跳过，整理目录照跑，不报「先处理小红书」。"""
     _settings(["core", "reader", "ocr"])
     out, calls, _ = _fake_env(monkeypatch, account=("NOT_LOGGED_IN", "小红书掉登录了：扫码登录"), bili=True)
-    assert [c[0] for c in calls] == ["catalog"]
+    assert [c[0] for c in calls] == ["catalog", "catalog"]   # 1103：目录先有 + 收尾
     assert out["ok"] is True and out["code"] == "" and "B 站" in out["message"]
     st = {s["id"]: s["state"] for s in out["stages"]}
     assert st["login"] == "skipped" and st["sync"] == "skipped" and st["comments"] == "skipped"
@@ -80,7 +82,7 @@ def test_captcha_still_needs_human_even_with_bili(monkeypatch):
 def test_failed_step_is_reported_plainly_and_the_rest_still_runs(monkeypatch):
     _settings(["core", "reader", "ocr"])
     out, calls, _ = _fake_env(monkeypatch, rc={"sync-favorites": 1})
-    assert [c[0] for c in calls] == ["sync-favorites", "catalog"]
+    assert [c[0] for c in calls] == ["catalog", "sync-favorites", "albums", "catalog"]
     assert out["ok"] is False and "同步收藏" in out["message"]
 
 
@@ -101,7 +103,7 @@ def test_reader_down_is_not_an_account_problem(monkeypatch):
     """读取服务没起来（被杀毒隔离 / 端口被占 / 崩了）：login 记 failed，但 code 是 TRANSIENT.DISCONNECTED、不引导扫码。"""
     _settings(["core", "reader", "ocr"])
     out, calls, _ = _fake_env(monkeypatch, account=("DISCONNECTED", "读取服务没连上（DISCONNECTED）：点「重试」会再拉起一次"))
-    assert [c[0] for c in calls] == ["catalog"]   # 碰号 / 碰读取服务的步骤跳过，离线的照跑
+    assert [c[0] for c in calls] == ["catalog", "catalog"]   # 1103：目录先有 + 收尾   # 碰号 / 碰读取服务的步骤跳过，离线的照跑
     assert out["ok"] is False and out["code"] == "TRANSIENT.DISCONNECTED"
     assert out["message"].startswith(pipeline.READER_MESSAGE) and "扫码" not in out["message"]
     st = {s["id"]: (s["state"], s["text"]) for s in out["stages"]}
@@ -121,7 +123,7 @@ def test_not_installed_has_its_own_code(monkeypatch):
 
 def test_account_codes_still_say_scan(monkeypatch):
     _settings(["core", "reader", "ocr"])
-    for code in ("NOT_LOGGED_IN", "CAPTCHA_REQUIRED", "ACCOUNT_RISK", "BLOCKED"):
+    for code in ("CAPTCHA_REQUIRED", "ACCOUNT_RISK", "BLOCKED"):   # 1103：NOT_LOGGED_IN 改为等扫码，见上
         out, _, _ = _fake_env(monkeypatch, account=(code, "号的事"))
         assert out["code"] == "NEEDS_HUMAN", code
         assert out["message"].startswith("先处理小红书"), code
@@ -215,7 +217,7 @@ def test_state_file_written_on_every_stage_change(monkeypatch):
     running = [s for s in seen if s[1] == "running"]
     assert all(s["running"] is True and s["pid"] == os.getpid() and s["current"] == stage for stage, _, s in running)
     sync_ok = next(s for stage, state, s in seen if stage == "sync" and state == "ok")
-    assert [r["id"] for r in sync_ok["stages"]] == ["install", "login", "sync"] and sync_ok["current"] is None
+    assert [r["id"] for r in sync_ok["stages"]] == ["catalog_first", "install", "login", "sync"] and sync_ok["current"] is None
     final = json.loads(pipeline.state_path().read_text("utf-8"))
     assert final["running"] is False and final["result"]["ok"] is True and final["result"]["message"] == out["message"]
     assert final["started_at"] and final["updated_at"]
@@ -230,7 +232,7 @@ def test_state_file_failure_does_not_break_the_run(monkeypatch):
         raise OSError(13, "拒绝访问")
     monkeypatch.setattr(storage, "write_json", boom)
     out, calls, _ = _fake_env(monkeypatch)
-    assert out["ok"] is True and [c[0] for c in calls] == ["sync-favorites", "catalog"]
+    assert out["ok"] is True and [c[0] for c in calls] == ["catalog", "sync-favorites", "albums", "catalog"]
 
 
 def test_stdout_emit_broken_pipe_switches_to_log(monkeypatch, tmp_path):

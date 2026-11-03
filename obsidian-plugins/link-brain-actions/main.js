@@ -6318,10 +6318,14 @@ var require_onboarding_ui = __commonJS({
           const n = normalizeFolder(value);
           n.ok ? setState("", "收藏会放在：" + (n.folder ? base.replace(/[\\/]+$/, "") + "/" + n.folder : base)) : setState("failed", n.error);
         };
-        row.addText((t) => t.setPlaceholder("留空 = 库根目录，或如：收藏").setValue(value).onChange((v) => {
-          value = v;
-          preview();
-        })).addButton((b) => b.setButtonText("保存").onClick(async () => {
+        let input = null;
+        row.addText((t) => {
+          input = t;
+          t.setPlaceholder("留空 = 库根目录，或如：收藏").setValue(value).onChange((v) => {
+            value = v;
+            preview();
+          });
+        }).addButton((b) => b.setButtonText("保存").onClick(async () => {
           b.setDisabled(true);
           try {
             setState("done", "✓ " + await saveFolder(value) + "（已经存下的收藏不会跟着搬）");
@@ -6332,6 +6336,23 @@ var require_onboarding_ui = __commonJS({
           }
         }));
         setState("", "当前：" + (plugin.vaultDir || base || "本库根目录"));
+        const ws = plugin.app.workspace;
+        if (input && ws && typeof ws.on === "function") {
+          const ref = ws.on("link-brain:settings", () => {
+            const saved = plugin.settings.collectionFolder || "";
+            const el = input.inputEl;
+            if (saved === value || el && el.ownerDocument && el.ownerDocument.activeElement === el) return;
+            value = saved;
+            input.setValue(saved);
+            setState("", "当前：" + (plugin.vaultDir || base || "本库根目录"));
+          });
+          if (tab && tab.stops) tab.stops.push(() => {
+            try {
+              ws.offref(ref);
+            } catch {
+            }
+          });
+        }
         return row;
       }
       function noticeWithButton(text, label, onClick, timeout = 0) {
@@ -6362,14 +6383,23 @@ var require_onboarding_ui = __commonJS({
         async startup() {
           const b = plugin.currentBackend();
           if (b.mode === "missing") {
-            const got = await plugin.installerUI().openAndRun();
+            try {
+              plugin.openSetupPage?.();
+            } catch (e) {
+              console.error("[lb] 设置页没打开", e);
+            }
+            plugin.notify("Link Brain 正在自动安装（后端、认字、读取组件，几百 MB）：进度在设置页「懒人安装」，上面的选项随时能改。", {
+              ms: 12e3,
+              actions: [{ label: "看进度", run: () => plugin.openSetupPage?.() }]
+            });
+            const got = await installBackend({ quiet: true });
             if (!got || !got.ok || plugin.currentBackend().mode === "missing") {
-              noticeWithButton("Link Brain 没装完：" + (got && got.error && got.error.text || "原因见安装窗口"), "打开安装窗口", () => plugin.installerUI().open(), 3e4);
+              noticeWithButton(plugin.backendMissingText() + (got && got.message ? "（自动安装没做成：" + got.message + "）" : ""), "复制安装命令", () => copy(BACKEND_INSTALL2), 3e4);
               return "backend-missing";
             }
           }
           if (await needsOnboarding()) {
-            plugin.settings.onboarding = { done: true, at: (/* @__PURE__ */ new Date()).toISOString(), via: "first-run" };
+            plugin.settings.onboarding = { ...plugin.settings.onboarding || {}, done: true, at: (/* @__PURE__ */ new Date()).toISOString(), via: "first-run" };
             Promise.resolve(plugin.saveSettings()).catch((e) => console.error("[lb] 引导状态没存上", e));
             try {
               await plugin.homeUI().firstRun();
@@ -6390,14 +6420,18 @@ var require_onboarding_ui = __commonJS({
         renderSetupHints(c) {
           const shown = [];
           const b = plugin.currentBackend();
-          if (b.mode === "missing") {
-            const inst = plugin.installerUI();
-            if (inst.running()) hintBox(c, `正在安装 Link Brain（${inst.pct()}%），装好就能用。`, [["打开安装窗口", () => inst.open()]], "is-backend is-installing");
-            else hintBox(c, plugin.backendMissingText(), [["一键装好", () => {
-              inst.open();
-              inst.run();
-            }], ["复制安装命令", () => copy(BACKEND_INSTALL2)]], "is-backend");
+          if (b.mode === "missing" && !plugin.backendInstalling?.()) {
+            const box = hintBox(c, plugin.backendMissingText(), [["一键装好", () => installBackend()], ["复制安装命令", () => copy(BACKEND_INSTALL2)]], "is-backend");
             shown.push("backend");
+            const h = plugin.homeUI?.();
+            if (h && typeof h.onRepaint === "function") {
+              const off = h.onRepaint(() => {
+                if (plugin.backendInstalling?.() || plugin.currentBackend().mode !== "missing") {
+                  box.remove?.();
+                  off();
+                }
+              });
+            }
           }
           if (plugin.mediaNav?.skipped) {
             hintBox(
@@ -6513,9 +6547,33 @@ var require_settings_v6 = __commonJS({
         });
         return dd;
       }
-      function more(group, tab, section, draw, { holds = [] } = {}) {
+      function onSettings(tab, refresh) {
+        const ws = plugin.app && plugin.app.workspace;
+        if (!ws || typeof ws.on !== "function") return;
+        const ref = ws.on("link-brain:settings", () => {
+          try {
+            refresh();
+          } catch (e) {
+            console.error("[lb] 设置项没跟着刷新", e);
+          }
+        });
+        if (tab && tab.stops) tab.stops.push(() => {
+          try {
+            ws.offref(ref);
+          } catch {
+          }
+        });
+      }
+      const liveSelect = (tab, dd, get) => {
+        if (dd) onSettings(tab, () => {
+          const v = get();
+          if (dd.getValue() !== v) dd.setValue(v);
+        });
+        return dd;
+      };
+      function more(group, tab, section, draw, { holds = [], label = "＋ 更多" } = {}) {
         const d = group.createEl("details", { cls: "lb-more", attr: { "data-section": section, "data-holds": holds.join(" ") } });
-        d.createEl("summary", { text: "＋ 更多" });
+        d.createEl("summary", { text: label });
         const inner = d.createDiv({ cls: "lb-more-body" });
         let drawn = false;
         d.lbDraw = () => {
@@ -6634,6 +6692,23 @@ var require_settings_v6 = __commonJS({
         const r = await plugin.runPy(["-m", "link_brain", "keys", "detect"], { input: key + "\n", label: "认 key", timeoutMs: 4e4, okCodes: [0, 1], fallback: "没认出来" });
         return r && r.json;
       }
+      async function useAiNow() {
+        const s = S();
+        const list = (s.models || []).filter((m) => m && m.name && !m.hidden);
+        const cur = list.find((m) => m.name === s.activeModel);
+        const usable = (m) => !!m && (m.mode === "inherit" || m.mode === "cli" && !!(m.command || m.preset) || m.mode === "http" && !!m.endpoint && hasKeyRef(m));
+        const inherit = list.find((m) => m.mode === "inherit");
+        if (!usable(cur) && inherit) {
+          s.activeModel = inherit.name;
+          await plugin.saveSettings();
+        }
+        const h = home();
+        if (h && gated("ai_text")) {
+          materialize();
+          await h.setFeature("ai_text", true);
+        }
+        plugin.app.workspace?.trigger?.("link-brain:models-changed");
+      }
       async function addKey(raw, { detected = null } = {}) {
         const key = String(raw || "").trim();
         if (!key) {
@@ -6651,12 +6726,15 @@ var require_settings_v6 = __commonJS({
         const NAMES = { textAI: "问收藏", summaryAI: "概要", visionAI: "识图", embedAI: "按意思搜" };
         for (const [cap, sugg] of Object.entries(j.fills || {})) {
           const cfg = s[cap] || (s[cap] = {});
+          if (cfg.mode === "cli" && (cfg.command || cfg.preset)) continue;
           const sameEndpoint = String(cfg.endpoint || "").replace(/\/+$/, "") === sugg.endpoint;
-          if (blank(cfg.endpoint) || cap === "embedAI" && !hasKeyRef(cfg) && sameEndpoint) {
-            Object.assign(cfg, { mode: "http", endpoint: sugg.endpoint }, blank(cfg.model) ? { model: sugg.model } : {}, hasKeyRef(cfg) ? {} : { apiKey: key });
+          const dead = !hasKeyRef(cfg) && !blank(cfg.endpoint) && !sameEndpoint && cap !== "embedAI";
+          if (blank(cfg.endpoint) || dead || cap === "embedAI" && !hasKeyRef(cfg) && sameEndpoint) {
+            Object.assign(cfg, { mode: "http", endpoint: sugg.endpoint }, blank(cfg.model) || dead ? { model: sugg.model } : {}, hasKeyRef(cfg) ? {} : { apiKey: key });
             filled.push(NAMES[cap] || cap);
           } else if (sameEndpoint && !hasKeyRef(cfg)) {
             cfg.apiKey = key;
+            if (!["http", "inherit"].includes(cfg.mode)) cfg.mode = "http";
             filled.push(NAMES[cap] || cap);
           }
         }
@@ -6667,7 +6745,7 @@ var require_settings_v6 = __commonJS({
         try {
           await plugin.saveSettings();
           const h = home();
-          if (h && s.textAI && !blank(s.textAI.endpoint)) await h.setFeature("ai_text", true).catch(() => {
+          if (h && s.textAI && !blank(s.textAI.endpoint)) await useAiNow().catch(() => {
           });
           if (h && s.visionAI && !blank(s.visionAI.endpoint) && filled.includes("识图")) await h.setFeature("ai_vision", true).catch(() => {
           });
@@ -6801,6 +6879,7 @@ var require_settings_v6 = __commonJS({
       }
       const BILI_DEFAULTS = { quality: "max", maxDuration: 3600, danmaku: true, workers: 8, skipFolders: [] };
       const BILI_QUALITY = [["max", "最高"], ["1080", "1080p"], ["720", "720p"]];
+      const BILI_QUALITY_NOTE = "非大会员最高 1080P，大会员能到 4K / 8K";
       const BILI_DURATION = [["1800", "30 分钟"], ["3600", "1 小时"], ["7200", "2 小时"], ["0", "不限"]];
       const BILI_WORKERS_MAX = 8;
       const BILI_WORKERS = Array.from({ length: BILI_WORKERS_MAX }, (_, i) => [String(i + 1), `${i + 1} 路`]);
@@ -6897,7 +6976,7 @@ var require_settings_v6 = __commonJS({
       }
       function watchBiliProgress(since, paint) {
         const timer = setInterval(async () => {
-          if (plugin.running !== BILI_RUN_LABEL) {
+          if (plugin.biliRunning !== BILI_RUN_LABEL) {
             clearInterval(timer);
             return;
           }
@@ -6905,7 +6984,7 @@ var require_settings_v6 = __commonJS({
             const j = JSON.parse(await plugin.app.vault.adapter.read(plugin.lbPath("_archive/bilibili-sync/last-sync.json")));
             const p = j && j.state === "running" && j.progress;
             if (p && Date.parse(j.started_at || "") >= since - 6e4) {
-              plugin.runningProgress = `${p.done}/${p.total} 条`;
+              plugin.biliProgress = `${p.done}/${p.total} 条`;
               plugin.taskChanged();
               if (paint) paint(`正在同步：第 ${p.done}/${p.total} 条`);
             }
@@ -6915,12 +6994,12 @@ var require_settings_v6 = __commonJS({
         return () => clearInterval(timer);
       }
       async function syncNow() {
-        if (plugin.running) {
-          plugin.notify(plugin.busyText(), { kind: "warn" });
+        if (plugin.biliRunning) {
+          plugin.notify(`正在${plugin.biliRunning}，完成后再点`, { kind: "warn" });
           return null;
         }
         const started = Date.now();
-        const pending = plugin.run(biliSyncArgs(biliOpts()), BILI_RUN_LABEL, true, { quiet: true });
+        const pending = plugin.runBili(biliSyncArgs(biliOpts()), BILI_RUN_LABEL, { quiet: true });
         const stop = watchBiliProgress(started);
         plugin.notify("B 站收藏开始下载：底部状态栏能看进度、能停止", { ms: 5e3 });
         try {
@@ -7037,6 +7116,15 @@ var require_settings_v6 = __commonJS({
             primary.setButtonText("扫码登录");
             primary.buttonEl.show();
           } else primary.buttonEl.hide();
+          if (webOk(j)) {
+            if (!plugin.biliFolders) loadBiliFolders().catch(() => {
+            });
+          } else for (const f of [...biliFolderPainters]) {
+            try {
+              f();
+            } catch {
+            }
+          }
         };
         const loadStatus = async () => {
           try {
@@ -7057,7 +7145,9 @@ var require_settings_v6 = __commonJS({
               return;
             }
             const ok = r.json && r.json.state === "logged_in";
-            plugin.notify(ok ? "B 站已登录" : r.json && r.json.message || "没登录上", { kind: ok ? "ok" : "warn" });
+            plugin.notify(ok ? "B 站已登录：正在后台读你的收藏夹，读好就能在「懒人安装」里勾" : r.json && r.json.message || "没登录上", { kind: ok ? "ok" : "warn" });
+            if (ok) loadBiliFolders({ force: true }).catch(() => {
+            });
           } finally {
             done();
             await loadStatus();
@@ -7081,6 +7171,73 @@ var require_settings_v6 = __commonJS({
         ], evt);
         loadStatus();
       }
+      const biliFolderPainters = /* @__PURE__ */ new Set();
+      const BILI_DOC_URL = "https://github.com/CyberMist123/light-web-archieve/blob/main/README.md";
+      function loadBiliFolders({ force = false } = {}) {
+        if (plugin.biliFoldersLoading) return plugin.biliFoldersLoading;
+        if (plugin.biliFolders && !force) return Promise.resolve(plugin.biliFolders);
+        const fanout = () => {
+          for (const f of [...biliFolderPainters]) {
+            try {
+              f();
+            } catch (e) {
+              console.error("[lb] B 站收藏夹列表没画上", e);
+            }
+          }
+        };
+        plugin.biliFoldersLoading = plugin.runPy(["-m", "link_brain", "bilibili", "folders", "--json"], { label: "读 B 站收藏夹", timeoutMs: 6e4, okCodes: [0, 1] }).then((r) => plugin.biliFolders = r && r.json || { ok: false, folders: [], message: "收藏夹没读到" }).catch((e) => plugin.biliFolders = { ok: false, folders: [], message: "收藏夹没读到：" + errText(e) }).finally(() => {
+          plugin.biliFoldersLoading = null;
+          fanout();
+        });
+        fanout();
+        return plugin.biliFoldersLoading;
+      }
+      function biliFolderChecks(parent, tab) {
+        const box = parent.createDiv({ cls: "lb-bili-folders", attr: { "data-section": "lazy-bili-folders" } });
+        const paint = () => {
+          box.empty();
+          const r = row(box, tab, "B 站同步哪些收藏夹");
+          const d = plugin.biliFolders, folders = (d && d.folders || []).filter((f) => f && f.id != null);
+          const loggedIn = !!(biliStatus && biliStatus.state === "logged_in");
+          if (!folders.length) {
+            r.setDesc(plugin.biliFoldersLoading ? "正在读你的收藏夹…" : d && loggedIn ? d.message || "还没读到收藏夹" : "登录 B 站后自动读出来，在这里直接勾；不勾就全部同步。");
+            if (d && !plugin.biliFoldersLoading && loggedIn) r.addButton((b) => b.setButtonText("重读").onClick(() => loadBiliFolders({ force: true })));
+            return;
+          }
+          const skip = new Set(biliSkip(biliOpts()));
+          const on = folders.filter((f) => !skip.has(String(f.id))).length;
+          r.setDesc(`勾上的才同步（${on} / ${folders.length}）；新建的收藏夹自动算勾上。`);
+          const list = box.createDiv({ cls: "lb-bili-folder-list" });
+          for (const f of folders) {
+            const id = String(f.id);
+            const lab = list.createEl("label", { cls: "lb-bili-folder", attr: { "data-folder": id } });
+            const cb = lab.createEl("input", { attr: { type: "checkbox", "aria-label": "同步这个收藏夹：" + (f.title || id) } });
+            cb.checked = !skip.has(id);
+            lab.createSpan({ text: (f.title || id) + (f.media_count != null ? `（${f.media_count}）` : "") });
+            cb.onchange = async () => {
+              const want = cb.checked, cur = new Set(biliSkip(biliOpts()));
+              if (want) cur.delete(id);
+              else cur.add(id);
+              try {
+                await saveBili("skipFolders", [...cur].sort());
+              } catch (e) {
+                cb.checked = !want;
+                plugin.notify("没保存上，勾选已改回去：" + errText(e), { kind: "error" });
+                return;
+              }
+              paint();
+            };
+          }
+          const next = box.createDiv({ cls: "setting-item-description lb-bili-next" });
+          next.createSpan({ text: "选好了：" });
+          next.createEl("button", { cls: "lb-link", text: "去 B 站同步" }).onclick = () => focusSection(tab, "sync-bili");
+          next.createEl("button", { cls: "lb-link", text: "B 站同步说明 ↗" }).onclick = () => openUrl(BILI_DOC_URL);
+        };
+        biliFolderPainters.add(paint);
+        (tab.stops || (tab.stops = [])).push(() => biliFolderPainters.delete(paint));
+        paint();
+        return box;
+      }
       function biliPicker({ onSaved, onSyncNow } = {}) {
         const Modal2 = obsidian2.Modal;
         if (!Modal2) {
@@ -7103,7 +7260,7 @@ var require_settings_v6 = __commonJS({
           const fsec = body.createDiv({ cls: "lb-bili-pick-sec", attr: { "data-section": "bili-pick-folders" } });
           const folders = j.folders || [];
           if (!folders.length) {
-            fsec.createDiv({ cls: "lb-bili-warn", text: "还没扫过收藏夹：先关掉这里，点一次「预估」或「立即同步」，扫一遍收藏夹。" });
+            fsec.createDiv({ cls: "lb-bili-warn", text: biliStatus && biliStatus.state === "logged_in" ? plugin.biliFolders && plugin.biliFolders.message || "没读到收藏夹：稍后再打开这里试试。" : "先在「账号登录」扫码登录 B 站，登好会自动读出收藏夹。" });
             return;
           }
           fsec.createDiv({ cls: "lb-bili-note", text: "默认全开；关掉 = 以后同步时整个跳过。新建的收藏夹自动算开着。" });
@@ -7140,6 +7297,10 @@ var require_settings_v6 = __commonJS({
           try {
             const r = await plugin.runPy(["-m", "link_brain", "bilibili", "pick", "--json", "--max-duration", String(biliOpts().maxDuration)], { label: "B 站收藏夹", timeoutMs: 6e4 });
             data = r && r.json || {};
+            if (!(data.folders || []).length && biliStatus && biliStatus.state === "logged_in") {
+              const got = await loadBiliFolders({ force: !(plugin.biliFolders && (plugin.biliFolders.folders || []).length) });
+              if (got && (got.folders || []).length) data = { ...data, folders: got.folders };
+            }
           } catch (e) {
             body.empty();
             if (plugin.failBox) plugin.failBox(body, "收藏夹", e, load);
@@ -7189,9 +7350,9 @@ var require_settings_v6 = __commonJS({
       function biliSync(card, tab) {
         const opts = card.createDiv({ cls: "lb-bili-opts", attr: { "data-section": "bili-options" } });
         const o = biliOpts();
-        select(row(opts, tab, "画质"), BILI_QUALITY, () => biliOpts().quality, (v) => saveBili("quality", v), { label: "B 站画质" });
-        opts.createDiv({ cls: "setting-item-description lb-bili-note", text: "最高 = 你的账号能拿到的最高清晰度：普通账号最高 1080P，大会员能到 4K / 8K。不要杜比视界（Obsidian 里放不了）。" });
-        const durSel = select(row(opts, tab, "超过多长先不下"), BILI_DURATION, () => String(biliOpts().maxDuration), (v) => saveBili("maxDuration", parseInt(v, 10) || 0), { label: "B 站时长上限" });
+        liveSelect(tab, select(row(opts, tab, "画质"), BILI_QUALITY, () => biliOpts().quality, (v) => saveBili("quality", v), { label: "B 站画质" }), () => biliOpts().quality);
+        opts.createDiv({ cls: "setting-item-description lb-bili-note", text: "最高 = 你的账号能拿到的最高清晰度：" + BILI_QUALITY_NOTE + "。不要杜比视界（Obsidian 里放不了）。" });
+        const durSel = liveSelect(tab, select(row(opts, tab, "超过多长先不下"), BILI_DURATION, () => String(biliOpts().maxDuration), (v) => saveBili("maxDuration", parseInt(v, 10) || 0), { label: "B 站时长上限" }), () => String(biliOpts().maxDuration));
         opts.createDiv({ cls: "setting-item-description lb-bili-note", text: "超过的先只记链接；想下哪些，在下面「挑要下的视频…」里选中点「下载」。" });
         select(row(opts, tab, "同时下几路"), BILI_WORKERS, () => String(biliOpts().workers), (v) => saveBili("workers", parseInt(v, 10) || 1), { label: "B 站并行路数" });
         opts.createDiv({ cls: "setting-item-description lb-bili-note", text: "路数多下得快，网络和硬盘也更忙；B 站一限流就自动退回一路接着下。电脑不太稳（比如下着下着蓝屏）就先用 1–2 路。" });
@@ -7265,34 +7426,34 @@ var require_settings_v6 = __commonJS({
             plugin.failBox ? plugin.failBox(last, "上次同步", e, loadLast) : null;
           }
         };
-        const mine = () => plugin.running === BILI_RUN_LABEL || plugin.running === BILI_EST_LABEL;
+        const mine = () => plugin.biliRunning === BILI_RUN_LABEL || plugin.biliRunning === BILI_EST_LABEL;
         const paintRunning = () => {
           const on = mine();
           stopBtn.hidden = !on;
           stopBtn.style.display = on ? "" : "none";
-          estBtn.disabled = runBtn.disabled = !!plugin.running;
+          estBtn.disabled = runBtn.disabled = !!plugin.biliRunning;
         };
         stopBtn.onclick = async () => {
-          if (await plugin.stopRunning()) {
+          if (await plugin.stopBili()) {
             await loadLast();
           }
           paintRunning();
         };
         const watchProgress = (since) => watchBiliProgress(since, paintLive);
         estBtn.onclick = async () => {
-          if (plugin.running) {
-            plugin.notify(plugin.busyText(), { kind: "warn" });
+          if (plugin.biliRunning) {
+            plugin.notify(`正在${plugin.biliRunning}，完成后再点`, { kind: "warn" });
             return;
           }
           const done = plugin.busyButton(estBtn, "正在预估…");
           est.setText("正在读收藏夹（6 小时内扫过的直接复用，不重扫）…");
           paintRunning();
           try {
-            const r = await plugin.run(biliSyncArgs(biliOpts(), { dryRun: true }), BILI_EST_LABEL, false, { quiet: true });
+            const r = await plugin.runBili(biliSyncArgs(biliOpts(), { dryRun: true }), BILI_EST_LABEL, { quiet: true });
             const j = r && r.json;
             est.empty();
             if (!j) {
-              est.setText(r && r.code === 6 ? plugin.busyText() : "没预估出来（已停止或后台出错）");
+              est.setText(r && r.code === 6 ? r.json && r.json.message || "正在忙" : "没预估出来（已停止或后台出错）");
               return;
             }
             if (!j.ok) {
@@ -7309,8 +7470,8 @@ var require_settings_v6 = __commonJS({
           }
         };
         runBtn.onclick = async () => {
-          if (plugin.running) {
-            plugin.notify(plugin.busyText(), { kind: "warn" });
+          if (plugin.biliRunning) {
+            plugin.notify(`正在${plugin.biliRunning}，完成后再点`, { kind: "warn" });
             return;
           }
           if (biliStatus && biliStatus.state === "logged_out") {
@@ -7319,7 +7480,7 @@ var require_settings_v6 = __commonJS({
           }
           const done = plugin.busyButton(runBtn, "正在同步…");
           const started = Date.now();
-          const pending = plugin.run(biliSyncArgs(biliOpts()), BILI_RUN_LABEL, true, { quiet: true });
+          const pending = plugin.runBili(biliSyncArgs(biliOpts()), BILI_RUN_LABEL, { quiet: true });
           paintRunning();
           paintLive("正在同步：先读收藏夹（6 小时内扫过的直接复用），再一条条下");
           const stopWatch = watchProgress(started);
@@ -7807,6 +7968,12 @@ var require_settings_v6 = __commonJS({
           if (alive) repaint();
         }).catch(() => {
         });
+        if (h && typeof h.onRepaint === "function") {
+          const off = h.onRepaint(() => {
+            if (alive) repaint();
+          });
+          if (tab.stops) tab.stops.push(off);
+        }
         return repaint;
       }
       function openApiFor(tab, cap) {
@@ -8133,6 +8300,13 @@ var require_settings_v6 = __commonJS({
               return;
             }
             delete cache.usage;
+            if (pick) {
+              try {
+                await useAiNow();
+              } catch (e) {
+                console.error("[lb] 命令行接上了，问收藏没自动打开", e);
+              }
+            }
             plugin.app.workspace?.trigger?.("link-brain:models-changed");
           };
         };
@@ -8327,7 +8501,7 @@ var require_settings_v6 = __commonJS({
         const st = row(g, tab, "当前状态", "哪里没做成、系统已经怎么处理的，按问题记录算；点「检查」再看一遍这台电脑缺什么。", { section: "repair-state" });
         st.setDesc("读取中…");
         const out = g.createDiv({ cls: "lb-check-box" });
-        let alive = true;
+        let alive = true, waiting = 0;
         tab.stops.push(() => {
           alive = false;
         });
@@ -8338,9 +8512,9 @@ var require_settings_v6 = __commonJS({
           } catch {
           }
           if (!alive) return;
-          const n = sum ? +sum.needs_human || 0 : 0, auto = sum ? (+sum.auto || 0) + (+sum.gave_up || 0) : 0;
-          void auto;
-          st.setDesc(!sum ? "还没有问题记录" : n ? `⚠ ${n} 件要你处理` : "没有要你处理的");
+          const n = sum ? +sum.needs_human || 0 : 0;
+          waiting = n;
+          st.setDesc(!sum ? "还没有问题记录" : n ? `⚠ ${n} 件要你处理（扫码 / 验证这类）：点下面「问题记录」看是哪件` : "没有要你处理的");
           st.settingEl.toggleClass?.("is-warn", n > 0);
         };
         const check = tab.link(st, "检查", async () => {
@@ -8352,6 +8526,8 @@ var require_settings_v6 = __commonJS({
             await paint();
             const data = await plugin.checkRuntime();
             if (!alive) return;
+            const head = out.createDiv({ cls: "lb-check-line" + (waiting ? " is-warn" : ""), text: waiting ? `⚠ 问题记录里有 ${waiting} 件要你处理（这一类系统不替你点）` : "✓ 问题记录里没有要你处理的" });
+            if (waiting) head.createEl("button", { cls: "lb-link", text: "打开问题记录" }).onclick = () => plugin.openProblems?.();
             for (const r of data && data.checks || []) {
               const ok = ["ready", "configured"].includes(r.state);
               out.createDiv({ cls: "lb-check-line" + (ok ? "" : " is-warn"), text: (ok ? "✓ " : "⚠ ") + r.label + "：" + r.message + (r.next_step && !ok ? " — " + r.next_step : "") });
@@ -8382,6 +8558,11 @@ var require_settings_v6 = __commonJS({
         fix?.removeClass?.("lb-link");
         const probs = row(g, tab, "问题记录", "每一条：发生了什么、系统做了什么、你要不要动手；能一条一条修、复制诊断。", { section: "problems" });
         tab.link(probs, "打开", () => plugin.openProblems?.(), "打开问题记录");
+        const h1 = home();
+        if (h1 && typeof h1.renderRunDetails === "function") {
+          const last = row(g, tab, "上次一键装好 / 跑完", "", { section: "run-details" });
+          safe(tab, last.descEl || g, "上次一键装好 / 跑完", () => tab.stops.push(h1.renderRunDetails(last.descEl || g)));
+        }
         paint();
         const vault = plugin.app.vault;
         if (vault && typeof vault.on === "function") {
@@ -8412,7 +8593,7 @@ var require_settings_v6 = __commonJS({
             row(b, tab, "目录显示不对", "重新整理一遍目录页（几秒到一分钟），不改任何收藏文件。", { section: "rebuild" }),
             "重建目录",
             async () => {
-              await plugin.run(["-m", "link_brain", "catalog"], "重建目录");
+              await plugin.refreshCatalog("重建目录");
             },
             "重新整理一遍目录页"
           );
@@ -8434,20 +8615,83 @@ var require_settings_v6 = __commonJS({
           });
         }, { holds: ["machine", "developer", "rebuild", "diagnostic", "devopts"] });
       }
+      function lazyChoices(box, tab, h) {
+        const wrap = box.createDiv({ cls: "lb-lazy-choices", attr: { "data-section": "lazy-choices" } });
+        const folderBox = wrap.createDiv({ cls: "lb-lazy-folder" });
+        const busy = () => {
+          const r = h.state().run;
+          return !!(r && r.state === "running");
+        };
+        let shownBusy = null;
+        const paintFolder = () => {
+          const b = busy();
+          if (b === shownBusy) return;
+          shownBusy = b;
+          folderBox.empty?.();
+          if (b) row(folderBox, tab, "收藏放在哪").setDesc(`这一轮存到：${(S().setup || {}).runVault || plugin.vaultDir || "本库"}（要换位置，等这一轮跑完再改）`);
+          else plugin.onboardingUI().renderFolder(folderBox, tab);
+        };
+        paintFolder();
+        if (typeof h.onRepaint === "function" && tab.stops) tab.stops.push(h.onRepaint(paintFolder));
+        const toggle = (name, desc, id) => {
+          const r = row(wrap, tab, name).setDesc(desc);
+          r.addToggle((t) => {
+            let quiet = false;
+            const sync = () => {
+              const want = h.choiceOn(id);
+              if (t.getValue() !== want) {
+                quiet = true;
+                try {
+                  t.setValue(want);
+                } finally {
+                  quiet = false;
+                }
+              }
+            };
+            t.setValue(h.choiceOn(id)).onChange(async (v) => {
+              if (quiet) return;
+              try {
+                await h.setChoice(id, v);
+              } catch (e) {
+                quiet = true;
+                try {
+                  t.setValue(!v);
+                } finally {
+                  quiet = false;
+                }
+                plugin.notify("没保存上，开关已拨回原来的位置：" + errText(e), { kind: "error" });
+              }
+            });
+            onSettings(tab, sync);
+          });
+        };
+        toggle("认图片里的字", "在本机认截图、表格里的字，免费；默认装好。", "ocr");
+        toggle("视频说话转文字", "在本机把视频里说的话转成文字，免费；约 2 GB，勾上才在后台下载，不挡别的。", "asr");
+        biliFolderChecks(wrap, tab);
+        more(wrap, tab, "lazy-more", (b) => {
+          if (typeof tab.fieldCommentFloors === "function") tab.fieldCommentFloors(b);
+          liveSelect(tab, select(row(b, tab, "B 站画质").setDesc(BILI_QUALITY_NOTE), BILI_QUALITY, () => biliOpts().quality, (v) => saveBili("quality", v), { label: "B 站画质" }), () => biliOpts().quality);
+          liveSelect(tab, select(row(b, tab, "B 站超过多长先不下"), BILI_DURATION, () => String(biliOpts().maxDuration), (v) => saveBili("maxDuration", parseInt(v, 10) || 0), { label: "B 站时长上限" }), () => String(biliOpts().maxDuration));
+        }, { label: "＋ 更多选项（评论楼数 · B 站画质 · 时长）" });
+        return wrap;
+      }
       function renderPage(c, tab) {
         c.addClass?.("is-v7");
         const page = c.createDiv({ cls: "lb-v7 lb-scope" });
         const nav = page.createEl("nav", { cls: "lb-anchors", attr: { "aria-label": "设置分组" } });
         const main = page.createDiv({ cls: "lb-v7-main" });
         const head = main.createDiv({ cls: "lb-v7-head" });
-        head.createDiv({ cls: "lb-eyebrow lb-kicker", text: "PREFERENCES / 按你的习惯" });
         const lead = head.createEl("p", { cls: "lb-v7-lead", text: "常用的留在眼前，其余都在「更多」。改动自动保存。" });
         const saved = lead.createSpan({ cls: "lb-saved", attr: { role: "status" } });
         const h0 = home();
         if (h0) {
           const lazy = head.createDiv({ cls: "lb-lazy", attr: { "data-section": "lazy-install" } });
-          lazy.createEl("strong", { cls: "lb-lazy-title", text: "懒人安装" });
-          safe(tab, lazy, "懒人安装", () => tab.stops.push(h0.renderRun(lazy, tab)));
+          const top = lazy.createDiv({ cls: "lb-lazy-head" });
+          top.createEl("strong", { cls: "lb-lazy-title", text: "懒人安装" });
+          const toRepair = top.createEl("button", { cls: "lb-link lb-lazy-repair", text: "问题与状态 → 06 修复" });
+          toRepair.onclick = () => focusSection(tab, "repair-state");
+          safe(tab, lazy, "懒人安装的选项", () => lazyChoices(lazy, tab, h0));
+          safe(tab, lazy, "懒人安装", () => tab.stops.push(h0.renderRun(lazy, tab, { brief: true, onDetails: () => focusSection(tab, "repair-state") })));
         }
         const groups = {};
         for (const [id, n, title] of GROUPS) {
@@ -9583,7 +9827,7 @@ var require_home_ui = __commonJS({
     "use strict";
     var LIGHT = ["core", "reader", "ocr"];
     var STATUS_TEXT = { ready: "已装好", missing: "还没装", partial: "没装全", failed: "没装上", unknown: "没查出来", needs_key: "要填密钥" };
-    var STAGE_MARK = { running: "⟳", ok: "✓", skipped: "–", failed: "✗" };
+    var STAGE_MARK = { running: "⟳", ok: "✓", skipped: "–", failed: "✗", waiting: "…" };
     var AI_CAP = { ai_text: "textAI", ai_vision: "visionAI" };
     var FEATURE_TEXT = {
       core: { name: "程序本体", short: "程序", desc: "同步、浏览、关键词搜索" },
@@ -9644,6 +9888,7 @@ var require_home_ui = __commonJS({
       return run;
     }
     var STAGE_LABEL = {
+      catalog_first: "生成目录页",
       install: "装好要用的组件",
       login: "确认小红书登录",
       sync: "同步收藏（含 OCR / 识图 / 概要）",
@@ -9743,10 +9988,14 @@ var require_home_ui = __commonJS({
       }
       if (ev.type !== "progress") return run;
       if (ev.component && ev.stage === "install") {
-        run.install = ev;
+        if (ev.state === "ok" || ev.state === "failed") {
+          run.installed = { ...run.installed || {}, [ev.component]: ev.status || (ev.state === "ok" ? "ready" : "failed") };
+          run.install = null;
+        } else run.install = ev;
         return run;
       }
       if (!ev.stage) return run;
+      if (ev.stage !== "install" || ev.state !== "running") run.install = null;
       const cur = run.stages[ev.stage] || {};
       run.stages[ev.stage] = {
         ...cur,
@@ -9758,6 +10007,18 @@ var require_home_ui = __commonJS({
       };
       if (ev.state === "running") run.current = ev.stage;
       return run;
+    }
+    function briefResult(r) {
+      if (!r) return "";
+      const msg = String(r.message || "");
+      if (r.ok) return msg.length <= 48 ? msg : msg.split("；")[0];
+      const failed = (r.stages || []).filter((x) => x && x.state === "failed").length;
+      const code = String(r.code || "");
+      if (r.noResult) return "这一轮没正常收尾";
+      if (code === "TRANSIENT.DISCONNECTED") return "读取组件没起来";
+      if (code === "NEEDS_HUMAN.NOT_INSTALLED") return "读取组件没装上";
+      if (code.startsWith("NEEDS_HUMAN")) return "小红书要你处理（登录 / 验证）";
+      return failed ? `跑完了，有 ${failed} 步没成` : msg.split("；")[0] || "没跑完";
     }
     function fillLine(st, info, now = Date.now()) {
       const live = st && ["running", "waiting", "paused"].includes(st.state) && now - Date.parse(st.updated_at || "") < fillStaleMs(st);
@@ -9816,7 +10077,13 @@ var require_home_ui = __commonJS({
       async function loadPlan(force = false) {
         const st = S();
         if (st.plan && !force) return st.plan;
-        if (st.planLoading) return st.planLoading;
+        if (st.planLoading) {
+          if (!force) return st.planLoading;
+          try {
+            await st.planLoading;
+          } catch {
+          }
+        }
         st.planLoading = (async () => {
           try {
             const { json } = await plugin.runPy(["-m", "link_brain", "setup", "plan"], { label: "读取功能清单", fallback: "读不到功能清单", timeoutMs: 6e4, okCodes: [0, 1, 2] });
@@ -9828,6 +10095,8 @@ var require_home_ui = __commonJS({
           } finally {
             st.planLoading = null;
           }
+          if (plugin.v6Cache) delete plugin.v6Cache.usage;
+          repaint();
           return st.plan;
         })();
         return st.planLoading;
@@ -9865,14 +10134,17 @@ var require_home_ui = __commonJS({
           plugin.notify(plugin.busyText(), { kind: "warn" });
           return null;
         }
+        if (resumedRunning()) {
+          plugin.notify("上次启动的懒人安装还在后台跑，进度在设置页「懒人安装」；跑完再点", { kind: "warn" });
+          return null;
+        }
         if (backendMissing()) {
           const got = await installBackend({ quiet });
           if (!got || !got.ok) return got;
         }
-        if (!Array.isArray(setup().selected)) {
-          setup().selected = selected();
-          await save();
-        }
+        if (!Array.isArray(setup().selected)) setup().selected = selected();
+        setup().runVault = plugin.vaultDir || "";
+        await save();
         st.run = { state: "running", stages: {}, current: null, install: null, result: null, startedAt: Date.now() };
         repaint();
         let lineFrame = null;
@@ -9891,6 +10163,8 @@ var require_home_ui = __commonJS({
               return;
             }
             applyRunEvent(st.run, ev);
+            if (ev.stage === "install" && (ev.state === "ok" || ev.state === "failed")) loadPlan(true).catch(() => {
+            });
             const sg = ev.stage && st.run.stages[ev.stage];
             if (sg && sg.state === "running") {
               plugin.runningProgress = sg.label || "";
@@ -9933,12 +10207,25 @@ ${String(r.all || r.err || "").trim()}`);
           const actions = kind === "account" ? [{ label: "去扫码 / 验证", run: () => plugin.openSetupPage?.("status") }] : kind === "reader" ? [{ label: "重试", run: () => runAll() }] : res.noResult ? [{ label: "打开日志", run: () => plugin.openActionLog?.() }] : null;
           plugin.notify(res.message || (res.ok ? "都跑完了" : "没跑完"), { kind: res.ok ? "ok" : kind ? "warn" : "error", ms: kind ? 0 : void 0, actions });
         }
-        loadPlan(true).then(repaint);
+        loadPlan(true).catch(() => {
+        });
+        if (st.syncAfterRun) {
+          st.syncAfterRun = false;
+          setTimeout(() => runAll({ quiet }).catch((e) => console.error("[lb] 登录后接着同步没起来", e)), 1500);
+        }
         return res;
       }
+      const resumedRunning = () => {
+        const r = S().run;
+        return !!(r && r.resumed && r.state === "running");
+      };
       async function readRunState() {
         try {
-          const v = JSON.parse(await plugin.app.vault.adapter.read(plugin.lbPath(RUN_STATE_FILE)));
+          const rv = setup().runVault;
+          let raw;
+          if (rv && plugin.vaultDir && rv !== plugin.vaultDir) raw = require("fs").readFileSync(require("path").join(rv, "_archive", "setup-run.json"), "utf8");
+          else raw = await plugin.app.vault.adapter.read(plugin.lbPath(RUN_STATE_FILE));
+          const v = JSON.parse(raw);
           return v && typeof v === "object" ? v : null;
         } catch {
           return null;
@@ -9955,6 +10242,7 @@ ${String(r.all || r.err || "").trim()}`);
         if (!run) return null;
         st.run = run;
         repaint();
+        plugin.taskChanged?.();
         if (run.state === "running") watchResumed();
         return run;
       }
@@ -9984,14 +10272,20 @@ ${String(r.all || r.err || "").trim()}`);
           if (!next) return;
           next.resumed = true;
           st.run = next;
+          plugin.taskChanged?.();
           if (next.state === "done") {
             stop();
+            if (st.syncAfterRun) {
+              st.syncAfterRun = false;
+              setTimeout(() => runAll().catch((e) => console.error("[lb] 登录后接着同步没起来", e)), 1500);
+            }
             const res = next.result;
             plugin.notify(res.message || (res.ok ? "都跑完了" : "没跑完"), {
               kind: res.ok ? "ok" : res.interrupted ? "warn" : "error",
               actions: res.interrupted ? [{ label: "再跑一次", run: () => runAll() }] : null
             });
-            loadPlan(true).then(repaint);
+            loadPlan(true).catch(() => {
+            });
           }
           repaint();
         };
@@ -10008,7 +10302,7 @@ ${String(r.all || r.err || "").trim()}`);
       async function stopRun() {
         await plugin.stopRunning?.();
       }
-      async function installBackend({ upgrade = false, quiet = false, onProgress = null } = {}) {
+      async function installBackend({ upgrade = false, quiet = false } = {}) {
         const st = S();
         if (st.backendRun && st.backendRun.state === "running") {
           plugin.notify("正在装后端，装完再点", { kind: "warn" });
@@ -10025,13 +10319,6 @@ ${String(r.all || r.err || "").trim()}`);
         try {
           res = await plugin.backendInstall().ensureBackend(plugin, { upgrade, onProgress: (ev) => {
             st.backendRun.stages[ev.stage] = ev;
-            if (onProgress) {
-              try {
-                onProgress(ev);
-              } catch (e) {
-                console.error("[lb] 安装窗口没画上", e);
-              }
-            }
             plugin.runningProgress = (ev.label || "") + (ev.text ? "：" + ev.text : "");
             plugin.taskChanged?.();
             if (frame == null) frame = setTimeout(() => {
@@ -10055,8 +10342,9 @@ ${String(r.all || r.err || "").trim()}`);
         if (res.ok) {
           st.plan = null;
           st.planError = null;
-          loadPlan(true).then(repaint).catch(() => {
+          loadPlan(true).catch(() => {
           });
+          if (st.asrPending) installAsr();
         }
         return res;
       }
@@ -10069,7 +10357,12 @@ ${String(r.all || r.err || "").trim()}`);
       };
       async function firstRun() {
         const s = setup();
-        resumeRun().catch((e) => console.error("[lb] 上次的安装进度没读到", e));
+        try {
+          await resumeRun();
+        } catch (e) {
+          console.error("[lb] 上次的安装进度没读到", e);
+        }
+        if (resumedRunning()) return "resumed";
         if (s.firstRunAt) return "done-before";
         s.firstRunAt = (/* @__PURE__ */ new Date()).toISOString();
         let fresh = true;
@@ -10084,9 +10377,14 @@ ${String(r.all || r.err || "").trim()}`);
         }
         if (!Array.isArray(s.selected)) s.selected = [...LIGHT];
         await save();
-        plugin.notify("Link Brain 装好了：正在按轻量版（不要任何 key）自动装好并同步，进度在底部状态栏和设置页「概览」。", {
+        try {
+          if (!(plugin.app?.setting?.activeTab && plugin.app.setting.activeTab === plugin.settingTab)) plugin.openSetupPage?.();
+        } catch (e) {
+          console.error("[lb] 设置页没打开", e);
+        }
+        plugin.notify("Link Brain 正在自动安装并同步：进度在设置页「懒人安装」，上面的选项随时能改。", {
           ms: 12e3,
-          actions: [{ label: "打开设置", run: () => plugin.openSetupPage?.() }]
+          actions: [{ label: "看进度", run: () => plugin.openSetupPage?.() }]
         });
         runAll().catch((e) => console.error("[lb] 首次自动跑没跑完", e));
         return "started";
@@ -10245,7 +10543,7 @@ ${String(r.all || r.err || "").trim()}`);
           }
         };
       }
-      function renderRun(c, tab) {
+      function renderRun(c, tab, { brief = false, onDetails = null } = {}) {
         const runBox = c.createDiv({ cls: "lb-run", attr: { "data-section": "run" } });
         let alive2 = true;
         const paintRun = () => {
@@ -10261,14 +10559,7 @@ ${String(r.all || r.err || "").trim()}`);
           else if (missing || installing) {
             const go = acts.createEl("button", { cls: "lb-run-go lb-run-install mod-cta", text: installing ? "正在装后端…" : "一键装好" });
             go.disabled = installing;
-            go.onclick = () => {
-              const inst = plugin.installerUI?.();
-              if (inst) {
-                inst.open();
-                inst.run();
-              } else installBackend();
-            };
-            if (installing && plugin.installerUI) acts.createEl("button", { cls: "lb-link", text: "打开安装窗口" }).onclick = () => plugin.installerUI().open();
+            go.onclick = () => installBackend();
             acts.createEl("span", { cls: "setting-item-description", text: installing ? "正在下载并安装后端程序（uv · Python 3.12 · link-brain），进度在下面。" : "这台电脑还没有后端程序：点一下自动装到 ~/.link-brain（没有 Python 也行，约 100 MB）。装好后这里变成「一键装好 / 跑完」。" });
           } else {
             const again = !!(run && run.result && run.result.interrupted);
@@ -10278,7 +10569,7 @@ ${String(r.all || r.err || "").trim()}`);
             go.onclick = () => runAll();
             acts.createEl("span", {
               cls: "setting-item-description" + (why ? " lb-why" : ""),
-              text: why || "装好打开的功能，再把同步小红书收藏、认图片里的字、概要、整理目录一口气跑完（没开 AI 就只跑免费的部分）。B 站视频占地方，不在这里下：到「收藏与同步 → B 站」手动同步。"
+              text: why || (brief ? "装好上面勾的，再把同步、认字、整理目录一口气跑完。" : "装好打开的功能，再把同步小红书收藏、认图片里的字、概要、整理目录一口气跑完（没开 AI 就只跑免费的部分）。B 站视频占地方，不在这里下：到「收藏与同步 → B 站」手动同步。")
             });
           }
           if (br && (installing || br.result && !run)) {
@@ -10289,11 +10580,12 @@ ${String(r.all || r.err || "").trim()}`);
               rowEl.createSpan({ cls: "lb-run-label", text: sg.label || sg.stage || "" });
               if (sg.text) rowEl.createSpan({ cls: "lb-run-text", text: sg.text });
             }
-            const cur = installing ? Object.values(br.stages).find((sg) => sg.state === "running" && sg.total) : null;
+            const cur = installing ? Object.values(br.stages).find((sg) => sg.state === "running") : null;
             if (cur) {
-              const pv = progressView(cur);
-              const bar = runBox.createDiv({ cls: "lb-bar" });
-              bar.createDiv({ cls: "lb-bar-fill" }).style.width = (pv && pv.pct != null ? pv.pct : 0) + "%";
+              const pv = cur.total ? progressView(cur) : null;
+              const bar = runBox.createDiv({ cls: "lb-bar" + (pv && pv.pct != null ? "" : " is-indeterminate") });
+              const fill = bar.createDiv({ cls: "lb-bar-fill" });
+              if (pv && pv.pct != null) fill.style.width = pv.pct + "%";
             }
             if (br.result) runBox.createDiv({ cls: "lb-run-result" + (br.result.ok ? " is-done" : " is-failed"), text: br.result.message || "" });
           }
@@ -10305,8 +10597,20 @@ ${String(r.all || r.err || "").trim()}`);
               const row = steps.createDiv({ cls: "lb-run-step is-" + (sg.state || "running") });
               row.createSpan({ cls: "lb-run-mark", text: STAGE_MARK[sg.state] || "○" });
               row.createSpan({ cls: "lb-run-label", text: sg.label || "" });
-              if (sg.text) row.createSpan({ cls: "lb-run-text", text: sg.text });
+              const text = sg === run.stages.sync && sg.state === "running" && st.syncLine ? st.syncLine : sg.text;
+              if (text) row.createSpan({ cls: "lb-run-text", text });
             }
+          }
+          const ar = st.asrRun;
+          if (ar && (ar.state === "running" || ar.result)) {
+            const line = runBox.createDiv({ cls: "lb-run-asr setting-item-description" });
+            if (ar.state === "running") {
+              const pv = ar.ev ? progressView(ar.ev) : null;
+              line.setText("视频说话转文字：" + (pv ? pv.text : "准备下载…"));
+              const bar = runBox.createDiv({ cls: "lb-bar" + (pv && pv.pct != null ? "" : " is-indeterminate") });
+              const fill = bar.createDiv({ cls: "lb-bar-fill" });
+              if (pv && pv.pct != null) fill.style.width = pv.pct + "%";
+            } else line.setText("视频说话转文字：" + (ar.result.ok ? "装好了" : ar.result.message || "没装上"));
           }
           if (busy && run.install) {
             const pv = progressView(run.install);
@@ -10316,19 +10620,63 @@ ${String(r.all || r.err || "").trim()}`);
             const label = (FEATURE_TEXT[run.install.component] || {}).name || run.install.component || "";
             runBox.createDiv({ cls: "setting-item-description", text: "正在装 " + label + "：" + (pv ? pv.text : "") });
           }
-          if (run.result && run.result.noResult) failBox(runBox, "一键装好 / 跑完", { message: run.result.detail || "" }, () => runAll()).createEl("button", { cls: "lb-link", text: "打开日志" }).onclick = () => plugin.openActionLog?.();
+          if (brief && run.result) {
+            const line = runBox.createDiv({ cls: "lb-run-result" + (run.result.ok ? " is-done" : " is-failed"), text: briefResult(run.result) });
+            if (!run.result.ok && onDetails) line.createEl("button", { cls: "lb-link", text: "详情在「06 修复」" }).onclick = () => onDetails();
+          } else if (run.result && run.result.noResult) failBox(runBox, "一键装好 / 跑完", { message: run.result.detail || "" }, () => runAll()).createEl("button", { cls: "lb-link", text: "打开日志" }).onclick = () => plugin.openActionLog?.();
           else if (run.result) runBox.createDiv({ cls: "lb-run-result" + (run.result.ok ? " is-done" : " is-failed"), text: run.result.message || "" });
         };
         painters.add(paintRun);
         paintRun();
-        if (!S().plan && !backendMissing()) loadPlan().then(() => {
-          if (alive2) repaint();
+        if (!S().plan && !backendMissing()) loadPlan().catch(() => {
         });
         if (!S().run && !backendMissing()) resumeRun().catch((e) => console.error("[lb] 上次的安装进度没读到", e));
+        const paintSync = async () => {
+          try {
+            const line = plugin.syncProgressText ? plugin.syncProgressText(await plugin.readSyncStatus()) : "";
+            if (line !== S().syncLine) {
+              S().syncLine = line;
+              if (alive2) paintRun();
+            }
+          } catch {
+          }
+        };
+        const vault = plugin.app.vault;
+        let refs = [];
+        if (vault && typeof vault.on === "function" && typeof plugin.readSyncStatus === "function") {
+          const watched = plugin.lbPath("_archive/sync-status.json");
+          refs = ["modify", "create"].map((ev) => vault.on(ev, (f) => {
+            if (f?.path === watched) paintSync();
+          }));
+          paintSync();
+        }
         return () => {
           alive2 = false;
           painters.delete(paintRun);
+          for (const r of refs) {
+            try {
+              vault.offref(r);
+            } catch {
+            }
+          }
         };
+      }
+      function renderRunDetails(c) {
+        const box = c.createDiv({ cls: "lb-run-details", attr: { "data-section": "run-details" } });
+        const paint = () => {
+          box.empty();
+          const run = S().run, r = run && run.result;
+          if (!r) {
+            box.createDiv({ cls: "setting-item-description", text: run && run.state === "running" ? "正在跑：进度在页顶「懒人安装」" : "还没跑过" });
+            return;
+          }
+          box.createDiv({ cls: "lb-run-result" + (r.ok ? " is-done" : " is-failed"), text: r.message || r.detail || briefResult(r) });
+          for (const sg of (r.stages || []).filter((x) => x && x.state === "failed")) box.createDiv({ cls: "setting-item-description is-warn", text: `✗ ${sg.label || sg.id}：${sg.text || ""}` });
+          if (r.noResult) box.createEl("button", { cls: "lb-link", text: "打开日志" }).onclick = () => plugin.openActionLog?.();
+        };
+        painters.add(paint);
+        paint();
+        return () => painters.delete(paint);
       }
       const applyRuntime = async (on) => {
         const s = plugin.settings;
@@ -10429,9 +10777,97 @@ ${String(r.all || r.err || "").trim()}`);
         }
       }
       const isOn = (id) => new Set(effective()).has(id);
+      const choiceOn = (id) => {
+        const sel = setup().selected;
+        return Array.isArray(sel) ? sel.includes(id) : LIGHT.includes(id);
+      };
+      const asrReady = () => {
+        const c = comps().find((x) => x.id === "asr");
+        return !!(c && c.status === "ready");
+      };
+      async function setChoice(id, on) {
+        const s = setup();
+        const before = Array.isArray(s.selected) ? [...s.selected] : null;
+        const cur = before || [...LIGHT];
+        const deps = { ocr: ["ai_vision"], asr: ["capslock"] }[id] || [];
+        s.selected = on ? [.../* @__PURE__ */ new Set([...cur, id])] : cur.filter((x) => x !== id && !deps.includes(x));
+        const snap = snapRuntime();
+        const ps = plugin.settings;
+        if (id === "ocr" && ps.ocr) ps.ocr.mode = on ? ps.ocr.mode && ps.ocr.mode !== "off" ? ps.ocr.mode : "local" : "off";
+        if (id === "asr" && ps.asrAI) {
+          if (!on && ps.asrAI.mode === "capswriter") ps.asrAI.mode = "off";
+          if (on && asrReady()) ps.asrAI.mode = "capswriter";
+        }
+        try {
+          await plugin.saveSettings();
+        } catch (e) {
+          for (const k of RUNTIME_KEYS) ps[k] = snap[k];
+          if (before) s.selected = before;
+          else delete s.selected;
+          throw e;
+        }
+        repaint();
+        if (id === "asr" && on && !asrReady()) installAsr();
+      }
+      function installAsr() {
+        const st = S();
+        if (st.asrRun && st.asrRun.state === "running") return st.asrRun.promise;
+        if (backendMissing()) {
+          st.asrPending = true;
+          repaint();
+          return Promise.resolve(null);
+        }
+        st.asrPending = false;
+        st.asrRun = { state: "running", ev: null, result: null };
+        repaint();
+        let frame = null;
+        st.asrRun.promise = plugin.spawnPy(["-m", "link_brain", "setup", "install", "--component", "asr"], {
+          label: "下载视频说话转文字",
+          timeoutMs: 3 * 36e5,
+          onLine: (line) => {
+            let ev;
+            try {
+              ev = JSON.parse(line);
+            } catch {
+              return;
+            }
+            if (ev.type === "result") st.asrRun.result = ev;
+            else if (ev.type === "progress") {
+              st.asrRun.ev = ev;
+              if (frame == null) frame = setTimeout(() => {
+                frame = null;
+                repaint();
+              }, 300);
+            }
+          }
+        }).then((r) => {
+          const res = st.asrRun.result || (r.json && r.json.type === "result" ? r.json : { ok: false, message: "视频说话转文字没装上，详情见日志" });
+          st.asrRun.result = res;
+          st.asrRun.state = "done";
+          if (res.settings_patch) mergeInto(plugin.settings, res.settings_patch);
+          plugin.notify(res.ok ? "视频说话转文字装好了" : res.message || "视频说话转文字没装上", { kind: res.ok ? "ok" : "error" });
+          loadPlan(true).catch(() => {
+          });
+          repaint();
+          return res;
+        });
+        return st.asrRun.promise;
+      }
+      function mergeInto(target, patch) {
+        for (const [k, v] of Object.entries(patch || {})) {
+          if (v && typeof v === "object" && !Array.isArray(v) && target[k] && typeof target[k] === "object") mergeInto(target[k], v);
+          else target[k] = v;
+        }
+        return target;
+      }
+      function onRepaint(fn) {
+        painters.add(fn);
+        return () => painters.delete(fn);
+      }
       return {
         renderStatus,
         renderRun,
+        renderRunDetails,
         featureToggle,
         setFeature,
         applyPreset,
@@ -10446,10 +10882,15 @@ ${String(r.all || r.err || "").trim()}`);
         state: S,
         bindToggle,
         installBackend,
-        _internals: { repaint, withDeps, withoutDependents, toggleSelection, initialSelection, totals, fmtMB, yuan, priceText, progressView, applyRunEvent, fillLine, resultKind, runFromState }
+        choiceOn,
+        setChoice,
+        installAsr,
+        onRepaint,
+        resumedRunning,
+        _internals: { repaint, withDeps, withoutDependents, toggleSelection, initialSelection, totals, fmtMB, yuan, priceText, progressView, applyRunEvent, fillLine, resultKind, runFromState, briefResult }
       };
     };
-    module2.exports._internals = { withDeps, withoutDependents, toggleSelection, initialSelection, totals, fmtMB, yuan, priceText, progressView, applyRunEvent, fillLine, resultKind, runFromState, LIGHT, FEATURE_TEXT, AI_ORDER, READER_CODES, NO_RESULT_TEXT, RUN_STATE_FILE };
+    module2.exports._internals = { briefResult, withDeps, withoutDependents, toggleSelection, initialSelection, totals, fmtMB, yuan, priceText, progressView, applyRunEvent, fillLine, resultKind, runFromState, LIGHT, FEATURE_TEXT, AI_ORDER, READER_CODES, NO_RESULT_TEXT, RUN_STATE_FILE };
   }
 });
 
@@ -10746,53 +11187,25 @@ var require_backend_install = __commonJS({
       if (r2.code === 0) return { ok: true, exe, python: py, version: "" };
       return fail("PERMANENT.BAD_PACKAGE", "装好了但跑不起来：" + lastLine(r.code === -1 ? r2 : r), { exe, python: py });
     }
-    var METER_TOTAL = 1e3;
     function uvInstallMeter() {
-      const sizes = /* @__PURE__ */ new Map(), finished = /* @__PURE__ */ new Set();
-      let pkgs = 0, added = 0, best = 0, phase = "resolve";
-      const mbOf = (s) => {
-        const m = /([\d.]+)\s*(KiB|MiB|GiB)/i.exec(s || "");
-        if (!m) return 1;
-        const n = Number(m[1]);
-        return /k/i.test(m[2]) ? n / 1024 : /g/i.test(m[2]) ? n * 1024 : n;
-      };
+      let pkgs = 0, big = 0, got = 0;
       return (line) => {
         const l = String(line || "").trim();
         let m, text = null;
         if (m = /^Resolved (\d+) packages?/i.exec(l)) {
           pkgs = Number(m[1]);
-          phase = "download";
           text = `要装 ${pkgs} 个依赖包，开始下载…`;
         } else if (m = /^Downloading (\S+) \(([^)]+)\)/i.exec(l)) {
-          sizes.set(m[1], mbOf(m[2]));
+          big++;
           text = `正在下载 ${m[1]}（${m[2].replace(/MiB/i, " MB").replace(/KiB/i, " KB").replace(/GiB/i, " GB")}）`;
         } else if (m = /^Downloaded (\S+)/i.exec(l)) {
-          finished.add(m[1]);
-          text = `下载好了 ${m[1]}`;
-        } else if (/^Prepared \d+ packages?/i.test(l)) {
-          phase = "install";
-          text = "下载完了，正在安装…";
-        } else if (m = /^\+ (\S+?)==/.exec(l)) {
-          added++;
-          phase = "install";
-          text = `已装 ${m[1]}`;
-        } else if (/^Installed \d+ packages?/i.test(l)) {
-          phase = "done";
-          text = "依赖都装好了";
-        } else return null;
-        let pct;
-        if (phase === "resolve") pct = 2;
-        else if (phase === "download") {
-          let all = 0, got = 0;
-          for (const [k, v] of sizes) {
-            all += v;
-            if (finished.has(k)) got += v;
-          }
-          pct = 5 + (all ? 80 * got / all : 0);
-        } else if (phase === "install") pct = 90 + (pkgs ? 9 * Math.min(1, added / pkgs) : 0);
-        else pct = 100;
-        best = Math.max(best, Math.round(pct * 10));
-        return { done: best, total: METER_TOTAL, text };
+          got++;
+          text = `下载好了 ${m[1]}（大文件 ${got}/${big}）`;
+        } else if (/^Prepared \d+ packages?/i.test(l)) text = "下载完了，正在安装…";
+        else if (m = /^\+ (\S+?)==/.exec(l)) text = `已装 ${m[1]}`;
+        else if (/^Installed \d+ packages?/i.test(l)) text = "依赖都装好了";
+        else return null;
+        return { done: null, total: null, text };
       };
     }
     function pythonLineText(line) {
@@ -10893,7 +11306,7 @@ var require_backend_install = __commonJS({
         fs2.writeFileSync(wheelReq, `link-brain[${BACKEND_EXTRAS.join(",")}] @ ${fileUrl(wheelFile)} --hash=sha256:${release.wheelSha256}
 `, "utf8");
         const meter = uvInstallMeter();
-        progress("install", { done: 0, total: METER_TOTAL, text: "准备安装依赖（OCR、B 站下载等，约几百 MB）…" });
+        progress("install", { done: null, total: null, text: "准备安装依赖（认字、B 站下载等，约几百 MB）…" });
         const inst = await runImpl(
           uv,
           ["pip", "install", "--python", pyExe, "--require-hashes", "-r", lockFile, "-r", wheelReq],
@@ -10998,315 +11411,13 @@ var require_backend_install = __commonJS({
       writeConfig,
       fileUrl,
       uvInstallMeter,
+      pythonLineText,
       UV_RELEASE,
       BACKEND_RELEASE,
       BACKEND_EXTRAS,
       PYTHON_VERSION,
-      STAGES,
-      METER_TOTAL
+      STAGES
     };
-  }
-});
-
-// obsidian-plugins/link-brain-actions/installer-ui.js
-var require_installer_ui = __commonJS({
-  "obsidian-plugins/link-brain-actions/installer-ui.js"(exports2, module2) {
-    "use strict";
-    var WEIGHTS = [["uv", 4], ["python", 10], ["venv", 2], ["install", 52], ["check", 3], ["reader", 14], ["ocr", 15]];
-    var STEP_TEXT = {
-      uv: "准备安装工具",
-      python: "下载 Python",
-      venv: "建后端环境",
-      install: "下载并安装依赖",
-      check: "自检",
-      reader: "下载读取组件",
-      ocr: "下载认字模型并试认一张图"
-    };
-    var CREEP_S = { uv: 15, python: 40, venv: 10, install: 180, check: 20, reader: 40, ocr: 60 };
-    var COMPONENTS = ["reader", "ocr"];
-    var num = (v) => v === null || v === void 0 || v === "" || !Number.isFinite(Number(v)) ? null : Number(v);
-    function stepFraction(st, now = Date.now()) {
-      if (!st) return 0;
-      if (st.state === "ok" || st.state === "skipped") return 1;
-      const d = num(st.done), t = num(st.total);
-      if (d != null && t) return Math.max(0, Math.min(0.99, d / t));
-      if (st.state === "running" && st.startedAt) return 0.9 * (1 - Math.exp(-Math.max(0, now - st.startedAt) / 1e3 / (CREEP_S[st.stage] || 30)));
-      return st.frac || 0;
-    }
-    function overallPct(steps, now = Date.now()) {
-      let sum = 0, all = 0;
-      for (const [k, w] of WEIGHTS) {
-        all += w;
-        sum += w * stepFraction(steps[k], now);
-      }
-      return Math.max(0, Math.min(100, Math.floor(sum / all * 100)));
-    }
-    function currentText(steps) {
-      for (const [k] of WEIGHTS) {
-        const st = steps[k];
-        if (st && st.state === "running") return st.text ? `${STEP_TEXT[k]}：${st.text}` : STEP_TEXT[k] + "…";
-      }
-      return "";
-    }
-    function friendlyError(step, res) {
-      const code = String(res && res.code || ""), raw = String(res && res.message || "");
-      const what = STEP_TEXT[step] || "安装";
-      let text;
-      if (code === "TRANSIENT.NETWORK" || code === "TRANSIENT.HTTP_5XX" || code === "TRANSIENT.DISCONNECTED") text = `${what}时网络断了或太慢。已经下好的会留着，点「重试」接着下。`;
-      else if (code === "PERMANENT.DISK_FULL") text = "磁盘空间不够：C 盘清出 1 GB 左右再点「重试」。";
-      else if (code === "PERMANENT.CHECKSUM_MISMATCH") text = `${what}时下载的文件没通过校验（可能下坏了），已经删掉。点「重试」重新下。`;
-      else if (code === "SKIPPED.NOT_CONFIGURED" && raw) text = raw;
-      else text = `${what}没成功。点「重试」再试一次；还不行就点「复制详情」发给作者。`;
-      return { text, detail: raw, code };
-    }
-    function componentEvent(line) {
-      let ev;
-      try {
-        ev = JSON.parse(line);
-      } catch {
-        return null;
-      }
-      if (!ev || typeof ev !== "object") return null;
-      if (ev.type === "progress") return { state: "running", done: num(ev.done), total: num(ev.total), text: ev.text || ev.phase || "" };
-      if (ev.type === "result") return { state: ev.ok ? "ok" : "failed", result: ev, text: ev.ok ? ev.message || "好了" : "" };
-      return null;
-    }
-    module2.exports = function installerUI(obsidian2, plugin) {
-      const { Modal: Modal2, Setting: Setting2 } = obsidian2;
-      const S = () => plugin.installerState || (plugin.installerState = { state: "idle", steps: {}, error: null, warnings: [], best: 0, startedAt: 0, goWaiters: [], modal: null });
-      const listeners = /* @__PURE__ */ new Set();
-      const changed = () => {
-        for (const f of listeners) {
-          try {
-            f();
-          } catch (e) {
-            console.error("[lb] 安装窗口没重画上", e);
-          }
-        }
-      };
-      const setStep = (k, patch) => {
-        const st = S(), cur = st.steps[k] || { stage: k, state: "pending" };
-        const next = { ...cur, ...patch, stage: k };
-        if (next.state === "running" && !cur.startedAt) next.startedAt = Date.now();
-        st.steps[k] = next;
-        changed();
-      };
-      const pct = () => {
-        const st = S();
-        st.best = Math.max(st.best, overallPct(st.steps));
-        return st.state === "done" ? 100 : st.best;
-      };
-      const running = () => S().state === "running";
-      function releaseGo() {
-        const st = S();
-        const ws = st.goWaiters.splice(0);
-        for (const w of ws) w();
-      }
-      function waitGo() {
-        const st = S();
-        if (!st.modal) return Promise.resolve();
-        return new Promise((r) => st.goWaiters.push(r));
-      }
-      async function installComponent(id) {
-        setStep(id, { state: "running", text: "" });
-        const r = await plugin.spawnPy(["-m", "link_brain", "setup", "install", "--component", id], {
-          exclusive: true,
-          label: "安装 " + STEP_TEXT[id],
-          timeoutMs: 30 * 6e4,
-          onLine: (line) => {
-            const p = componentEvent(line);
-            if (!p) return;
-            setStep(id, p);
-            if (p.state === "running") {
-              plugin.runningProgress = STEP_TEXT[id] + (p.text ? "：" + p.text : "");
-              plugin.taskChanged?.();
-            }
-          }
-        });
-        const cur = S().steps[id] || {};
-        if (cur.state === "ok") return { ok: true };
-        const res = cur.result || (r.json && r.json.type === "result" ? r.json : null) || { ok: false, code: r.busy ? "TRANSIENT.BUSY" : r.timedOut ? "TRANSIENT.TIMEOUT" : "TRANSIENT.STEP_CRASHED", message: r.busy ? plugin.busyText() : String(r.err || "").trim().split("\n").slice(-3).join("\n") };
-        setStep(id, { state: "failed", result: res });
-        return res;
-      }
-      async function run() {
-        const st = S();
-        if (st.state === "running") return st.promise;
-        st.state = "running";
-        st.error = null;
-        st.warnings = [];
-        st.startedAt = Date.now();
-        for (const k of Object.keys(st.steps)) if (st.steps[k].state !== "ok" && st.steps[k].state !== "skipped") delete st.steps[k];
-        changed();
-        st.promise = (async () => {
-          const home = plugin.homeUI();
-          if (plugin.currentBackend().mode === "missing") {
-            const res = await home.installBackend({ quiet: true, onProgress: (ev) => setStep(ev.stage, { state: ev.state, done: ev.done, total: ev.total, text: ev.text }) });
-            if (!res || !res.ok) {
-              const failed = Object.keys(st.steps).find((k) => st.steps[k].state === "failed") || "install";
-              st.error = friendlyError(failed, res || { code: "TRANSIENT.BUSY", message: plugin.busyText ? plugin.busyText() : "" });
-              st.state = "failed";
-              changed();
-              return { ok: false, error: st.error };
-            }
-          } else for (const [k] of WEIGHTS.slice(0, 5)) setStep(k, { state: "skipped" });
-          for (const id of COMPONENTS) {
-            const r = await installComponent(id);
-            if (!r.ok) st.warnings.push({ id, ...friendlyError(id, r) });
-          }
-          st.state = "done";
-          changed();
-          plugin.notify(st.warnings.length ? "Link Brain 装好了（有一项没装好，见安装窗口）" : "Link Brain 装好了", { kind: st.warnings.length ? "warn" : "ok", ms: 6e3 });
-          return { ok: true, warnings: st.warnings };
-        })();
-        return st.promise;
-      }
-      class InstallerModal extends Modal2 {
-        constructor(app) {
-          super(app);
-          this.unsub = null;
-          this.timer = null;
-        }
-        onOpen() {
-          const st = S();
-          st.modal = this;
-          this.modalEl.addClass?.("lb-installer-modal");
-          this.titleEl?.setText?.("安装 Link Brain");
-          const c = this.contentEl;
-          c.empty?.();
-          c.addClass?.("lb-installer");
-          const pick = c.createDiv({ cls: "lb-installer-pick" });
-          pick.createEl("p", { cls: "lb-installer-lead", text: "正在自动安装，大约几分钟。趁这会儿先选好下面几样（都能以后在设置里改）：" });
-          try {
-            plugin.onboardingUI().renderFolder(pick);
-          } catch (e) {
-            console.error("[lb] 收藏位置那一行没画上", e);
-          }
-          const ocr = new Setting2(pick).setName("认图片里的字").setDesc("截图、表格里的字也能搜到；在本机认，免费。关掉也照样装好，只是不用、不显示。");
-          ocr.addToggle((t) => t.setValue(ocrOn()).onChange(async (v) => {
-            try {
-              await setOcr(v);
-            } catch (e) {
-              plugin.notify("没保存上：" + (e && e.message || e), { kind: "error" });
-            }
-          }));
-          new Setting2(pick).setName("接 AI（问收藏、自动写概要）").setDesc("要自己的 API key，不接也能用。装完在设置里填。");
-          this.login = new Setting2(pick).setName("登录小红书").setDesc("");
-          this.login.addButton((b) => {
-            this.loginBtn = b;
-            b.setButtonText("扫码登录").onClick(() => this.doLogin());
-          });
-          const foot = c.createDiv({ cls: "lb-installer-foot" });
-          this.pctEl = foot.createDiv({ cls: "lb-installer-pct" });
-          const bar = foot.createDiv({ cls: "lb-bar lb-installer-bar" });
-          this.fillEl = bar.createDiv({ cls: "lb-bar-fill" });
-          this.nowEl = foot.createDiv({ cls: "lb-installer-now setting-item-description" });
-          this.msgEl = foot.createDiv({ cls: "lb-installer-msg" });
-          this.actsEl = foot.createDiv({ cls: "lb-installer-actions" });
-          const tick = () => {
-            this.timer = null;
-            this.paint();
-            if (running()) this.timer = setTimeout(tick, 1e3);
-          };
-          const paint = () => {
-            if (this.timer == null) tick();
-            else this.paint();
-          };
-          listeners.add(paint);
-          this.unsub = () => listeners.delete(paint);
-          tick();
-        }
-        paint() {
-          const st = S();
-          const p = pct();
-          this.pctEl.setText(st.state === "done" ? "装好了" : st.state === "failed" ? "没装完" : `${p}%`);
-          this.fillEl.style.width = p + "%";
-          this.nowEl.setText(st.state === "running" ? currentText(st.steps) || "准备中…" : "");
-          this.msgEl.empty?.();
-          this.actsEl.empty?.();
-          if (st.state === "failed" && st.error) {
-            this.msgEl.createDiv({ cls: "lb-installer-err", text: st.error.text });
-            this.button(this.actsEl, "重试", () => run(), true);
-            if (st.error.detail) this.button(this.actsEl, "复制详情", () => plugin.copyText?.(`[${st.error.code}] ${st.error.detail}`));
-          }
-          if (st.state === "done") {
-            for (const w of st.warnings) this.msgEl.createDiv({ cls: "lb-installer-warn", text: (w.id === "ocr" ? "认图片里的字没装好，不影响同步：" : "") + w.text });
-            if (st.warnings.length) this.button(this.actsEl, "重试没装好的", () => run());
-            this.button(this.actsEl, "开始同步", () => {
-              this.close();
-            }, true);
-          }
-          if (st.state === "running") this.button(this.actsEl, "放到后台装", () => this.close());
-          const readerOk = (st.steps.reader || {}).state === "ok";
-          const can = readerOk && !running() && !plugin.running;
-          this.loginBtn?.setDisabled?.(!can);
-          if (!this.loginState) this.login.setDesc(can ? "用手机小红书 App 扫一下；不扫也能装完，之后在设置里扫。" : "装好读取组件就能扫（装完会亮）。");
-        }
-        button(parent, text, fn, cta = false) {
-          const b = parent.createEl("button", { cls: cta ? "mod-cta" : "", text });
-          b.onclick = fn;
-          return b;
-        }
-        async doLogin() {
-          this.loginBtn?.setDisabled?.(true);
-          this.loginState = "running";
-          this.login.setDesc("已经打开扫码窗口，用手机扫一下…");
-          try {
-            const r = await plugin.loginAccount(false);
-            this.loginState = "done";
-            this.login.setDesc(r && r.ok !== false ? "✓ 已登录" : r && r.message || "没登录上，可以再点一次");
-          } catch (e) {
-            this.loginState = null;
-            this.login.setDesc("没登录上：" + (e && e.message || e));
-          }
-          this.paint();
-        }
-        onClose() {
-          if (this.unsub) this.unsub();
-          clearTimeout(this.timer);
-          this.timer = null;
-          const st = S();
-          if (st.modal === this) st.modal = null;
-          releaseGo();
-        }
-      }
-      const ocrOn = () => {
-        const o = plugin.settings && plugin.settings.ocr;
-        return !(o && o.mode === "off");
-      };
-      async function setOcr(v) {
-        const s = plugin.settings;
-        if (!s.ocr || typeof s.ocr !== "object") s.ocr = {};
-        s.ocr.mode = v ? s.ocr.mode && s.ocr.mode !== "off" ? s.ocr.mode : "local" : "off";
-        if (!s.setup || typeof s.setup !== "object") s.setup = {};
-        const cur = Array.isArray(s.setup.selected) ? s.setup.selected : ["core", "reader", "ocr"];
-        s.setup.selected = v ? [.../* @__PURE__ */ new Set([...cur, "ocr"])] : cur.filter((x) => x !== "ocr" && x !== "ai_vision");
-        await plugin.saveSettings();
-      }
-      function open() {
-        const st = S();
-        if (st.modal) return st.modal;
-        const m = new InstallerModal(plugin.app);
-        m.open();
-        return m;
-      }
-      async function openAndRun() {
-        open();
-        const res = await run();
-        if (res && res.ok) await waitGo();
-        return res;
-      }
-      return {
-        open,
-        run,
-        openAndRun,
-        state: S,
-        pct,
-        running,
-        _internals: { overallPct, stepFraction, currentText, friendlyError, componentEvent, WEIGHTS }
-      };
-    };
-    module2.exports._internals = { overallPct, stepFraction, currentText, friendlyError, componentEvent, WEIGHTS, STEP_TEXT };
   }
 });
 
@@ -12171,7 +12282,6 @@ var LB_MODULES = {
   skillsUI: () => require_skills_ui(),
   homeUI: () => require_home_ui(),
   backendInstall: () => require_backend_install(),
-  installerUI: () => require_installer_ui(),
   problemsUI: () => require_problems_ui(),
   reportUI: () => require_report_ui()
 };
@@ -12392,7 +12502,7 @@ function backendMissingText(backend) {
   const cmd = backend && backend.command || BACKEND_DEFAULT;
   return `没找到后端程序（${cmd}）：到 Link Brain 设置页顶部点「一键装好」自动安装（没有 Python 也行）；或在终端运行 \`${BACKEND_INSTALL}\` 后重启 Obsidian。`;
 }
-var BACKEND_INSTALLING_TEXT = "正在安装后端程序，装好就能用（进度在「安装 Link Brain」窗口和底部状态栏）。";
+var BACKEND_INSTALLING_TEXT = "正在安装后端程序，装好就能用（进度在设置页「懒人安装」和底部状态栏）。";
 var PYTHON_MISSING_TEXT = "找不到 Python。到 Link Brain 设置页顶部点「一键装好」自动安装后端（没有 Python 也行），或按 README 安装 Python 3.11+ 与 link_brain，再重启 Obsidian。";
 function pickSyncTask(nightly, legacy) {
   const exists = (s) => !!s && s.freq && s.freq !== "none";
@@ -13183,7 +13293,7 @@ var LinkBrainActions = class extends Plugin {
     this.addCommand({
       id: "rebuild-catalog",
       name: "维护：重建收藏目录（重新整理分类）",
-      callback: () => this.run(["-m", "link_brain", "catalog"], "重建目录")
+      callback: () => this.refreshCatalog("重建目录")
     });
     this.addCommand({
       id: "fetch-attachments",
@@ -13428,6 +13538,10 @@ var LinkBrainActions = class extends Plugin {
   syncNow() {
     if (this.running) {
       this.notify(this.busyText(), { kind: "warn" });
+      return;
+    }
+    if (this.homeUI().resumedRunning?.()) {
+      this.notify("上次启动的懒人安装还在后台跑（含同步），进度在设置页「懒人安装」", { kind: "warn" });
       return;
     }
     return this.run(["-m", "link_brain", "sync-favorites", "--limit", "0", "--extract"], "同步收藏", true, { env: { LINK_BRAIN_SYNC_TRIGGER: "manual" } }).then((r) => {
@@ -13884,6 +13998,12 @@ var LinkBrainActions = class extends Plugin {
     const { raw, sum } = await this.readSyncFiles();
     return mergeSyncStatus(raw, sum);
   }
+  // 1103：同步进度只有这一种说法（懒人安装卡片的同步那一行、设置页同步那一行、状态栏提示都用它）：今天 x/50 · 收藏已入库 a/b · 歇 n 秒 · 约几点抓完
+  syncProgressText(st, now = Date.now()) {
+    const v = syncProgressView(st, now);
+    if (!v || !v.running) return "";
+    return [v.today, v.lib, v.phase, v.eta].filter(Boolean).join(" · ");
+  }
   // 第 5 批 B2：首次引导 / 启动提示 / 设置页顶部提示（整块在 onboarding-ui.js）
   onboardingUI() {
     return this._onboardingUI || (this._onboardingUI = LB_MODULES.onboardingUI()(obsidian, this));
@@ -13922,7 +14042,7 @@ var LinkBrainActions = class extends Plugin {
     this.notify(LEGACY_PAGE_HINT, { kind: "warn", ms: 15e3, actions: [{ label: "刷新目录", run: () => this.refreshCatalog() }] });
     return true;
   }
-  // 1103：插件正在自己装后端时，各处「没找到后端程序」改说「正在安装」（安装窗口里有进度），别让新用户以为装坏了
+  // 1103：插件正在自己装后端时，各处「没找到后端程序」改说「正在安装」（进度在「懒人安装」），别让新用户以为装坏了
   backendMissingText() {
     return this.backendInstalling() ? BACKEND_INSTALLING_TEXT : backendMissingText(this.currentBackend());
   }
@@ -14045,9 +14165,6 @@ var LinkBrainActions = class extends Plugin {
   homeUI() {
     return this._homeUI || (this._homeUI = LB_MODULES.homeUI()(obsidian, this));
   }
-  installerUI() {
-    return this._installerUI || (this._installerUI = LB_MODULES.installerUI()(obsidian, this));
-  }
   // 1102 托管模式：下载 uv → Python 3.12 → venv → link-brain（backend-install.js）；进度画在设置页顶部「懒人安装」（home-ui installBackend）
   backendInstall() {
     return this._backendInstall || (this._backendInstall = LB_MODULES.backendInstall());
@@ -14168,6 +14285,11 @@ var LinkBrainActions = class extends Plugin {
       const st = mergeSyncStatus(raw, sum);
       const line = syncSummaryLine(sum);
       const risk = lastRiskNote(sum);
+      const live = this.syncProgressText(st);
+      if (live) {
+        row.setDesc(["正在同步收藏", live].join(" · "));
+        return;
+      }
       if (line) {
         row.setDesc([syncStateHead(st), line, risk].filter(Boolean).join(" · "));
         return;
@@ -14282,8 +14404,8 @@ var LinkBrainActions = class extends Plugin {
       not_logged_in: ["", "", "登录"],
       captcha: ["", "", "去验证"],
       busy: ["进行中", "", ""],
-      syncing: ["同步中", "", ""],
-      // 1031：同步这一轮还没收尾（syncRunOpen）
+      syncing: ["已登录 · 同步中", "", ""],
+      // 1031：同步这一轮还没收尾；1103 作者：正在同步说明号是登着的，写「已登录 · 同步中」
       disconnected: ["", "", "重试"],
       unconfigured: ["", "", ""],
       error: ["没有完成", "", "重试"],
@@ -14293,7 +14415,10 @@ var LinkBrainActions = class extends Plugin {
     };
     let registry = {};
     const paint = (r, running = false) => {
-      if (["disconnected", "unknown", "error"].includes(r.state) && this.syncRunOpen()) r = { ...r, state: "syncing", code: "", message: "同步中", next_step: "" };
+      if ((["disconnected", "unknown", "error"].includes(r.state) || r.code === "ACCOUNT_BUSY") && this.xhsSyncing()) {
+        const name = r.account || (this.accountCache?.row?.state === "ready" ? this.accountCache.row.account : "") || "";
+        r = { ...r, state: "syncing", code: "", message: "已登录 · 同步中", next_step: "", account: name };
+      }
       current = r;
       (this.accountState || (this.accountState = {}))[platform.id] = r.state;
       try {
@@ -14416,6 +14541,12 @@ var LinkBrainActions = class extends Plugin {
     if (platform.id !== "xhs" || !this.settings.sync?.autoAfterLogin) return;
     const st = await this.readSyncStatus();
     if (st?.last_success) return;
+    const home = this.homeUI();
+    if (this.running === "装好并跑完" || home.resumedRunning?.()) {
+      this.homeState.syncAfterRun = true;
+      new Notice2("登录好了：懒人安装这一轮跑完就接着同步收藏。", 1e4);
+      return;
+    }
     const limit = dailyNewLimitOf(this.settings.sync.dailyNewLimit);
     new Notice2("开始一口气跑完：同步收藏（已在库里的会跳过，" + (limit ? "每天最多新抓 " + limit + " 篇" : "每天新抓不限量") + "）→ OCR / 识图 / 概要 → 目录 → 索引。", 1e4);
     try {
@@ -14721,16 +14852,36 @@ var LinkBrainActions = class extends Plugin {
     this.runningChild = null;
     return true;
   }
+  // 1103：小红书收藏此刻在不在同步——账号卡、状态说法都只问这一处：同步记录这一轮没收尾、懒人安装正停在同步、或插件自己正在同步
+  xhsSyncing() {
+    const cur = this.homeState && this.homeState.run && this.homeState.run.state === "running" && this.homeState.run.current;
+    if (cur === "sync") return true;
+    if (this.running && /同步收藏|立即同步|^同步/.test(String(this.running))) return true;
+    return !!this.syncRunOpen();
+  }
+  // 1103：小红书账号此刻真被占着吗——懒人安装只在「同步收藏 / 读专辑 / 补评论」那几步用号；装组件、建目录、补 AI 时扫码不用停它
+  xhsBusy() {
+    if (!this.running) return false;
+    if (this.running !== "装好并跑完") return true;
+    const cur = this.homeState && this.homeState.run && this.homeState.run.current;
+    return cur === "sync" || cur === "albums" || cur === "comments";
+  }
   async loginAccount(force = false) {
-    if (this.running && !await this.interruptRunning("换号登录")) throw new Error(`「${this.running}」还在跑，等它完成后再登录。`);
-    this.running = "账号登录";
+    if (this.xhsBusy() && !await this.interruptRunning("换号登录")) throw new Error(`「${this.running}」还在跑，等它完成后再登录。`);
+    const slot = !this.running;
+    if (slot) this.running = "账号登录";
     try {
       const args = ["-m", "link_brain", "login", "--json"];
       if (force) args.push("--force");
-      return await this.runJSON(args, "登录未完成，请重试。");
+      const r = await this.runJSON(args, "登录未完成，请重试。");
+      this.accountCache = { row: r, at: Date.now(), deep: true };
+      return r;
     } finally {
-      this.running = null;
+      if (slot) this.running = null;
     }
+  }
+  loginOk(r) {
+    return !!(r && r.state === "ready");
   }
   // 1008（L6·B1）：先查再开（熔断已经没了就不开窗口，直接说「已经好了」）；开了就等窗口关掉（只轮询内存状态，不开页），
   // 再如实说结论：解除了 / 窗口里没出现验证（给「没看到验证，恢复」）/ 关窗前没看到已登录（去扫码）。
@@ -15196,7 +15347,7 @@ var LinkBrainActions = class extends Plugin {
         return;
       }
     }
-    this.notify("还没有这个页面：点「…→刷新目录」生成", { kind: "warn", actions: [{ label: "刷新目录", run: () => this.run(["-m", "link_brain", "catalog"], "刷新目录") }] });
+    this.notify("还没有这个页面：点「…→刷新目录」生成", { kind: "warn", actions: [{ label: "刷新目录", run: () => this.refreshCatalog() }] });
   }
   async openArchiveMedia(item, kind, evt) {
     if (kind === "file") {
@@ -15990,11 +16141,17 @@ ${r.all.trim()}`);
     const external = this.externalSync;
     const live = external?.state === "running" && Date.now() - Date.parse(external.updated_at || "") < 15 * 60 * 1e3;
     const detail = this.runningProgress || (live && external.done != null && external.total != null ? `${external.done}/${external.total} 篇` : "");
-    this.taskLabel = this.running || (live ? external.live ? "同步收藏" : "夜跑同步" : "");
+    const hs = this.homeState || {};
+    const backendLive = !!(hs.backendRun && hs.backendRun.state === "running");
+    const resumedLive = !!(hs.run && hs.run.resumed && hs.run.state === "running");
+    this.taskLabel = this.running || (backendLive ? "装后端" : "") || (resumedLive ? "装好并跑完" : "") || (live ? external.live ? "同步收藏" : "夜跑同步" : "");
     const fill = this.taskLabel ? null : commentFillLine(this.commentFill);
     if (this.taskStatusEl) {
-      this.taskStatusEl.hidden = !this.settings?.devSyncLog || !this.taskLabel && !fill;
-      this.taskStatusEl.setText(this.taskLabel ? `⟳ ${this.taskLabel}${detail && !this.syncView() ? " · " + detail : ""}` : fill ? fill.text : "");
+      const own = !!(this.running || backendLive || resumedLive || this.biliRunning);
+      const bili = this.biliRunning ? `⟳ ${this.biliRunning}${this.biliProgress ? " · " + this.biliProgress : ""}` : "";
+      const main = this.taskLabel ? `⟳ ${this.taskLabel}${detail && !this.syncView() ? " · " + detail : ""}` : fill ? fill.text : "";
+      this.taskStatusEl.hidden = !own && (!this.settings?.devSyncLog || !this.taskLabel && !fill);
+      this.taskStatusEl.setText([main, bili].filter(Boolean).join("   "));
       this.taskStatusEl.title = this.running ? "点开看同步记录，可停止" : fill ? fill.title + (fill.human ? "（点开问题入口处理）" : "") : this.externalTaskText();
       this.taskStatusEl.onclick = () => fill && fill.human && !this.taskLabel ? this.openProblems() : this.openSyncLog();
     }
@@ -16041,6 +16198,49 @@ ${r.all.trim()}`);
     (this.taskListeners || (this.taskListeners = /* @__PURE__ */ new Set())).add(callback);
     return () => this.taskListeners.delete(callback);
   }
+  // 1103：B 站同步 / 预估占自己的一格，和小红书那一格（this.running）互不挡——B 站不碰小红书账号、不开小红书的浏览器，
+  // Python 侧也没有共用的账号锁（目录重建有 catalog-build 锁，索引库连接等 30 秒）。进度、停止都只认这一格。
+  async runBili(args, label, { quiet = false } = {}) {
+    if (this.biliRunning) {
+      const text = `正在${this.biliRunning}，完成后再点`;
+      if (!quiet) this.notify(text, { kind: "warn" });
+      return { code: 6, out: "", json: { ok: false, message: text } };
+    }
+    this.biliRunning = label;
+    this.biliProgress = "";
+    this.taskChanged();
+    let r;
+    try {
+      r = await this.spawnPy(args, { label, onChild: (ch) => {
+        this.biliChild = ch;
+      } });
+    } finally {
+      this.biliRunning = null;
+      this.biliChild = null;
+      this.biliProgress = "";
+      this.taskChanged();
+    }
+    try {
+      await this.log(`[${label}] exit=${r.code}
+${String(r.all || "").trim()}`);
+    } catch {
+    }
+    return { code: r.code, out: r.all, stdout: r.out, json: r.json };
+  }
+  async stopBili() {
+    const child = this.biliChild, label = this.biliRunning;
+    if (!child) return false;
+    try {
+      await this.killTree(child.pid);
+    } catch {
+      try {
+        child.kill();
+      } catch {
+      }
+    }
+    this.notify(`已停止「${label}」`);
+    return true;
+  }
   async stopRunning() {
     if (!this.running || !this.runningChild) {
       this.notify(this.externalTaskText());
@@ -16059,9 +16259,32 @@ ${r.all.trim()}`);
     this.notify(`已停止「${label}」`);
     return true;
   }
-  // 「…→刷新目录」和各处「刷新目录」按钮：统一入口（结束提示归 run()）
-  refreshCatalog() {
-    return this.run(["-m", "link_brain", "catalog"], "刷新目录", true);
+  // 「…→刷新目录」和各处「刷新目录 / 重建目录 / 整理目录」按钮：统一入口。
+  // 1103：不占「正在跑」那一格——建目录只在本机，Python 侧有自己的 catalog-build 锁（同步中边存边建也走它），懒人安装 / 同步跑着时照样能点。
+  async refreshCatalog(label = "刷新目录") {
+    if (this.catalogRefreshing) {
+      this.notify("目录正在刷新，等它完成", { kind: "warn" });
+      return { code: 6, out: "" };
+    }
+    this.catalogRefreshing = true;
+    this.notify(`${label}：开始了，完成后会提示`, { ms: 4e3 });
+    try {
+      const r = await this.spawnPy(["-m", "link_brain", "catalog"], { label, timeoutMs: 15 * 6e4 });
+      if (r.code === -1 && !r.all) {
+        this.notify(`${label} 起不来：${this.currentBackend().mode !== "repo" ? this.backendMissingText() : r.err}`, { kind: "error" });
+        return { code: -1, out: r.err };
+      }
+      try {
+        await this.log(`[${label}] exit=${r.code}
+${String(r.all || "").trim()}`);
+      } catch {
+      }
+      const m = resultMessage(label, r);
+      this.notify(m.message, { kind: m.kind });
+      return { code: r.code, out: r.all, stdout: r.out, json: r.json };
+    } finally {
+      this.catalogRefreshing = false;
+    }
   }
   // 大图查看器：转给 media-nav（实现在笔记线）；media-nav 被跳过（旧插件还开着）或还没有这个方法时返回 null，调用方保持原行为
   openLightbox(images, index = 0, opts = {}) {
@@ -16764,6 +16987,7 @@ var LinkBrainSettingTab = class extends PluginSettingTab {
     const so = this.plugin.settings.sync;
     const row = new Setting(c).setName("评论");
     row.settingEl.addClass("lb-floors-row");
+    row.setDesc("楼中楼偶尔「限频暂停」是正常的：小红书限了回复读取的频率，到点自动接着补，不用管。");
     this.help(row, "每篇存前几楼，每一楼的回复都会抓全；一次读不完的，后台会自己接着读。楼数只往上补：已经存下的评论不会删，以前的笔记会在后台补到这个楼数。某一篇想要全部评论：打开那篇，在右上角 ⋮ 菜单里点「抓全部评论」（慢，热门笔记要十几分钟）。");
     row.addDropdown((d) => d.addOption("10", "前 10 楼").addOption("20", "前 20 楼").addOption("50", "前 50 楼").addOption("all", "全部").setValue(String(so.commentFloors)).onChange(async (v) => {
       const prev = so.commentFloors;
@@ -16780,6 +17004,20 @@ var LinkBrainSettingTab = class extends PluginSettingTab {
       const after = so.commentFloors === "all" ? 2e3 : Number(so.commentFloors) || 10;
       if (after > before) this.plugin.ensureCommentFill("floors");
     }));
+    const sel = row.controlEl?.querySelector?.("select");
+    const ws = this.plugin.app?.workspace;
+    if (sel && ws && typeof ws.on === "function") {
+      const ref = ws.on("link-brain:settings", () => {
+        const v = String(this.plugin.settings.sync.commentFloors);
+        if (sel.value !== v) sel.value = v;
+      });
+      (this.stops || (this.stops = [])).push(() => {
+        try {
+          ws.offref(ref);
+        } catch {
+        }
+      });
+    }
     return row;
   }
   fieldDownloadFolder(c) {
@@ -16819,7 +17057,7 @@ var LinkBrainSettingTab = class extends PluginSettingTab {
     }, "按你的标签起草一版多级分类，写在旁边的草稿里，不动现在这份；没配 AI 就按常用标签起草");
     this.link(row, "未归类建议", () => call("openIndexSuggestions"), "还没归进任何分类的笔记该放哪：列出建议，点「加入」才写进索引");
     this.link(row, "重新整理目录", async () => {
-      await P.run(["-m", "link_brain", "catalog"], "整理目录");
+      await P.refreshCatalog("整理目录");
     }, "重新整理一遍目录页（几秒到一分钟）");
     const fileRow = new Setting(det).setName("索引文件");
     this.help(fileRow, "分类存在这个文件里：收藏库里的相对路径（.md），空着 = 索引.md。");

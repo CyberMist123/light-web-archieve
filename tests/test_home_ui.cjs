@@ -144,7 +144,6 @@ const PLAN = { ok: true, components: [
     q.runPy = async args => { if (args.includes('plan')) return { code: 0, json: PLAN }; throw new Error('意外的调用 ' + args.join(' ')); };
     let resolveInstall; const events = [];
     q.backendInstall = () => ({ ensureBackend: (pl, { onProgress }) => new Promise(r => { resolveInstall = res => r(res); events.push(onProgress); }) });
-    q.installerUI = null;   // 1103：有安装窗口时按钮开窗口（tests/test_installer_1103.cjs 测）；这里测没有窗口时的直装
     const h = homeFactory(OBS, q);
     const pane = dom.document.createElement('div');
     const stop = h.renderRun(pane, { sectionTextAI: () => {}, sectionVisionAI: () => {} });
@@ -166,7 +165,8 @@ const PLAN = { ok: true, components: [
     await new Promise(r => setTimeout(r, 170));   // repaint 节流 120ms
     assert.equal(pane.querySelectorAll('.lb-run-step').length, 2);
     assert.equal(pane.querySelector('.lb-run-step.is-ok .lb-run-mark').textContent, '✓');
-    assert.ok(!pane.querySelector('.lb-bar'), '没有 done / total 的步不画进度条');
+    // 1103：没有字节总数的步不编百分比——画不定进度条（is-indeterminate，不设宽度）
+    assert.ok(pane.querySelector('.lb-bar.is-indeterminate') && !pane.querySelector('.lb-bar-fill').style.width, '没有 done / total 的步画不定进度条');
     mode = 'managed';
     resolveInstall({ ok: true, code: '', message: '后端装好了：link-brain 0.2.0' });
     await flush(20);
@@ -208,7 +208,7 @@ const PLAN = { ok: true, components: [
     const h2 = homeFactory(OBS, r);
     assert.equal(await h2.firstRun(), 'started');
     assert.deepEqual(r.settings.setup.selected, ['core', 'reader', 'ocr'], '新库：轻量版');
-    assert.match(told[0], /按轻量版（不要任何 key）自动装好并同步/);
+    assert.match(told[0], /正在自动安装并同步：进度在设置页「懒人安装」/);   // 1103：全自动，直接带到懒人安装卡片
   }
 
   // —— 4. spawnPy 的 onLine：碎块拼成整行；最后一行没换行也给；onChild 拿到子进程 ——
@@ -345,10 +345,12 @@ const PLAN = { ok: true, components: [
     await flush(8);
     assert.equal(q.homeState.run.state, 'done');
     assert.equal(notices.at(-1).m, '都跑完了（轻量版）');
-    assert.equal(handlers.length, 0, '跑完不再盯文件');
+    // 1103：剩下两个是卡片盯 sync-status.json 的（同步那一行的篇数），关设置页时注销
+    assert.equal(handlers.length, 2, '跑完不再盯 setup-run.json');
     assert.equal(q.homeState.resumeTimer, null);
     assert.match(pane.querySelector('.lb-run-result').textContent, /都跑完了/);
     stop();
+    assert.equal(handlers.length, 0, '关页后什么都不盯');
 
     // pid 死了：说停在哪一步，按钮变「再跑一次」
     alive = false;
@@ -359,8 +361,8 @@ const PLAN = { ok: true, components: [
     await flush(6);
     assert.match(pane2.querySelector('.lb-run-result').textContent, /上次没跑完，停在「同步收藏/);
     assert.equal(pane2.querySelector('.lb-run-go').textContent, '再跑一次');
-    assert.equal(handlers.length, 0, '死了就不用盯');
-    stop2;
+    assert.equal(handlers.length, 2, '死了就不用盯 setup-run.json（剩下两个是卡片盯同步状态的）');
+    stop2();
     // 本会话自己在跑时不碰
     q.homeState = { plan: PLAN, run: { state: 'running', stages: {}, result: null } };
     assert.equal((await h.resumeRun()).state, 'running');
@@ -371,7 +373,7 @@ const PLAN = { ok: true, components: [
     // 启动（firstRun）也接：记过 firstRunAt 的老用户照样续画
     files['_archive/setup-run.json'] = JSON.stringify(stateFile); alive = true;
     q.homeState = { plan: PLAN }; q.settings.setup.firstRunAt = '2026-10-01T00:00:00Z';
-    assert.equal(await h.firstRun(), 'done-before');
+    assert.equal(await h.firstRun(), 'resumed', '1103：先等续画判定完，还在后台跑就不再起新的一轮');
     await flush(4);
     assert.equal(q.homeState.run?.state, 'running');
     clearInterval(q.homeState.resumeTimer); q.homeState.resumeTimer = null;
@@ -394,3 +396,14 @@ const PLAN = { ok: true, components: [
   }
   console.log('PASS home-ui (1009 / 1010 / 1102): light by default, deps, prices next to features, run button (disabled reason while loading) → step marks + result + 去扫码 action, first run (old library untouched / new library light + auto run once), spawnPy onLine whole lines; 1102 reader codes → 重试, no-result → 打开日志 + failBox detail, resume from setup-run.json (alive → continue / dead → 再跑一次), PYTHONUTF8 + onunload keeps the child');
 })().catch(e => { console.error(e); process.exitCode = 1; });
+
+// 1103 作者：懒人安装卡片上的结果只留一句（完整的在「06 修复」）
+{
+  const { briefResult } = require('../obsidian-plugins/link-brain-actions/home-ui.js')._internals;
+  const assert2 = require('node:assert/strict');
+  assert2.equal(briefResult({ ok: true, message: '装好了；还没登录小红书：扫码登录后自动开始同步' }), '装好了；还没登录小红书：扫码登录后自动开始同步');
+  assert2.equal(briefResult({ ok: false, code: 'NEEDS_HUMAN', message: '先处理小红书：小红书弹了验证…；处理好再点一次' }), '小红书要你处理（登录 / 验证）');
+  assert2.equal(briefResult({ ok: false, code: '', message: '跑完了，有 2 步没成：同步收藏（出错退出（1），原因见问题面板 / 同步记录）；整理目录（…）', stages: [{ state: 'failed' }, { state: 'failed' }, { state: 'ok' }] }), '跑完了，有 2 步没成');
+  assert2.equal(briefResult({ ok: false, code: 'TRANSIENT.DISCONNECTED', message: 'x' }), '读取组件没起来');
+  console.log('PASS home 1103: lazy card result is one line (details live in 06 修复)');
+}

@@ -1,5 +1,7 @@
 # 发布标准（Release Bar）
 
+2026-11-03 P8 / P12（`claude/installer-1103`，未部署，只跑了离线测试）：作者在虚拟机 GUI 里报的一批：设置页分节导航改到页顶横排、懒人安装卡片在正文最上面，卡片只留选项和进度（评论楼数 / B 站画质 / 时长收进「更多选项」），结果只一句，详情和问题 / 状态在「06 修复」（「上次一键装好 / 跑完」一行）；修复区「当前状态」、「检查」、「全部修一遍」都按问题记录同一个 needs_human 数说话；同步在跑时账号卡显示「已登录 · 同步中」（`xhsSyncing()` 一处判断）；首次自动跑不再冲掉已走完的教程（以前会被带回第 2 步）；B 站登录后后台只列一次收藏夹（`bilibili folders`，不扫内容），卡片上直接勾；`setup run` 同步后等够 30 分钟读一次小红书专辑；填 key / 选命令行后自动打开问收藏、问答下拉回到能用的那项；读取组件刚启动（logged_in 为空）时 `setup run` 不再当成已登录（深查一次）。没验：Obsidian / 虚拟机真机界面、真 B 站列收藏夹、真号读专辑。评级不变。
+
 2026-11-02 P8（`claude/kind-ramanujan-rc0zqa`，未部署，云端 Linux 只跑了离线测试）：桌面插件也打成单个 `main.js`——esbuild 整体打包 `main.src.js` 和它引用的全部同目录文件（设置页、首次引导、图片导航、各挂载点、page-host、note.css），BRAT 只装 `main.js` / `manifest.json` / `styles.css` 也是完整桌面版；doctor 只核这三个文件。新用例：插件目录只有这三个文件、按路径 require 一律报错的假环境里，桌面 onload 照样加载全部命令、设置页和各界面模块。没验：Obsidian 桌面 / 手机真机加载、BRAT 真装。评级不变。
 
 2026-11-02 P8（`claude/beautiful-lovelace-tpdv2a`，未部署，云端 Linux 只跑了离线测试 + 外壳 Chromium）：差项③「Dataview 仍要手动装、手动开 JS 查询」去掉——目录 / 星标 / 问收藏 / Wiki / 回收站 / B 站挑选页和笔记批注块改成 ` ```lb-page ` 代码块，由插件 `page-host.js`（`registerMarkdownCodeBlockProcessor`）执行；`doctor`、`setup plan / check`、设置页、首次引导、启动提示都不再要 Dataview，旧库 `catalog` 重建时页面和笔记批注块自然换成新写法，只在打开的页还是旧 dataviewjs、又没有 Dataview 时提示一次「刷新目录」。手机：作者定「只装一个插件」——同一个插件手机上也装（`isDesktopOnly:false`，main.js 由 esbuild 构建、手机上只注册处理器 + 注入笔记样式、页面走原来的手机只读路），`pageBlock=dataviewjs` 只留作兜底。没验：Obsidian 真机渲染、实时预览里的块、手机真机。评级不变。

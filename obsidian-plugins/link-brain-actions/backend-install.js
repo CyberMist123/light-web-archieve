@@ -210,34 +210,21 @@ async function selfCheck(dir, { platform = process.platform, runImpl = run, env 
   return fail('PERMANENT.BAD_PACKAGE', '装好了但跑不起来：' + lastLine(r.code === -1 ? r2 : r), { exe, python: py });
 }
 
-// —— 1103：uv pip install 的输出 → 进度（uv 不给机读进度，只能按它打出来的几种行估）——
-//   Resolved N packages → 5%；Downloading X (12.3MiB) / Downloaded X → 5–85%（按已下完的大文件 MB / 已报的大文件 MB）；
-//   Prepared → 90%；+ pkg 逐个 → 90–99%；Installed → 100%。只进不退（后报的大文件会让分母变大）。done/total 用千分制。
-const METER_TOTAL = 1000;
+// —— 1103：uv pip install 的输出 → 一句人话（uv 不给机读进度、也不报总字节数，所以只翻译它说了什么，不编百分比；
+//   界面上这一步画不定进度条）。下好了几个大文件计个数，让人知道在动。认不出的行返回 null（不改进度文字）。
 function uvInstallMeter() {
-  const sizes = new Map(), finished = new Set();
-  let pkgs = 0, added = 0, best = 0, phase = 'resolve';
-  const mbOf = s => { const m = /([\d.]+)\s*(KiB|MiB|GiB)/i.exec(s || ''); if (!m) return 1; const n = Number(m[1]); return /k/i.test(m[2]) ? n / 1024 : /g/i.test(m[2]) ? n * 1024 : n; };
+  let pkgs = 0, big = 0, got = 0;
   return line => {
     const l = String(line || '').trim();
     let m, text = null;
-    if ((m = /^Resolved (\d+) packages?/i.exec(l))) { pkgs = Number(m[1]); phase = 'download'; text = `要装 ${pkgs} 个依赖包，开始下载…`; }
-    else if ((m = /^Downloading (\S+) \(([^)]+)\)/i.exec(l))) { sizes.set(m[1], mbOf(m[2])); text = `正在下载 ${m[1]}（${m[2].replace(/MiB/i, ' MB').replace(/KiB/i, ' KB').replace(/GiB/i, ' GB')}）`; }
-    else if ((m = /^Downloaded (\S+)/i.exec(l))) { finished.add(m[1]); text = `下载好了 ${m[1]}`; }
-    else if (/^Prepared \d+ packages?/i.test(l)) { phase = 'install'; text = '下载完了，正在安装…'; }
-    else if ((m = /^\+ (\S+?)==/.exec(l))) { added++; phase = 'install'; text = `已装 ${m[1]}`; }
-    else if (/^Installed \d+ packages?/i.test(l)) { phase = 'done'; text = '依赖都装好了'; }
+    if ((m = /^Resolved (\d+) packages?/i.exec(l))) { pkgs = Number(m[1]); text = `要装 ${pkgs} 个依赖包，开始下载…`; }
+    else if ((m = /^Downloading (\S+) \(([^)]+)\)/i.exec(l))) { big++; text = `正在下载 ${m[1]}（${m[2].replace(/MiB/i, ' MB').replace(/KiB/i, ' KB').replace(/GiB/i, ' GB')}）`; }
+    else if ((m = /^Downloaded (\S+)/i.exec(l))) { got++; text = `下载好了 ${m[1]}（大文件 ${got}/${big}）`; }
+    else if (/^Prepared \d+ packages?/i.test(l)) text = '下载完了，正在安装…';
+    else if ((m = /^\+ (\S+?)==/.exec(l))) text = `已装 ${m[1]}`;
+    else if (/^Installed \d+ packages?/i.test(l)) text = '依赖都装好了';
     else return null;
-    let pct;
-    if (phase === 'resolve') pct = 2;
-    else if (phase === 'download') {
-      let all = 0, got = 0;
-      for (const [k, v] of sizes) { all += v; if (finished.has(k)) got += v; }
-      pct = 5 + (all ? 80 * got / all : 0);
-    } else if (phase === 'install') pct = 90 + (pkgs ? 9 * Math.min(1, added / pkgs) : 0);
-    else pct = 100;
-    best = Math.max(best, Math.round(pct * 10));
-    return { done: best, total: METER_TOTAL, text };
+    return { done: null, total: null, text };
   };
 }
 
@@ -332,7 +319,7 @@ async function ensureBackend(plugin, { onProgress = null, upgrade = false, env =
     const wheelReq = path.join(dl, `link-brain-${release.version}.txt`);
     fs.writeFileSync(wheelReq, `link-brain[${BACKEND_EXTRAS.join(',')}] @ ${fileUrl(wheelFile)} --hash=sha256:${release.wheelSha256}\n`, 'utf8');
     const meter = uvInstallMeter();
-    progress('install', { done: 0, total: METER_TOTAL, text: '准备安装依赖（OCR、B 站下载等，约几百 MB）…' });
+    progress('install', { done: null, total: null, text: '准备安装依赖（认字、B 站下载等，约几百 MB）…' });
     const inst = await runImpl(uv, ['pip', 'install', '--python', pyExe, '--require-hashes', '-r', lockFile, '-r', wheelReq],
       { env: uvEnvironment, timeoutMs: 30 * 60000, onLine: l => { const p = meter(l); if (p) progress('install', p); } });
     if (inst.code !== 0) {
@@ -389,4 +376,4 @@ function managedInfo({ env = process.env, platform = process.platform, home = ho
 }
 
 module.exports = { ensureBackend, rollbackBackend, managedInfo, download, extractUv, selfCheck, run, uvAsset, uvEnv, homeDir, managedDir, uvExe, venvPython, venvBackend,
-  readConfig, writeConfig, fileUrl, uvInstallMeter, UV_RELEASE, BACKEND_RELEASE, BACKEND_EXTRAS, PYTHON_VERSION, STAGES, METER_TOTAL };
+  readConfig, writeConfig, fileUrl, uvInstallMeter, pythonLineText, UV_RELEASE, BACKEND_RELEASE, BACKEND_EXTRAS, PYTHON_VERSION, STAGES };

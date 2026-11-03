@@ -193,3 +193,19 @@ def test_picker_lists_folders_toview_first_and_long_with_folder_ids(vault, monke
     assert "收藏夹 3 个" in p["message"]
     # 不限时长：不列长视频
     assert sync.picker(max_duration_s=0)["long"]["total"] == 0
+
+
+def test_refresh_folder_list_reads_own_folders_once_without_scanning(vault, monkeypatch):
+    """1103 作者：登录 B 站后插件在后台跑 `bilibili folders`——只列收藏夹（一次请求、不扫内容），挑选页直接有得勾。"""
+    calls = []
+    monkeypatch.setattr(sync.login, "my_mid", lambda client: 42)
+    monkeypatch.setattr(sync.favorites, "list_folders", lambda client, mid: calls.append(mid) or {"status": "ok", "folders": [
+        {"media_id": 7, "fid": 1, "title": "做饭", "private": False, "media_count": 3}]})
+    monkeypatch.setattr(sync.favorites, "sync_folder", lambda *a, **k: (_ for _ in ()).throw(AssertionError("不该扫内容")))
+    out = sync.refresh_folder_list(client_state=(object(), {"state": "logged_in"}))
+    assert out["ok"] and calls == [42]
+    assert [f["title"] for f in out["folders"] if f["kind"] == "folder"] == ["做饭"]
+    # 没登录：不请求，说一句人话；本地已有的清单照样回
+    out = sync.refresh_folder_list(client_state=(object(), {"state": "logged_out"}))
+    assert not out["ok"] and out["code"] == "NOT_LOGGED_IN" and calls == [42]
+    assert any(f["title"] == "做饭" for f in out["folders"])

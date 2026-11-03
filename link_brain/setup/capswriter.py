@@ -416,8 +416,10 @@ def install(emit: Emit | None = None, *, model_key: str = DEFAULT_MODEL) -> dict
         with storage.file_lock("setup-capswriter", wait_s=0, owner="安装 CapsWriter"):
             info = _fresh_install(model_key, emit)
             port = _fresh_port(Path(info["dir"]))
-            patch = {"asrAI": {"mode": "capswriter", "host": "127.0.0.1", "port": str(port)},
-                     "voice": {"capsWriterDir": info["dir"]}}
+            patch = {"asrAI": {"host": "127.0.0.1", "port": str(port)}, "voice": {"capsWriterDir": info["dir"]}}
+            # 1103：下 2 GB 要很久——装完那一刻用户还勾着「视频说话转文字」才把它切到本机；下载期间关掉了就不替他打开
+            if _still_wanted():
+                patch["asrAI"]["mode"] = "capswriter"
             written = apply_settings_patch(patch)
             det = detect()
             det["host"], det["port"] = "127.0.0.1", port
@@ -432,6 +434,16 @@ def install(emit: Emit | None = None, *, model_key: str = DEFAULT_MODEL) -> dict
     out["installed"] = {"dir": info["dir"], "version": PACKAGE["version"], "model": MODELS[model_key]["label"],
                         "package_sha256": info["package_sha256"], "model_sha256": info["model_sha256"]}
     return out
+
+
+def _still_wanted() -> bool:
+    """装完时现读设置：功能选择里还有 asr（插件勾上时先写进选择再起安装）；没选过的老设置 / 命令行直接装照旧打开。"""
+    try:
+        from .. import ai_config
+        sel = (ai_config.load().get("setup") or {}).get("selected")
+    except Exception:  # noqa: BLE001
+        return True
+    return "asr" in sel if isinstance(sel, list) else True
 
 
 def _fresh_port(folder: Path) -> int:

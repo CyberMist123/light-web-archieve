@@ -44,7 +44,6 @@ const LB_MODULES = {
   skillsUI: () => require("./skills-ui.js"),
   homeUI: () => require("./home-ui.js"),
   backendInstall: () => require("./backend-install.js"),
-  installerUI: () => require("./installer-ui.js"),
   problemsUI: () => require("./problems-ui.js"),
   reportUI: () => require("./report-ui.js"),
 };
@@ -230,7 +229,7 @@ function backendMissingText(backend) {
   const cmd = (backend && backend.command) || BACKEND_DEFAULT;
   return `没找到后端程序（${cmd}）：到 Link Brain 设置页顶部点「一键装好」自动安装（没有 Python 也行）；或在终端运行 \`${BACKEND_INSTALL}\` 后重启 Obsidian。`;
 }
-const BACKEND_INSTALLING_TEXT = '正在安装后端程序，装好就能用（进度在「安装 Link Brain」窗口和底部状态栏）。';
+const BACKEND_INSTALLING_TEXT = '正在安装后端程序，装好就能用（进度在设置页「懒人安装」和底部状态栏）。';
 // 仓库模式找不到 Python（PATH 里没有、或只有 Windows 商店的别名桩）的那一句（runPy 起不来也是它）
 const PYTHON_MISSING_TEXT = '找不到 Python。到 Link Brain 设置页顶部点「一键装好」自动安装后端（没有 Python 也行），或按 README 安装 Python 3.11+ 与 link_brain，再重启 Obsidian。';
 // 定时同步管哪个计划任务：两份 `sync-schedule` 读到的状态（freq='none' = 没这个任务）→ 任务名；都没有 = null（「开启」时自己注册）。
@@ -929,7 +928,7 @@ class LinkBrainActions extends Plugin {
     this.addCommand({
       id: "rebuild-catalog",
       name: "维护：重建收藏目录（重新整理分类）",
-      callback: () => this.run(["-m", "link_brain", "catalog"], "重建目录"),
+      callback: () => this.refreshCatalog("重建目录"),
     });
 
     this.addCommand({
@@ -1125,6 +1124,8 @@ class LinkBrainActions extends Plugin {
   }
   syncNow() {
     if (this.running) { this.notify(this.busyText(), { kind: 'warn' }); return; }
+    // 1103：重启后接上的懒人安装还在后台跑（this.running 是空的）——别再起一份同步撞号
+    if (this.homeUI().resumedRunning?.()) { this.notify('上次启动的懒人安装还在后台跑（含同步），进度在设置页「懒人安装」', { kind: 'warn' }); return; }
     // --limit 0 = 全部收藏；新抓数量由设置里的「每天最多新抓」控制（Python 侧 _Quota）
     // 10-03 同步记录：标成「手动」，这次同步完就在 sync-log.jsonl 收尾一行
     // 1009：同步完有没读全的评论 → 后台接着补（不用用户再点）
@@ -1427,6 +1428,12 @@ class LinkBrainActions extends Plugin {
     const { raw, sum } = await this.readSyncFiles();
     return mergeSyncStatus(raw, sum);
   }
+  // 1103：同步进度只有这一种说法（懒人安装卡片的同步那一行、设置页同步那一行、状态栏提示都用它）：今天 x/50 · 收藏已入库 a/b · 歇 n 秒 · 约几点抓完
+  syncProgressText(st, now = Date.now()) {
+    const v = syncProgressView(st, now);
+    if (!v || !v.running) return '';
+    return [v.today, v.lib, v.phase, v.eta].filter(Boolean).join(' · ');
+  }
 
   // 第 5 批 B2：首次引导 / 启动提示 / 设置页顶部提示（整块在 onboarding-ui.js）
   onboardingUI() { return this._onboardingUI || (this._onboardingUI = LB_MODULES.onboardingUI()(obsidian, this)); }
@@ -1449,7 +1456,7 @@ class LinkBrainActions extends Plugin {
     this.notify(LEGACY_PAGE_HINT, { kind: 'warn', ms: 15000, actions: [{ label: '刷新目录', run: () => this.refreshCatalog() }] });
     return true;
   }
-  // 1103：插件正在自己装后端时，各处「没找到后端程序」改说「正在安装」（安装窗口里有进度），别让新用户以为装坏了
+  // 1103：插件正在自己装后端时，各处「没找到后端程序」改说「正在安装」（进度在「懒人安装」），别让新用户以为装坏了
   backendMissingText() { return this.backendInstalling() ? BACKEND_INSTALLING_TEXT : backendMissingText(this.currentBackend()); }
   backendInstalling() { const br = this.homeState && this.homeState.backendRun; return !!(br && br.state === 'running'); }
   openPluginSettings(tab = 'community-plugins') { try { this.app.setting.open(); this.app.setting.openTabById(tab); } catch (e) { new Notice('没打开设置：' + e.message); } }
@@ -1526,7 +1533,6 @@ class LinkBrainActions extends Plugin {
   usageUI() { return LB_MODULES.usageUI()(obsidian, this); }
   skillsUI() { return LB_MODULES.skillsUI()(obsidian, this); }
   homeUI() { return this._homeUI || (this._homeUI = LB_MODULES.homeUI()(obsidian, this)); }
-  installerUI() { return this._installerUI || (this._installerUI = LB_MODULES.installerUI()(obsidian, this)); }
   // 1102 托管模式：下载 uv → Python 3.12 → venv → link-brain（backend-install.js）；进度画在设置页顶部「懒人安装」（home-ui installBackend）
   backendInstall() { return this._backendInstall || (this._backendInstall = LB_MODULES.backendInstall()); }
   managedPaths() { return managedPaths(); }
@@ -1605,6 +1611,8 @@ class LinkBrainActions extends Plugin {
       // 设置页收纳：有 summary 的「上次 / 新增 / 还剩」就用它；同步中 / 失败 / 要人处理时把状态放在前面
       const line = syncSummaryLine(sum);
       const risk = lastRiskNote(sum);   // 1008（L6·B1）：上次几点判到验证，照实说（不拦、不冷却）
+      const live = this.syncProgressText(st);   // 1103：同步中统一说法（和懒人安装卡片同一句）
+      if (live) { row.setDesc(['正在同步收藏', live].join(' · ')); return; }
       if (line) {
         row.setDesc([syncStateHead(st), line, risk].filter(Boolean).join(' · '));
         return;
@@ -1675,7 +1683,7 @@ class LinkBrainActions extends Plugin {
       not_logged_in: ['', '', '登录'],
       captcha: ['', '', '去验证'],
       busy: ['进行中', '', ''],
-      syncing: ['同步中', '', ''],   // 1031：同步这一轮还没收尾（syncRunOpen）
+      syncing: ['已登录 · 同步中', '', ''],   // 1031：同步这一轮还没收尾；1103 作者：正在同步说明号是登着的，写「已登录 · 同步中」
       disconnected: ['', '', '重试'],
       unconfigured: ['', '', ''],
       error: ['没有完成', '', '重试'],
@@ -1686,7 +1694,12 @@ class LinkBrainActions extends Plugin {
     let registry = {};
     const paint = (r, running = false) => {
       // 1031 作者：同步正在跑（读取服务中途重启那一下会查成「没在运行」）就说「同步中」，不报失败样子
-      if (['disconnected', 'unknown', 'error'].includes(r.state) && this.syncRunOpen()) r = { ...r, state: 'syncing', code: '', message: '同步中', next_step: '' };
+      // 1103 作者（虚拟机）：刚登录就开始同步，卡片却是「进行中 · 号正被另一个任务使用（同步收藏…）」——号被同步占着（ACCOUNT_BUSY）
+      // 说明它登着；判断只看 xhsSyncing() 这一处（同步记录没收尾 / 懒人安装正在同步 / 插件正在同步），不报存疑、不报占用
+      if ((['disconnected', 'unknown', 'error'].includes(r.state) || r.code === 'ACCOUNT_BUSY') && this.xhsSyncing()) {
+        const name = r.account || (this.accountCache?.row?.state === 'ready' ? this.accountCache.row.account : '') || '';
+        r = { ...r, state: 'syncing', code: '', message: '已登录 · 同步中', next_step: '', account: name };
+      }
       current = r;
       // 第 7 批：「开始」页第 ③ 步 / 总览看这个号登没登上（只记卡片此刻显示的状态，不另起进程查）
       (this.accountState || (this.accountState = {}))[platform.id] = r.state;
@@ -1772,6 +1785,13 @@ class LinkBrainActions extends Plugin {
     if (platform.id !== 'xhs' || !this.settings.sync?.autoAfterLogin) return;
     const st = await this.readSyncStatus();
     if (st?.last_success) return;
+    // 1103：懒人安装还在跑（它在登录那一步时还没扫，同步跳过了）——等这一轮跑完自动接着同步，不用再点
+    const home = this.homeUI();
+    if (this.running === '装好并跑完' || home.resumedRunning?.()) {
+      this.homeState.syncAfterRun = true;
+      new Notice('登录好了：懒人安装这一轮跑完就接着同步收藏。', 10000);
+      return;
+    }
     const limit = dailyNewLimitOf(this.settings.sync.dailyNewLimit);
     // 1009 作者：一口气跑完——同步收藏 → OCR / 识图 / 概要 → 目录 → 索引 → 评论补齐转后台（设置页顶部看进度）
     new Notice('开始一口气跑完：同步收藏（已在库里的会跳过，' + (limit ? '每天最多新抓 ' + limit + ' 篇' : '每天新抓不限量') + '）→ OCR / 识图 / 概要 → 目录 → 索引。', 10000);
@@ -1977,15 +1997,34 @@ class LinkBrainActions extends Plugin {
     return true;
   }
 
+  // 1103：小红书收藏此刻在不在同步——账号卡、状态说法都只问这一处：同步记录这一轮没收尾、懒人安装正停在同步、或插件自己正在同步
+  xhsSyncing() {
+    const cur = this.homeState && this.homeState.run && this.homeState.run.state === 'running' && this.homeState.run.current;
+    if (cur === 'sync') return true;
+    if (this.running && /同步收藏|立即同步|^同步/.test(String(this.running))) return true;
+    return !!this.syncRunOpen();
+  }
+  // 1103：小红书账号此刻真被占着吗——懒人安装只在「同步收藏 / 读专辑 / 补评论」那几步用号；装组件、建目录、补 AI 时扫码不用停它
+  xhsBusy() {
+    if (!this.running) return false;
+    if (this.running !== '装好并跑完') return true;
+    const cur = this.homeState && this.homeState.run && this.homeState.run.current;
+    return cur === 'sync' || cur === 'albums' || cur === 'comments';   // 1103：读专辑也用号
+  }
   async loginAccount(force = false) {
-    if (this.running && !(await this.interruptRunning('换号登录'))) throw new Error(`「${this.running}」还在跑，等它完成后再登录。`);
-    this.running = '账号登录';
+    if (this.xhsBusy() && !(await this.interruptRunning('换号登录'))) throw new Error(`「${this.running}」还在跑，等它完成后再登录。`);
+    const slot = !this.running;   // 懒人安装在跑别的步骤：扫码照常，不占它的那一格
+    if (slot) this.running = '账号登录';
     try {
       const args = ['-m', 'link_brain', 'login', '--json'];
       if (force) args.push('--force');
-      return await this.runJSON(args, '登录未完成，请重试。');
-    } finally { this.running = null; }
+      const r = await this.runJSON(args, '登录未完成，请重试。');
+      // 登录成功只认 state === 'ready'（busy / 进行中都不算）；结果记进账号缓存，设置页账号那一行不再停在旧状态
+      this.accountCache = { row: r, at: Date.now(), deep: true };
+      return r;
+    } finally { if (slot) this.running = null; }
   }
+  loginOk(r) { return !!(r && r.state === 'ready'); }
 
   // 1008（L6·B1）：先查再开（熔断已经没了就不开窗口，直接说「已经好了」）；开了就等窗口关掉（只轮询内存状态，不开页），
   // 再如实说结论：解除了 / 窗口里没出现验证（给「没看到验证，恢复」）/ 关窗前没看到已登录（去扫码）。
@@ -2278,7 +2317,7 @@ class LinkBrainActions extends Plugin {
         await this.app.workspace.openLinkText(file.path,'',false);return;
       }
     }
-    this.notify('还没有这个页面：点「…→刷新目录」生成', { kind: 'warn', actions: [{ label: '刷新目录', run: () => this.run(['-m', 'link_brain', 'catalog'], '刷新目录') }] });
+    this.notify('还没有这个页面：点「…→刷新目录」生成', { kind: 'warn', actions: [{ label: '刷新目录', run: () => this.refreshCatalog() }] });
   }
   async openArchiveMedia(item, kind, evt) {
     if(kind==='file'){
@@ -2849,12 +2888,20 @@ class LinkBrainActions extends Plugin {
     const external = this.externalSync;
     const live = external?.state === 'running' && Date.now() - Date.parse(external.updated_at || '') < 15 * 60 * 1000;
     const detail = this.runningProgress || (live && external.done != null && external.total != null ? `${external.done}/${external.total} 篇` : '');
+    // 1103：插件自己的任务——装后端（homeState.backendRun）、重启后接上的懒人安装（homeState.run.resumed）、B 站那一格——也算
+    const hs = this.homeState || {};
+    const backendLive = !!(hs.backendRun && hs.backendRun.state === 'running');
+    const resumedLive = !!(hs.run && hs.run.resumed && hs.run.state === 'running');
     // 1011：带 live 的同步（命令行 / 计划任务 / 插件自己点的都一样）叫「同步收藏」，不再一律说成夜跑
-    this.taskLabel = this.running || (live ? (external.live ? '同步收藏' : '夜跑同步') : '');
+    this.taskLabel = this.running || (backendLive ? '装后端' : '') || (resumedLive ? '装好并跑完' : '') || (live ? (external.live ? '同步收藏' : '夜跑同步') : '');
     const fill = this.taskLabel ? null : commentFillLine(this.commentFill);
     if (this.taskStatusEl) {
-      this.taskStatusEl.hidden = !this.settings?.devSyncLog || (!this.taskLabel && !fill);   // 1101：开发者选项「同步记录和进度」关着就不显示
-      this.taskStatusEl.setText(this.taskLabel ? `⟳ ${this.taskLabel}${detail && !this.syncView() ? ' · ' + detail : ''}` : (fill ? fill.text : ''));
+      // 1101：开发者选项「同步记录和进度」关着就不显示——1103 起只管外部同步 / 补评论；插件自己在跑的（各处提示都说「底部状态栏」）默认显示
+      const own = !!(this.running || backendLive || resumedLive || this.biliRunning);
+      const bili = this.biliRunning ? `⟳ ${this.biliRunning}${this.biliProgress ? ' · ' + this.biliProgress : ''}` : '';
+      const main = this.taskLabel ? `⟳ ${this.taskLabel}${detail && !this.syncView() ? ' · ' + detail : ''}` : (fill ? fill.text : '');
+      this.taskStatusEl.hidden = !own && (!this.settings?.devSyncLog || (!this.taskLabel && !fill));
+      this.taskStatusEl.setText([main, bili].filter(Boolean).join('   '));
       this.taskStatusEl.title = this.running ? '点开看同步记录，可停止' : fill ? (fill.title + (fill.human ? '（点开问题入口处理）' : '')) : this.externalTaskText();
       this.taskStatusEl.onclick = () => (fill && fill.human && !this.taskLabel ? this.openProblems() : this.openSyncLog());
     }
@@ -2891,6 +2938,28 @@ class LinkBrainActions extends Plugin {
     (this.taskListeners || (this.taskListeners = new Set())).add(callback);
     return () => this.taskListeners.delete(callback);
   }
+  // 1103：B 站同步 / 预估占自己的一格，和小红书那一格（this.running）互不挡——B 站不碰小红书账号、不开小红书的浏览器，
+  // Python 侧也没有共用的账号锁（目录重建有 catalog-build 锁，索引库连接等 30 秒）。进度、停止都只认这一格。
+  async runBili(args, label, { quiet = false } = {}) {
+    if (this.biliRunning) {
+      const text = `正在${this.biliRunning}，完成后再点`;
+      if (!quiet) this.notify(text, { kind: 'warn' });
+      return { code: 6, out: '', json: { ok: false, message: text } };
+    }
+    this.biliRunning = label; this.biliProgress = ''; this.taskChanged();
+    let r;
+    try { r = await this.spawnPy(args, { label, onChild: ch => { this.biliChild = ch; } }); }
+    finally { this.biliRunning = null; this.biliChild = null; this.biliProgress = ''; this.taskChanged(); }
+    try { await this.log(`[${label}] exit=${r.code}\n${String(r.all || '').trim()}`); } catch {}
+    return { code: r.code, out: r.all, stdout: r.out, json: r.json };
+  }
+  async stopBili() {
+    const child = this.biliChild, label = this.biliRunning;
+    if (!child) return false;
+    try { await this.killTree(child.pid); } catch { try { child.kill(); } catch {} }
+    this.notify(`已停止「${label}」`);
+    return true;
+  }
   async stopRunning() {
     if (!this.running || !this.runningChild) { this.notify(this.externalTaskText()); return false; }
     const label = this.running;
@@ -2900,8 +2969,21 @@ class LinkBrainActions extends Plugin {
     this.taskChanged(); this.notify(`已停止「${label}」`); return true;
   }
 
-  // 「…→刷新目录」和各处「刷新目录」按钮：统一入口（结束提示归 run()）
-  refreshCatalog() { return this.run(['-m', 'link_brain', 'catalog'], '刷新目录', true); }
+  // 「…→刷新目录」和各处「刷新目录 / 重建目录 / 整理目录」按钮：统一入口。
+  // 1103：不占「正在跑」那一格——建目录只在本机，Python 侧有自己的 catalog-build 锁（同步中边存边建也走它），懒人安装 / 同步跑着时照样能点。
+  async refreshCatalog(label = '刷新目录') {
+    if (this.catalogRefreshing) { this.notify('目录正在刷新，等它完成', { kind: 'warn' }); return { code: 6, out: '' }; }
+    this.catalogRefreshing = true;
+    this.notify(`${label}：开始了，完成后会提示`, { ms: 4000 });
+    try {
+      const r = await this.spawnPy(['-m', 'link_brain', 'catalog'], { label, timeoutMs: 15 * 60000 });
+      if (r.code === -1 && !r.all) { this.notify(`${label} 起不来：${this.currentBackend().mode !== 'repo' ? this.backendMissingText() : r.err}`, { kind: 'error' }); return { code: -1, out: r.err }; }
+      try { await this.log(`[${label}] exit=${r.code}\n${String(r.all || '').trim()}`); } catch {}
+      const m = resultMessage(label, r);
+      this.notify(m.message, { kind: m.kind });
+      return { code: r.code, out: r.all, stdout: r.out, json: r.json };
+    } finally { this.catalogRefreshing = false; }
+  }
 
   // 大图查看器：转给 media-nav（实现在笔记线）；media-nav 被跳过（旧插件还开着）或还没有这个方法时返回 null，调用方保持原行为
   openLightbox(images, index = 0, opts = {}) {
@@ -3380,6 +3462,8 @@ class LinkBrainSettingTab extends PluginSettingTab {
     const so = this.plugin.settings.sync;
     const row = new Setting(c).setName('评论');
     row.settingEl.addClass('lb-floors-row');
+    // 1103 作者：笔记里看到楼中楼「限频暂停」是正常现象，在这里一句话说清
+    row.setDesc('楼中楼偶尔「限频暂停」是正常的：小红书限了回复读取的频率，到点自动接着补，不用管。');
     this.help(row, '每篇存前几楼，每一楼的回复都会抓全；一次读不完的，后台会自己接着读。楼数只往上补：已经存下的评论不会删，以前的笔记会在后台补到这个楼数。某一篇想要全部评论：打开那篇，在右上角 ⋮ 菜单里点「抓全部评论」（慢，热门笔记要十几分钟）。');
     row.addDropdown(d => d.addOption('10', '前 10 楼').addOption('20', '前 20 楼').addOption('50', '前 50 楼').addOption('all', '全部')
       .setValue(String(so.commentFloors)).onChange(async v => {
@@ -3391,6 +3475,13 @@ class LinkBrainSettingTab extends PluginSettingTab {
         const after = so.commentFloors === 'all' ? 2000 : Number(so.commentFloors) || 10;
         if (after > before) this.plugin.ensureCommentFill('floors');
       }));
+    // 1103：这一行在页上有两处（懒人安装卡片上方 + 收藏与同步）——别处一保存，这里跟着变
+    const sel = row.controlEl?.querySelector?.('select');
+    const ws = this.plugin.app?.workspace;
+    if (sel && ws && typeof ws.on === 'function') {
+      const ref = ws.on('link-brain:settings', () => { const v = String(this.plugin.settings.sync.commentFloors); if (sel.value !== v) sel.value = v; });
+      (this.stops || (this.stops = [])).push(() => { try { ws.offref(ref); } catch {} });
+    }
     return row;
   }
   fieldDownloadFolder(c) {
@@ -3421,7 +3512,7 @@ class LinkBrainSettingTab extends PluginSettingTab {
       try { await call('indexDraft'); } catch (e) { P.notify('没起草成：' + (e?.message || e), { kind: 'error' }); } finally { done(); }
     }, '按你的标签起草一版多级分类，写在旁边的草稿里，不动现在这份；没配 AI 就按常用标签起草');
     this.link(row, '未归类建议', () => call('openIndexSuggestions'), '还没归进任何分类的笔记该放哪：列出建议，点「加入」才写进索引');
-    this.link(row, '重新整理目录', async () => { await P.run(['-m', 'link_brain', 'catalog'], '整理目录'); }, '重新整理一遍目录页（几秒到一分钟）');
+    this.link(row, '重新整理目录', async () => { await P.refreshCatalog('整理目录'); }, '重新整理一遍目录页（几秒到一分钟）');
     const fileRow = new Setting(det).setName('索引文件');
     this.help(fileRow, '分类存在这个文件里：收藏库里的相对路径（.md），空着 = 索引.md。');
     fileRow.addText(t => t.setPlaceholder('索引.md').setValue(s.indexFile || '').onChange(async v => {

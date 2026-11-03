@@ -42,6 +42,7 @@ STATE_NAME = "catalog-state.json"
 # 1023 ARCH-AUDIT 第 1 批：目录的输入（meta / 标签 / 专辑 / 回收站…）变了就记一笔「待重建」，
 # 统一由 ensure_fresh 重建；build 写完且期间没人再记，才清掉。文件在 = 目录数据落后于库。
 DIRTY_NAME = "catalog-dirty.json"
+DIRTY_LOCK = "catalog-dirty"   # 只护 catalog-dirty.json 的读改写（很快），和建目录的 catalog-build 锁分开
 # 1025 开源前 P0：catalog-data 的格式版本号（插件 ↔ 后端握手）。页面脚本 lb-page-lib.js 里的 CATALOG_SCHEMA 必须和它相等
 # （tests/test_catalog.py::test_build_writes_schema_and_page_lib_agrees 守着）。字段改了页面读不懂时 +1：
 # 页面读到对不上的数据，说一句「重建目录 / 更新插件」而不是崩或者画错。
@@ -796,18 +797,20 @@ def _same_content(a: dict[str, Any], b: dict[str, Any]) -> bool:
 
 
 def mark_dirty(reason: str, vault: Path | None = None) -> None:
-    """目录的输入变了：记一笔待重建（fail-open，记不上只是等下一次重建）。"""
+    """目录的输入变了：记一笔待重建（fail-open，记不上只是等下一次重建）。
+    1103：读改写和 _clear_dirty 的「比序号再删」放进同一把小锁——小红书、B 站同步并行时，别让一边的记号被另一边删掉。"""
     try:
         path = (vault or storage.vault_root()) / "_archive" / DIRTY_NAME
-        try:
-            old = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            old = {}
-        reasons = [r for r in (old.get("reasons") or []) if r != reason][-19:] + [reason]
-        path.parent.mkdir(parents=True, exist_ok=True)
-        storage.atomic_write_text(path, json.dumps({
-            "since": old.get("since") or datetime.now().astimezone().isoformat(),
-            "seq": int(old.get("seq") or 0) + 1, "reasons": reasons}, ensure_ascii=False))
+        with storage.file_lock(DIRTY_LOCK, wait_s=10, owner="catalog.mark_dirty"):
+            try:
+                old = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                old = {}
+            reasons = [r for r in (old.get("reasons") or []) if r != reason][-19:] + [reason]
+            path.parent.mkdir(parents=True, exist_ok=True)
+            storage.atomic_write_text(path, json.dumps({
+                "since": old.get("since") or datetime.now().astimezone().isoformat(),
+                "seq": int(old.get("seq") or 0) + 1, "reasons": reasons}, ensure_ascii=False))
     except Exception:  # noqa: BLE001
         pass
 
@@ -844,9 +847,10 @@ def _clear_dirty(vault: Path, seen: dict[str, Any] | None) -> None:
         return
     path = vault / "_archive" / DIRTY_NAME
     try:
-        if json.loads(path.read_text(encoding="utf-8")).get("seq") == seen.get("seq"):
-            path.unlink()
-    except (OSError, ValueError):
+        with storage.file_lock(DIRTY_LOCK, wait_s=10, owner="catalog._clear_dirty"):
+            if json.loads(path.read_text(encoding="utf-8")).get("seq") == seen.get("seq"):
+                path.unlink()
+    except (OSError, ValueError, storage.LockBusy):
         pass
 
 

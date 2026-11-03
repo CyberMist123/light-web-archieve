@@ -423,7 +423,8 @@ def load() -> dict[str, Any]:
     """读 data.json 并叠到默认上；读不动就返回纯默认（fail-open，绝不因缺配置罢工）。旧的 media 配置在内存里换算。"""
     path = data_json_path()
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
+        # 1103：utf-8-sig——data.json 被别的编辑器 / Windows PowerShell 存成带 BOM 时，以前整份读失败、悄悄退回默认（选择、OCR 目录全丢）
+        raw = json.loads(path.read_text(encoding="utf-8-sig"))
     except (OSError, ValueError):
         return copy.deepcopy(DEFAULTS)
     if not isinstance(raw, dict):

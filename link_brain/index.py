@@ -86,7 +86,8 @@ CREATE INDEX IF NOT EXISTS idx_relations_item ON relations(item_id);
 def connect(db_path: Path | None = None) -> sqlite3.Connection:
     path = db_path or storage.index_db_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(path))
+    # 1103：小红书、B 站同步和建目录可以同时跑——各自每篇一提交，别家正在提交时多等一会儿（默认 5 秒），别报 database is locked
+    conn = sqlite3.connect(str(path), timeout=30)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.executescript(SCHEMA)

@@ -458,6 +458,20 @@ def _rest(wait: float, verbose: bool = True) -> None:
         _sleep(wait)
 
 
+# 1103 作者：目录边同步边填——每新存几篇就把攒下的改动建进目录（不等整轮收尾）。拿不到目录锁（别人在建）就下次再说，不等。
+CATALOG_EVERY = 3
+
+
+def _catalog_tick(run_new: int) -> str:
+    if run_new <= 0 or run_new % CATALOG_EVERY:
+        return "skip"
+    try:
+        from ... import catalog
+        return catalog.ensure_fresh(wait_s=0)
+    except Exception:  # noqa: BLE001 - 目录没刷上不挡同步，收尾时还会再建一次
+        return "failed"
+
+
 def _library_ids() -> set[str]:
     """库里已有的（对象目录）+ 回收站里的 note_id（口径在 fav_counts，进度条 / 同步记录同一份）。"""
     from . import fav_counts
@@ -725,6 +739,7 @@ def sync_favorites(
                 known_streak = 0
                 if source_id:
                     fetched_new.append(source_id)
+                _catalog_tick(run_new)
             elif status == "error":
                 failures.add(note_id, entry.get("error") or "")
                 if known_bad:

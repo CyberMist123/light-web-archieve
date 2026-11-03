@@ -84,6 +84,17 @@ function makePlugin() {
     p.last = LAST1;
     return { code: 0, json: { ...LAST1, ok: true, counts: { multi_p: 73 }, pending_note: LAST1.pending_note } };
   };
+  // 1103：B 站占自己的一格（biliRunning），和小红书那一格（running）互不挡
+  p.biliRunning = null;
+  p.runBili = async (args, label, opts) => {
+    p.runs.push({ args, label, quiet: opts && opts.quiet });
+    p.biliRunning = label; p.taskChanged();
+    await new Promise(r => setTimeout(r, 5));
+    p.biliRunning = null; p.taskChanged();
+    if (args.includes('--dry-run')) return { code: 0, json: DRY };
+    p.last = LAST1;
+    return { code: 0, json: { ...LAST1, ok: true, counts: { multi_p: 73 }, pending_note: LAST1.pending_note } };
+  };
   return p;
 }
 
@@ -164,11 +175,17 @@ function makePlugin() {
   assert.match(text(), /上次：同步完：新下 515 条/);
   assert.ok(btn('停止').hidden, '跑完「停止」收起');
 
-  // —— 正在跑别的：不起第二个 ——
+  // —— 1103：小红书那一格在跑（同步收藏 / 懒人安装）不挡 B 站；B 站自己那一格在跑才不起第二个 ——
   plugin.running = '同步收藏';
-  const before = plugin.runs.length;
-  await btn('立即同步').onclick();
-  assert.equal(plugin.runs.length, before); assert.match(plugin.notices.at(-1).m, /正在同步收藏/);
+  let before = plugin.runs.length;
+  assert.equal(btn('立即同步').disabled, false, '小红书在跑，B 站按钮照样能点');
+  await btn('立即同步').onclick(); await settle(20);
+  assert.equal(plugin.runs.length, before + 1, '小红书在跑也能同步 B 站');
   plugin.running = null;
+  plugin.biliRunning = '预估 B 站收藏';
+  before = plugin.runs.length;
+  await btn('立即同步').onclick();
+  assert.equal(plugin.runs.length, before); assert.match(plugin.notices.at(-1).m, /正在预估 B 站收藏/);
+  plugin.biliRunning = null;
   console.log('PASS settings ① B 站卡（1031）：默认最高画质 / 存弹幕；参数、状态句、预估句、摘要句；选项改了就存、存失败拨回；预估、立即同步走互斥任务并刷新上次摘要；超时长 / 失效不算待处理');
 })().catch(e => { console.error(e); process.exit(1); });

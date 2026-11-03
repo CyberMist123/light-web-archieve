@@ -214,7 +214,9 @@ function makePlugin(base, { saved = {}, files = new Set(), manifestDir = '.obsid
   assert.ok(rowNamesOf().includes('后端命令'));
   env.p.settingsView.tab = 'sync'; tab.display(); openAll();
   assert.ok(tab.containerEl.querySelector('.lb-setup-hint'), '换一栏，提示照样在页顶');
-  assert.equal(rowNamesOf().filter(n => n === '收藏放在哪').length, 1, '收藏放在哪只在「收藏与同步」一处');
+  // 1103 作者：懒人安装卡片上方也放「收藏放在哪」（边装边选）——页里两处：懒人安装选项 + 「收藏与同步」，不再多
+  assert.equal(rowNamesOf().filter(n => n === '收藏放在哪').length, 2, '收藏放在哪：懒人安装选项 + 「收藏与同步」');
+  assert.ok(tab.containerEl.querySelector('[data-section="lazy-choices"]'), '懒人安装上方有选项区');
   tab.hide(); env.p.settingsView = null;
   // 启动检查（1102）：缺后端 → 先自己装；发布包还没发（BACKEND_RELEASE 哈希为空）→ 如实提示「没找到后端程序 + 自动安装没做成：…还没发布」，不弹引导
   notices.length = 0; spawned.length = 0;
@@ -222,11 +224,8 @@ function makePlugin(base, { saved = {}, files = new Set(), manifestDir = '.obsid
   { const real = require(path.join(ROOT, PLUGIN_DIR, 'backend-install.js'));
     env.p.backendInstall = () => ({ ...real, ensureBackend: (pl, o) => real.ensureBackend(pl, { ...o, release: { ...real.BACKEND_RELEASE, wheelSha256: '', lockSha256: '' } }) }); }
   try { assert.equal(await env.p.startupChecks(), 'backend-missing'); } finally { delete env.p.backendInstall; }
-  // 1103：启动时开「安装 Link Brain」窗口；没装上 → 窗口里一句话 + 重试，再弹一条带「打开安装窗口」的提示
-  assert.ok(notices.some(n => /没装完.*还没发布/.test(String(n?.textContent ?? n))), '说清为什么没装上');
-  assert.ok(env.p.installerUI().state().modal, '安装窗口开着');
-  assert.match(env.p.installerUI().state().error.text, /还没发布/);
-  env.p.installerUI().state().modal.close();
+  assert.ok(notices.some(n => /没找到后端程序/.test(String(n?.textContent ?? n))));
+  assert.ok(notices.some(n => /自动安装没做成.*还没发布/.test(String(n?.textContent ?? n))), '说清为什么没装上');
   assert.equal(spawned.length, 0, '没有后端就不起进程');
   // 1102：needsOnboarding 在后端缺失时也返回 true（以前返回 false，首次引导整个被跳过）
   env.p.settings.onboarding = {};
@@ -251,21 +250,7 @@ function makePlugin(base, { saved = {}, files = new Set(), manifestDir = '.obsid
       const firstRuns = [];
       const h = env.p.homeUI(); h.firstRun = async () => { firstRuns.push(1); return 'started'; };
       env.p.settings.onboarding = {};
-      // 1103：后端装好后安装窗口接着装读取组件、OCR（setup install；这里替身直接回成功），装完等用户点「开始同步」/ 关窗才往下
-      const realSpawn = env.p.spawnPy;
-      const comps = [];
-      env.p.spawnPy = async (args, o = {}) => {
-        if (args.includes('setup') && args.includes('install')) { comps.push(args[args.length - 1]); const res = { type: 'result', ok: true, message: '好了' }; o.onLine?.(JSON.stringify(res)); return { code: 0, json: res }; }
-        return realSpawn.call(env.p, args, o);
-      };
-      const started = env.p.startupChecks();
-      const inst = env.p.installerUI();
-      for (let i = 0; i < 200 && inst.state().state !== 'done'; i++) await new Promise(r => setTimeout(r, 5));
-      assert.equal(inst.state().state, 'done');
-      assert.deepEqual(comps, ['reader', 'ocr']);
-      assert.equal(firstRuns.length, 0, '窗口还开着：先不跑首次同步');
-      inst.state().modal.close();
-      try { assert.equal(await started, 'onboarding', '装好了接着走首次自动跑'); } finally { env.p.spawnPy = realSpawn; }
+      assert.equal(await env.p.startupChecks(), 'onboarding', '装好了接着走首次自动跑');
       assert.equal(firstRuns.length, 1);
       assert.equal(progress.length, 1); assert.equal(progress[0].ok, true);
       const mb = env.p.currentBackend();
@@ -320,6 +305,11 @@ function makePlugin(base, { saved = {}, files = new Set(), manifestDir = '.obsid
   assert.equal(env.p.app.setting.opened.length, opened, '不弹设置页 / 向导');
   assert.equal(env.p.settings.onboarding.done, true, '跑过一次就算走过');
   assert.equal(await env.p.onboardingUI().needsOnboarding(), false);
+  // 1103：装后端那几分钟里用户已经在设置页走完了教程——首次自动跑记「走过」时不能把 guideDone 冲掉（否则又被带回教程第 2 步）
+  env.p.settings.onboarding = { guideDone: true, step: 0 };
+  assert.equal(await env.p.startupChecks(), 'onboarding');
+  assert.equal(env.p.settings.onboarding.guideDone, true, '走完的教程记号还在');
+  assert.equal(env.p.settings.onboarding.done, true);
   // 命令面板「打开设置（概览 · 一键装好 / 跑完）」：打开设置页的「概览」（旧落点名 'features' 照认）；设置页已经停在本插件时补一次重画
   env.p.app.setting.activeTab = env.p.settingTab;
   env.p.openSetupPage('features');

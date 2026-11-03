@@ -55,8 +55,9 @@ def test_light_run_orders_children_and_progress(isolated):
         return 0, False
     result = pipeline.run(events.append, child=child, account_check=lambda: ("", ""))
     assert result["ok"]
-    assert calls == [(["sync-favorites", "--limit", "0", "--extract"], 170,
-                      {"LINK_BRAIN_SYNC_TRIGGER": "manual"}), (["catalog"], 10, None)]
+    assert calls == [(["catalog"], 10, None), (["sync-favorites", "--limit", "0", "--extract"], 170,
+                      {"LINK_BRAIN_SYNC_TRIGGER": "manual"}),
+                     (["albums", "sync", "--max", "6", "--budget-min", "25"], 30, None), (["catalog"], 10, None)]
     assert [r["id"] for r in result["stages"]] == [s for s, _ in pipeline.STAGES]
     assert any(e["text"] == "progress" for e in events)
 
@@ -69,7 +70,7 @@ def test_blocked_account_keeps_offline_catalog(isolated):
     result = pipeline.run(lambda ev: None, child=child, account_check=lambda: ("LOGIN", "login required"))
     assert not result["ok"]
     assert result["code"] == "NEEDS_HUMAN"
-    assert calls == [["catalog"]]
+    assert calls == [["catalog"], ["catalog"]]   # 1103：目录先有 + 收尾
     states = {r["id"]: r["state"] for r in result["stages"]}
     assert states["sync"] == states["comments"] == "skipped"
     assert states["catalog"] == "ok"
@@ -83,8 +84,8 @@ def test_ai_run_partial_sync_and_catalog_timeout(isolated, monkeypatch):
         calls.append(args[0])
         return (None, True) if args == ["catalog"] else (2, False)
     result = pipeline.run(lambda ev: None, child=child, account_check=lambda: ("", ""))
-    assert calls == ["sync-favorites", "enrich", "catalog", "embed"]
+    assert calls == ["catalog", "sync-favorites", "enrich", "albums", "catalog", "embed"]
     assert not result["ok"]
     states = {r["id"]: r["state"] for r in result["stages"]}
     assert states["sync"] == states["enrich"] == states["embed"] == "ok"
-    assert states["catalog"] == "failed"
+    assert states["catalog"] == states["catalog_first"] == "failed"

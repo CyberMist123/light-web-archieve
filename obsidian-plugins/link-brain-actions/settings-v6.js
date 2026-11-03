@@ -77,10 +77,21 @@ module.exports = function (obsidian, plugin) {
     return dd;
   }
 
+  // 1103：同一个设置在页上出现两处（懒人安装卡片上方 + 原来的分组）——任一处一保存（saveSettings 广播 link-brain:settings），
+  // 另一处就重读一次自己的值。设置页关掉时注销（tab.stops）。
+  function onSettings(tab, refresh) {
+    const ws = plugin.app && plugin.app.workspace;
+    if (!ws || typeof ws.on !== 'function') return;
+    const ref = ws.on('link-brain:settings', () => { try { refresh(); } catch (e) { console.error('[lb] 设置项没跟着刷新', e); } });
+    if (tab && tab.stops) tab.stops.push(() => { try { ws.offref(ref); } catch {} });
+  }
+  // 下拉跟着设置走（别处改了，这里的值也变）
+  const liveSelect = (tab, dd, get) => { if (dd) onSettings(tab, () => { const v = get(); if (dd.getValue() !== v) dd.setValue(v); }); return dd; };
+
   // 组底「＋ 更多」：点开才画；holds = 里面的落点（focusSection 找不到落点时先把它打开画出来）
-  function more(group, tab, section, draw, { holds = [] } = {}) {
+  function more(group, tab, section, draw, { holds = [], label = '＋ 更多' } = {}) {
     const d = group.createEl('details', { cls: 'lb-more', attr: { 'data-section': section, 'data-holds': holds.join(' ') } });
-    d.createEl('summary', { text: '＋ 更多' });
+    d.createEl('summary', { text: label });
     const inner = d.createDiv({ cls: 'lb-more-body' });
     let drawn = false;
     d.lbDraw = () => { if (drawn) return; drawn = true; safe(tab, inner, '更多', () => draw(inner)); };
@@ -163,6 +174,20 @@ module.exports = function (obsidian, plugin) {
     const r = await plugin.runPy(['-m', 'link_brain', 'keys', 'detect'], { input: key + '\n', label: '认 key', timeoutMs: 40000, okCodes: [0, 1], fallback: '没认出来' });
     return r && r.json;
   }
+  // 1103 作者：「填好 key 或接好命令行，AI 就该直接能用，不要再去设置里选一遍提供方」——唯一的收口：
+  //   ① 打开「问收藏」这一项（setup.selected 的 ai_text，后端各步按它放行）；② 问答下拉停在用不了的模型上
+  //   （列表里没有它 / 它是单独配的接口却没 key）→ 换回「跟着文本 AI 那一格走」的那个（就是刚填好的那一格）
+  async function useAiNow() {
+    const s = S();
+    const list = (s.models || []).filter(m => m && m.name && !m.hidden);
+    const cur = list.find(m => m.name === s.activeModel);
+    const usable = m => !!m && (m.mode === 'inherit' || (m.mode === 'cli' && !!(m.command || m.preset)) || (m.mode === 'http' && !!m.endpoint && hasKeyRef(m)));
+    const inherit = list.find(m => m.mode === 'inherit');
+    if (!usable(cur) && inherit) { s.activeModel = inherit.name; await plugin.saveSettings(); }
+    const h = home();
+    if (h && gated('ai_text')) { materialize(); await h.setFeature('ai_text', true); }
+    plugin.app.workspace?.trigger?.('link-brain:models-changed');
+  }
   async function addKey(raw, { detected = null } = {}) {
     const key = String(raw || '').trim();
     if (!key) { plugin.notify('先粘贴一把 key'); return null; }
@@ -174,20 +199,25 @@ module.exports = function (obsidian, plugin) {
     const NAMES = { textAI: '问收藏', summaryAI: '概要', visionAI: '识图', embedAI: '按意思搜' };
     for (const [cap, sugg] of Object.entries(j.fills || {})) {
       const cfg = s[cap] || (s[cap] = {});
+      // 1103：这一格已经接好了本机命令行（不要 key）：本来就能用，不拿 key 盖掉它
+      if (cfg.mode === 'cli' && (cfg.command || cfg.preset)) continue;
       const sameEndpoint = String(cfg.endpoint || '').replace(/\/+$/, '') === sugg.endpoint;
-      if (blank(cfg.endpoint) || (cap === 'embedAI' && !hasKeyRef(cfg) && sameEndpoint)) {
-        // 空着的一格：填地址、模型（模型空着才填）和这把 key；已经填好的地址、别的密钥引用一个不动
-        Object.assign(cfg, { mode: 'http', endpoint: sugg.endpoint }, blank(cfg.model) ? { model: sugg.model } : {}, hasKeyRef(cfg) ? {} : { apiKey: key });
+      // 1103 作者：「填好 key，AI 就该直接能用」——填着别家地址、却一把 key 都没有的格子本来就用不了，也换成这家（不只填空格子）
+      const dead = !hasKeyRef(cfg) && !blank(cfg.endpoint) && !sameEndpoint && cap !== 'embedAI';
+      if (blank(cfg.endpoint) || dead || (cap === 'embedAI' && !hasKeyRef(cfg) && sameEndpoint)) {
+        // 空着（或用不了）的一格：填地址、模型（空着或换了家才填）和这把 key；已经填好的密钥引用一个不动
+        Object.assign(cfg, { mode: 'http', endpoint: sugg.endpoint }, blank(cfg.model) || dead ? { model: sugg.model } : {}, hasKeyRef(cfg) ? {} : { apiKey: key });
         filled.push(NAMES[cap] || cap);
       } else if (sameEndpoint && !hasKeyRef(cfg)) {
-        cfg.apiKey = key; filled.push(NAMES[cap] || cap);   // 地址就是这家、只是还没有 key
+        // 地址就是这家、只是还没有 key；关着的顺手打开——不然填了 key 还得再去选一遍
+        cfg.apiKey = key; if (!['http', 'inherit'].includes(cfg.mode)) cfg.mode = 'http'; filled.push(NAMES[cap] || cap);
       }
     }
     if (!filled.length) { plugin.notify(`认出是 ${j.name}：对应的几项都已经配好了，没改`, { ms: 8000 }); return j; }
     try {
       await plugin.saveSettings();
       const h = home();
-      if (h && s.textAI && !blank(s.textAI.endpoint)) await h.setFeature('ai_text', true).catch(() => {});
+      if (h && s.textAI && !blank(s.textAI.endpoint)) await useAiNow().catch(() => {});
       if (h && s.visionAI && !blank(s.visionAI.endpoint) && filled.includes('识图')) await h.setFeature('ai_vision', true).catch(() => {});
     } catch (e) {
       for (const k of Object.keys(j.fills || {})) { if (before[k] === undefined) delete s[k]; else s[k] = before[k]; }
@@ -282,6 +312,7 @@ module.exports = function (obsidian, plugin) {
   // 1031 作者：同时下几路放到 1–8、默认 8（撞 412/429 后端自动退回一路）；skipFolders = 挑选页里关掉的收藏夹 id（'toview' = 稍后再看）
   const BILI_DEFAULTS = { quality: 'max', maxDuration: 3600, danmaku: true, workers: 8, skipFolders: [] };
   const BILI_QUALITY = [['max', '最高'], ['1080', '1080p'], ['720', '720p']];
+  const BILI_QUALITY_NOTE = '非大会员最高 1080P，大会员能到 4K / 8K';   // 1103 作者：画质说明里写明
   const BILI_DURATION = [['1800', '30 分钟'], ['3600', '1 小时'], ['7200', '2 小时'], ['0', '不限']];
   const BILI_WORKERS_MAX = 8;
   const BILI_WORKERS = Array.from({ length: BILI_WORKERS_MAX }, (_, i) => [String(i + 1), `${i + 1} 路`]);
@@ -368,20 +399,20 @@ module.exports = function (obsidian, plugin) {
   // 跑的时候每 3 秒读一次 last-sync.json 的进度（后端每条写一次），状态栏写「n/m 条」；paint 给了就顺手画进设置页
   function watchBiliProgress(since, paint) {
     const timer = setInterval(async () => {
-      if (plugin.running !== BILI_RUN_LABEL) { clearInterval(timer); return; }
+      if (plugin.biliRunning !== BILI_RUN_LABEL) { clearInterval(timer); return; }
       try {
         const j = JSON.parse(await plugin.app.vault.adapter.read(plugin.lbPath('_archive/bilibili-sync/last-sync.json')));
         const p = j && j.state === 'running' && j.progress;
-        if (p && Date.parse(j.started_at || '') >= since - 60000) { plugin.runningProgress = `${p.done}/${p.total} 条`; plugin.taskChanged(); if (paint) paint(`正在同步：第 ${p.done}/${p.total} 条`); }
+        if (p && Date.parse(j.started_at || '') >= since - 60000) { plugin.biliProgress = `${p.done}/${p.total} 条`; plugin.taskChanged(); if (paint) paint(`正在同步：第 ${p.done}/${p.total} 条`); }
       } catch {}
     }, 3000);
     return () => clearInterval(timer);
   }
   // 不在设置页里开始同步（「挑要下的视频」页的「现在开始下载」）：同设置页「立即同步」，只是不画设置页
   async function syncNow() {
-    if (plugin.running) { plugin.notify(plugin.busyText(), { kind: 'warn' }); return null; }
+    if (plugin.biliRunning) { plugin.notify(`正在${plugin.biliRunning}，完成后再点`, { kind: 'warn' }); return null; }
     const started = Date.now();
-    const pending = plugin.run(biliSyncArgs(biliOpts()), BILI_RUN_LABEL, true, { quiet: true });
+    const pending = plugin.runBili(biliSyncArgs(biliOpts()), BILI_RUN_LABEL, { quiet: true });
     const stop = watchBiliProgress(started);
     plugin.notify('B 站收藏开始下载：底部状态栏能看进度、能停止', { ms: 5000 });
     try { const r = await pending; syncDoneNotice(r); return r; } finally { stop(); }
@@ -465,6 +496,9 @@ module.exports = function (obsidian, plugin) {
       guide.setText(!j ? '' : !next ? '' : next === 'web' ? '网页端还没登上：点「扫码登录」再扫一次（读收藏夹要用）'
         : webOk(j) ? '电视端没登：点 ⋯ →「重新扫码登录」扫一次能拿无水印片源（不扫也能下）' : '用手机 B 站 App 扫一次码就行，之后自动复用');
       if (next && !(webOk(j) && next === 'tv')) { primary.setButtonText('扫码登录'); primary.buttonEl.show(); } else primary.buttonEl.hide();
+      // 1103：登着就在后台把收藏夹列表读好（这一次打开 Obsidian 只读一次），懒人安装卡片上直接勾
+      if (webOk(j)) { if (!plugin.biliFolders) loadBiliFolders().catch(() => {}); }
+      else for (const f of [...biliFolderPainters]) { try { f(); } catch {} }
     };
     const loadStatus = async () => {
       try { const r = await plugin.runPy(['-m', 'link_brain', 'bilibili', 'status', '--json'], { label: 'B 站登录状态', timeoutMs: 60000, okCodes: [0, 1, 5] }); paintLogin(r.json); }
@@ -476,7 +510,8 @@ module.exports = function (obsidian, plugin) {
         const r = await biliQrLogin({ tv: which === 'tv' });
         if (r.cancelled) { plugin.notify('已取消扫码'); return; }
         const ok = r.json && r.json.state === 'logged_in';
-        plugin.notify(ok ? 'B 站已登录' : ((r.json && r.json.message) || '没登录上'), { kind: ok ? 'ok' : 'warn' });
+        plugin.notify(ok ? 'B 站已登录：正在后台读你的收藏夹，读好就能在「懒人安装」里勾' : ((r.json && r.json.message) || '没登录上'), { kind: ok ? 'ok' : 'warn' });
+        if (ok) loadBiliFolders({ force: true }).catch(() => {});
       } finally { done(); await loadStatus(); }
     };
     const logout = async () => {
@@ -493,6 +528,64 @@ module.exports = function (obsidian, plugin) {
       { title: '退出登录', icon: 'log-out', danger: true, onClick: () => logout() },
     ], evt);
     loadStatus();
+  }
+
+  // —— 1103 作者：「登录 B 站后就在后台把收藏夹列表读好，让用户直接勾选」——
+  //   `bilibili folders`：只列自己的收藏夹（一次请求，不扫内容、不下载），结果放 plugin.biliFolders（这一次打开 Obsidian 内有效）；
+  //   B 站登录卡看到已登录 / 扫码登上时在后台读，读完通知所有勾选列表重画。勾选存 settings.bilibili.skipFolders（和挑选弹窗同一份）
+  const biliFolderPainters = new Set();
+  const BILI_DOC_URL = 'https://github.com/CyberMist123/light-web-archieve/blob/main/README.md';
+  function loadBiliFolders({ force = false } = {}) {
+    if (plugin.biliFoldersLoading) return plugin.biliFoldersLoading;
+    if (plugin.biliFolders && !force) return Promise.resolve(plugin.biliFolders);
+    const fanout = () => { for (const f of [...biliFolderPainters]) { try { f(); } catch (e) { console.error('[lb] B 站收藏夹列表没画上', e); } } };
+    plugin.biliFoldersLoading = plugin.runPy(['-m', 'link_brain', 'bilibili', 'folders', '--json'], { label: '读 B 站收藏夹', timeoutMs: 60000, okCodes: [0, 1] })
+      .then(r => (plugin.biliFolders = (r && r.json) || { ok: false, folders: [], message: '收藏夹没读到' }))
+      .catch(e => (plugin.biliFolders = { ok: false, folders: [], message: '收藏夹没读到：' + errText(e) }))
+      .finally(() => { plugin.biliFoldersLoading = null; fanout(); });
+    fanout();
+    return plugin.biliFoldersLoading;
+  }
+  function biliFolderChecks(parent, tab) {
+    const box = parent.createDiv({ cls: 'lb-bili-folders', attr: { 'data-section': 'lazy-bili-folders' } });
+    const paint = () => {
+      box.empty();
+      const r = row(box, tab, 'B 站同步哪些收藏夹');
+      const d = plugin.biliFolders, folders = ((d && d.folders) || []).filter(f => f && f.id != null);
+      const loggedIn = !!(biliStatus && biliStatus.state === 'logged_in');
+      if (!folders.length) {
+        r.setDesc(plugin.biliFoldersLoading ? '正在读你的收藏夹…' : d && loggedIn ? (d.message || '还没读到收藏夹') : '登录 B 站后自动读出来，在这里直接勾；不勾就全部同步。');
+        if (d && !plugin.biliFoldersLoading && loggedIn) r.addButton(b => b.setButtonText('重读').onClick(() => loadBiliFolders({ force: true })));
+        return;
+      }
+      const skip = new Set(biliSkip(biliOpts()));
+      const on = folders.filter(f => !skip.has(String(f.id))).length;
+      r.setDesc(`勾上的才同步（${on} / ${folders.length}）；新建的收藏夹自动算勾上。`);
+      const list = box.createDiv({ cls: 'lb-bili-folder-list' });
+      for (const f of folders) {
+        const id = String(f.id);
+        const lab = list.createEl('label', { cls: 'lb-bili-folder', attr: { 'data-folder': id } });
+        const cb = lab.createEl('input', { attr: { type: 'checkbox', 'aria-label': '同步这个收藏夹：' + (f.title || id) } });
+        cb.checked = !skip.has(id);
+        lab.createSpan({ text: (f.title || id) + (f.media_count != null ? `（${f.media_count}）` : '') });
+        cb.onchange = async () => {
+          const want = cb.checked, cur = new Set(biliSkip(biliOpts()));
+          if (want) cur.delete(id); else cur.add(id);
+          try { await saveBili('skipFolders', [...cur].sort()); }
+          catch (e) { cb.checked = !want; plugin.notify('没保存上，勾选已改回去：' + errText(e), { kind: 'error' }); return; }
+          paint();
+        };
+      }
+      // 选完了下一步去哪：B 站同步那一块（预估 / 立即同步 / 长视频怎么挑都写在那里）+ 说明文档
+      const next = box.createDiv({ cls: 'setting-item-description lb-bili-next' });
+      next.createSpan({ text: '选好了：' });
+      next.createEl('button', { cls: 'lb-link', text: '去 B 站同步' }).onclick = () => focusSection(tab, 'sync-bili');
+      next.createEl('button', { cls: 'lb-link', text: 'B 站同步说明 ↗' }).onclick = () => openUrl(BILI_DOC_URL);
+    };
+    biliFolderPainters.add(paint);
+    (tab.stops || (tab.stops = [])).push(() => biliFolderPainters.delete(paint));
+    paint();
+    return box;
   }
 
   // —— 选同步哪些收藏夹（1031 作者「没有让我选哪些下载」的挑选页；1101 起只管收藏夹，挑视频在「挑要下的视频」页）——
@@ -518,7 +611,7 @@ module.exports = function (obsidian, plugin) {
       const j = data || {};
       const fsec = body.createDiv({ cls: 'lb-bili-pick-sec', attr: { 'data-section': 'bili-pick-folders' } });
       const folders = j.folders || [];
-      if (!folders.length) { fsec.createDiv({ cls: 'lb-bili-warn', text: '还没扫过收藏夹：先关掉这里，点一次「预估」或「立即同步」，扫一遍收藏夹。' }); return; }
+      if (!folders.length) { fsec.createDiv({ cls: 'lb-bili-warn', text: biliStatus && biliStatus.state === 'logged_in' ? ((plugin.biliFolders && plugin.biliFolders.message) || '没读到收藏夹：稍后再打开这里试试。') : '先在「账号登录」扫码登录 B 站，登好会自动读出收藏夹。' }); return; }
       fsec.createDiv({ cls: 'lb-bili-note', text: '默认全开；关掉 = 以后同步时整个跳过。新建的收藏夹自动算开着。' });
       const tools = fsec.createDiv({ cls: 'lb-bili-pick-tools' });
       const toggles = [];
@@ -545,6 +638,11 @@ module.exports = function (obsidian, plugin) {
       try {
         const r = await plugin.runPy(['-m', 'link_brain', 'bilibili', 'pick', '--json', '--max-duration', String(biliOpts().maxDuration)], { label: 'B 站收藏夹', timeoutMs: 60000 });
         data = (r && r.json) || {};
+        // 1103：本地还没有（新用户没预估 / 同步过）而 B 站登着 → 只列一次收藏夹（不扫内容），不再叫人先去点「预估」
+        if (!(data.folders || []).length && biliStatus && biliStatus.state === 'logged_in') {
+          const got = await loadBiliFolders({ force: !(plugin.biliFolders && (plugin.biliFolders.folders || []).length) });
+          if (got && (got.folders || []).length) data = { ...data, folders: got.folders };
+        }
       } catch (e) {
         body.empty();
         if (plugin.failBox) plugin.failBox(body, '收藏夹', e, load); else body.createDiv({ cls: 'lb-bili-warn', text: '读不到本地记录：' + errText(e) });
@@ -582,9 +680,9 @@ module.exports = function (obsidian, plugin) {
     // —— 同步选项 ——
     const opts = card.createDiv({ cls: 'lb-bili-opts', attr: { 'data-section': 'bili-options' } });
     const o = biliOpts();
-    select(row(opts, tab, '画质'), BILI_QUALITY, () => biliOpts().quality, v => saveBili('quality', v), { label: 'B 站画质' });
-    opts.createDiv({ cls: 'setting-item-description lb-bili-note', text: '最高 = 你的账号能拿到的最高清晰度：普通账号最高 1080P，大会员能到 4K / 8K。不要杜比视界（Obsidian 里放不了）。' });
-    const durSel = select(row(opts, tab, '超过多长先不下'), BILI_DURATION, () => String(biliOpts().maxDuration), v => saveBili('maxDuration', parseInt(v, 10) || 0), { label: 'B 站时长上限' });
+    liveSelect(tab, select(row(opts, tab, '画质'), BILI_QUALITY, () => biliOpts().quality, v => saveBili('quality', v), { label: 'B 站画质' }), () => biliOpts().quality);
+    opts.createDiv({ cls: 'setting-item-description lb-bili-note', text: '最高 = 你的账号能拿到的最高清晰度：' + BILI_QUALITY_NOTE + '。不要杜比视界（Obsidian 里放不了）。' });
+    const durSel = liveSelect(tab, select(row(opts, tab, '超过多长先不下'), BILI_DURATION, () => String(biliOpts().maxDuration), v => saveBili('maxDuration', parseInt(v, 10) || 0), { label: 'B 站时长上限' }), () => String(biliOpts().maxDuration));
     opts.createDiv({ cls: 'setting-item-description lb-bili-note', text: '超过的先只记链接；想下哪些，在下面「挑要下的视频…」里选中点「下载」。' });
     select(row(opts, tab, '同时下几路'), BILI_WORKERS, () => String(biliOpts().workers), v => saveBili('workers', parseInt(v, 10) || 1), { label: 'B 站并行路数' });
     opts.createDiv({ cls: 'setting-item-description lb-bili-note', text: '路数多下得快，网络和硬盘也更忙；B 站一限流就自动退回一路接着下。电脑不太稳（比如下着下着蓝屏）就先用 1–2 路。' });
@@ -637,20 +735,21 @@ module.exports = function (obsidian, plugin) {
       try { const r = await plugin.runPy(['-m', 'link_brain', 'bilibili', 'last', '--json'], { label: 'B 站上次同步', timeoutMs: 60000 }); paintLast(r.json); }
       catch (e) { last.empty(); plugin.failBox ? plugin.failBox(last, '上次同步', e, loadLast) : null; }
     };
-    const mine = () => plugin.running === BILI_RUN_LABEL || plugin.running === BILI_EST_LABEL;
-    const paintRunning = () => { const on = mine(); stopBtn.hidden = !on; stopBtn.style.display = on ? '' : 'none'; estBtn.disabled = runBtn.disabled = !!plugin.running; };
-    stopBtn.onclick = async () => { if (await plugin.stopRunning()) { await loadLast(); } paintRunning(); };
+    // 1103：B 站占自己的一格（plugin.biliRunning），小红书 / 懒人安装在跑不挡这里
+    const mine = () => plugin.biliRunning === BILI_RUN_LABEL || plugin.biliRunning === BILI_EST_LABEL;
+    const paintRunning = () => { const on = mine(); stopBtn.hidden = !on; stopBtn.style.display = on ? '' : 'none'; estBtn.disabled = runBtn.disabled = !!plugin.biliRunning; };
+    stopBtn.onclick = async () => { if (await plugin.stopBili()) { await loadLast(); } paintRunning(); };
     const watchProgress = since => watchBiliProgress(since, paintLive);
     estBtn.onclick = async () => {
-      if (plugin.running) { plugin.notify(plugin.busyText(), { kind: 'warn' }); return; }
+      if (plugin.biliRunning) { plugin.notify(`正在${plugin.biliRunning}，完成后再点`, { kind: 'warn' }); return; }
       const done = plugin.busyButton(estBtn, '正在预估…');
       est.setText('正在读收藏夹（6 小时内扫过的直接复用，不重扫）…');
       paintRunning();
       try {
-        const r = await plugin.run(biliSyncArgs(biliOpts(), { dryRun: true }), BILI_EST_LABEL, false, { quiet: true });
+        const r = await plugin.runBili(biliSyncArgs(biliOpts(), { dryRun: true }), BILI_EST_LABEL, { quiet: true });
         const j = r && r.json;
         est.empty();
-        if (!j) { est.setText(r && r.code === 6 ? plugin.busyText() : '没预估出来（已停止或后台出错）'); return; }
+        if (!j) { est.setText(r && r.code === 6 ? ((r.json && r.json.message) || '正在忙') : '没预估出来（已停止或后台出错）'); return; }
         if (!j.ok) { est.createDiv({ cls: 'lb-bili-warn', text: '⚠ ' + (j.message || '没预估出来') }); return; }
         est.createDiv({ cls: 'lb-bili-est-main', text: estimateText(j.estimate) || j.message });
         const e = j.estimate || {};
@@ -659,11 +758,11 @@ module.exports = function (obsidian, plugin) {
       } finally { done(); paintRunning(); }
     };
     runBtn.onclick = async () => {
-      if (plugin.running) { plugin.notify(plugin.busyText(), { kind: 'warn' }); return; }
+      if (plugin.biliRunning) { plugin.notify(`正在${plugin.biliRunning}，完成后再点`, { kind: 'warn' }); return; }
       if (biliStatus && biliStatus.state === 'logged_out') { plugin.notify('B 站还没登录：先点「扫码登录」', { kind: 'warn' }); return; }
       const done = plugin.busyButton(runBtn, '正在同步…');
       const started = Date.now();
-      const pending = plugin.run(biliSyncArgs(biliOpts()), BILI_RUN_LABEL, true, { quiet: true });
+      const pending = plugin.runBili(biliSyncArgs(biliOpts()), BILI_RUN_LABEL, { quiet: true });
       paintRunning();
       paintLive('正在同步：先读收藏夹（6 小时内扫过的直接复用），再一条条下');
       const stopWatch = watchProgress(started);
@@ -1019,6 +1118,8 @@ module.exports = function (obsidian, plugin) {
     }
     paintHints();
     if (h && h.state && !h.state().plan) h.loadPlan().then(() => { if (alive) repaint(); }).catch(() => {});
+    // 1103：功能清单（plan）一刷新这几行「现在」就跟着重画——以前只有这一页自己的改动才重画，装好了还说「没装好」
+    if (h && typeof h.onRepaint === 'function') { const off = h.onRepaint(() => { if (alive) repaint(); }); if (tab.stops) tab.stops.push(off); }
     return repaint;
   }
   function openApiFor(tab, cap) {
@@ -1233,6 +1334,8 @@ module.exports = function (obsidian, plugin) {
         try { await plugin.saveSettings(); }
         catch (e) { s.textAI = prev; sel.value = curId(); plugin.notify('没保存上，已改回原来的：' + errText(e), { kind: 'error' }); return; }
         delete cache.usage;
+        // 1103：选了命令行 = 问收藏 / 概要（跟随问答时）直接用它：打开这一项、问答下拉回到跟着这一格走的那个，不用再去选
+        if (pick) { try { await useAiNow(); } catch (e) { console.error('[lb] 命令行接上了，问收藏没自动打开', e); } }
         plugin.app.workspace?.trigger?.('link-brain:models-changed');
       };
     };
@@ -1389,16 +1492,17 @@ module.exports = function (obsidian, plugin) {
     const st = row(g, tab, '当前状态', '哪里没做成、系统已经怎么处理的，按问题记录算；点「检查」再看一遍这台电脑缺什么。', { section: 'repair-state' });
     st.setDesc('读取中…');
     const out = g.createDiv({ cls: 'lb-check-box' });
-    let alive = true;
+    let alive = true, waiting = 0;
     tab.stops.push(() => { alive = false; });
+    // 1103 作者（虚拟机）：「当前状态 ⚠ 1 件要你处理」和点按钮后的说法要一致——都只看问题记录的 needs_human 这一个数
     const paint = async () => {
       let sum = null;
       try { ({ sum } = await plugin.readSyncFiles()); } catch {}
       if (!alive) return;
-      const n = sum ? (+sum.needs_human || 0) : 0, auto = sum ? (+sum.auto || 0) + (+sum.gave_up || 0) : 0;
+      const n = sum ? (+sum.needs_human || 0) : 0;
+      waiting = n;
       // 1027b 作者：「不影响实际体验的，就别显示了」——只说要你动手的；自动处理 / 已放弃的在「问题记录」里
-      void auto;
-      st.setDesc(!sum ? '还没有问题记录' : n ? `⚠ ${n} 件要你处理` : '没有要你处理的');
+      st.setDesc(!sum ? '还没有问题记录' : n ? `⚠ ${n} 件要你处理（扫码 / 验证这类）：点下面「问题记录」看是哪件` : '没有要你处理的');
       st.settingEl.toggleClass?.('is-warn', n > 0);
     };
     const check = tab.link(st, '检查', async () => {
@@ -1409,6 +1513,9 @@ module.exports = function (obsidian, plugin) {
         await paint();
         const data = await plugin.checkRuntime();
         if (!alive) return;
+        // 先说和「当前状态」同一个数，再列这台电脑的逐项检查
+        const head = out.createDiv({ cls: 'lb-check-line' + (waiting ? ' is-warn' : ''), text: waiting ? `⚠ 问题记录里有 ${waiting} 件要你处理（这一类系统不替你点）` : '✓ 问题记录里没有要你处理的' });
+        if (waiting) head.createEl('button', { cls: 'lb-link', text: '打开问题记录' }).onclick = () => plugin.openProblems?.();
         for (const r of (data && data.checks) || []) {
           const ok = ['ready', 'configured'].includes(r.state);
           out.createDiv({ cls: 'lb-check-line' + (ok ? '' : ' is-warn'), text: (ok ? '✓ ' : '⚠ ') + r.label + '：' + r.message + (r.next_step && !ok ? ' — ' + r.next_step : '') });
@@ -1428,6 +1535,12 @@ module.exports = function (obsidian, plugin) {
     fix?.removeClass?.('lb-link');
     const probs = row(g, tab, '问题记录', '每一条：发生了什么、系统做了什么、你要不要动手；能一条一条修、复制诊断。', { section: 'problems' });
     tab.link(probs, '打开', () => plugin.openProblems?.(), '打开问题记录');
+    // 1103：懒人安装的完整结果（哪几步没成、要你做什么）放这里；页顶卡片只留一句 + 跳到这里
+    const h1 = home();
+    if (h1 && typeof h1.renderRunDetails === 'function') {
+      const last = row(g, tab, '上次一键装好 / 跑完', '', { section: 'run-details' });
+      safe(tab, last.descEl || g, '上次一键装好 / 跑完', () => tab.stops.push(h1.renderRunDetails(last.descEl || g)));
+    }
     paint();
     const vault = plugin.app.vault;
     if (vault && typeof vault.on === 'function') {
@@ -1443,7 +1556,7 @@ module.exports = function (obsidian, plugin) {
       sub(b, '后台程序', 'developer');
       tab.renderBackendRows(b);
       tab.link(row(b, tab, '目录显示不对', '重新整理一遍目录页（几秒到一分钟），不改任何收藏文件。', { section: 'rebuild' }), '重建目录',
-        async () => { await plugin.run(['-m', 'link_brain', 'catalog'], '重建目录'); }, '重新整理一遍目录页');
+        async () => { await plugin.refreshCatalog('重建目录'); }, '重新整理一遍目录页');
       tab.link(row(b, tab, '诊断信息', '插件 / Python 版本、各步上次运行结果、最近 50 条问题；已经去掉密钥、账号和本机路径。', { section: 'diagnostic' }), '复制（已脱敏）',
         () => plugin.problemsUI?.().copyReport(), '复制脱敏后的诊断信息，发给帮你看的人');
       // 1101 作者「同步记录和进度藏好一点」：放到最底下的「开发者选项」
@@ -1455,6 +1568,49 @@ module.exports = function (obsidian, plugin) {
     }, { holds: ['machine', 'developer', 'rebuild', 'diagnostic', 'devopts'] });
   }
 
+  // 1103 作者：懒人安装全自动、边跑边选——卡片上方是选项（复用设置里已有的那几行），随时能改；setup run 每一步开始时现读。
+  // 这一块固定画一次，不放进跟着进度重画的那一块（不然正在填的会被冲掉）。收藏位置本轮钉死：在跑时只显示这一轮存到哪。
+  function lazyChoices(box, tab, h) {
+    const wrap = box.createDiv({ cls: 'lb-lazy-choices', attr: { 'data-section': 'lazy-choices' } });
+    const folderBox = wrap.createDiv({ cls: 'lb-lazy-folder' });
+    const busy = () => { const r = h.state().run; return !!(r && r.state === 'running'); };
+    let shownBusy = null;
+    const paintFolder = () => {
+      const b = busy();
+      if (b === shownBusy) return;   // 只在「在跑 / 没在跑」切换时重画，别冲掉正在填的文件夹名
+      shownBusy = b;
+      folderBox.empty?.();
+      if (b) row(folderBox, tab, '收藏放在哪').setDesc(`这一轮存到：${(S().setup || {}).runVault || plugin.vaultDir || '本库'}（要换位置，等这一轮跑完再改）`);
+      else plugin.onboardingUI().renderFolder(folderBox, tab);
+    };
+    paintFolder();
+    if (typeof h.onRepaint === 'function' && tab.stops) tab.stops.push(h.onRepaint(paintFolder));
+    const toggle = (name, desc, id) => {
+      const r = row(wrap, tab, name).setDesc(desc);
+      r.addToggle(t => {
+        let quiet = false;
+        const sync = () => { const want = h.choiceOn(id); if (t.getValue() !== want) { quiet = true; try { t.setValue(want); } finally { quiet = false; } } };
+        t.setValue(h.choiceOn(id)).onChange(async v => {
+          if (quiet) return;
+          try { await h.setChoice(id, v); }
+          catch (e) { quiet = true; try { t.setValue(!v); } finally { quiet = false; } plugin.notify('没保存上，开关已拨回原来的位置：' + errText(e), { kind: 'error' }); }
+        });
+        onSettings(tab, sync);   // 设置④里改了认字 / 语音转文字，这里跟着变
+      });
+    };
+    toggle('认图片里的字', '在本机认截图、表格里的字，免费；默认装好。', 'ocr');
+    toggle('视频说话转文字', '在本机把视频里说的话转成文字，免费；约 2 GB，勾上才在后台下载，不挡别的。', 'asr');
+    // 1103 作者：B 站收藏夹登录后就在后台读好，这里直接勾（不再点按钮等「正在读收藏夹」）
+    biliFolderChecks(wrap, tab);
+    // 1103 作者「卡片内容太多」：不常改的几项收进「更多选项」（值和「收藏与同步」那几格是同一份）
+    more(wrap, tab, 'lazy-more', b => {
+      if (typeof tab.fieldCommentFloors === 'function') tab.fieldCommentFloors(b);
+      liveSelect(tab, select(row(b, tab, 'B 站画质').setDesc(BILI_QUALITY_NOTE), BILI_QUALITY, () => biliOpts().quality, v => saveBili('quality', v), { label: 'B 站画质' }), () => biliOpts().quality);
+      liveSelect(tab, select(row(b, tab, 'B 站超过多长先不下'), BILI_DURATION, () => String(biliOpts().maxDuration), v => saveBili('maxDuration', parseInt(v, 10) || 0), { label: 'B 站时长上限' }), () => String(biliOpts().maxDuration));
+    }, { label: '＋ 更多选项（评论楼数 · B 站画质 · 时长）' });
+    return wrap;
+  }
+
   // ———————————————————— 一页：左边锚点 + 六组 ————————————————————
   function renderPage(c, tab) {
     c.addClass?.('is-v7');
@@ -1462,15 +1618,19 @@ module.exports = function (obsidian, plugin) {
     const nav = page.createEl('nav', { cls: 'lb-anchors', attr: { 'aria-label': '设置分组' } });
     const main = page.createDiv({ cls: 'lb-v7-main' });
     const head = main.createDiv({ cls: 'lb-v7-head' });
-    head.createDiv({ cls: 'lb-eyebrow lb-kicker', text: 'PREFERENCES / 按你的习惯' });
     const lead = head.createEl('p', { cls: 'lb-v7-lead', text: '常用的留在眼前，其余都在「更多」。改动自动保存。' });
     const saved = lead.createSpan({ cls: 'lb-saved', attr: { role: 'status' } });
     // 1028 作者：页顶加「懒人安装」——第一次用不想一项项看，点一下装好打开的功能、把同步 / 认字 / 概要 / 整理目录跑完（原来在 ⑥ 修复最前面，挪到这里，只留一处）
+    // 1103 作者（虚拟机）：卡片只留必要的选项和进度；问题 / 状态不堆在卡片里，只给一个跳到「06 修复」的入口（那里是同一份判断）
     const h0 = home();
     if (h0) {
       const lazy = head.createDiv({ cls: 'lb-lazy', attr: { 'data-section': 'lazy-install' } });
-      lazy.createEl('strong', { cls: 'lb-lazy-title', text: '懒人安装' });
-      safe(tab, lazy, '懒人安装', () => tab.stops.push(h0.renderRun(lazy, tab)));
+      const top = lazy.createDiv({ cls: 'lb-lazy-head' });
+      top.createEl('strong', { cls: 'lb-lazy-title', text: '懒人安装' });
+      const toRepair = top.createEl('button', { cls: 'lb-link lb-lazy-repair', text: '问题与状态 → 06 修复' });
+      toRepair.onclick = () => focusSection(tab, 'repair-state');
+      safe(tab, lazy, '懒人安装的选项', () => lazyChoices(lazy, tab, h0));
+      safe(tab, lazy, '懒人安装', () => tab.stops.push(h0.renderRun(lazy, tab, { brief: true, onDetails: () => focusSection(tab, 'repair-state') })));
     }
     const groups = {};
     for (const [id, n, title] of GROUPS) {

@@ -161,9 +161,13 @@ function makePlugin() {
   assert.equal(p.busyText('导出'), '正在导出，完成后再点，或在底部状态栏停止');
 
   // ── refreshCatalog / openLightbox 转发 / saveSettings 广播 ──
-  const runs = []; p.run = async (...a) => { runs.push(a); return { code: 0 }; };
+  // 1103：刷新目录不占「正在跑」那一格（懒人安装 / 同步跑着也能点）：直接 spawnPy、不带 exclusive
+  const runs = []; const realSpawn = p.spawnPy; p.spawnPy = async (args, o) => { runs.push([args, o]); return { code: 0, all: '', out: '', json: null }; };
+  p.running = '装好并跑完';
   await p.refreshCatalog();
-  same(runs[0], [['-m', 'link_brain', 'catalog'], '刷新目录', true]);
+  same(runs[0][0], ['-m', 'link_brain', 'catalog']);
+  assert.ok(!runs[0][1].exclusive, '不占互斥锁');
+  p.running = null; p.spawnPy = realSpawn;
   assert.equal(p.openLightbox([{ src: 'a' }], 0), null, '没有 media-nav：返回 null');
   p.mediaNav = { skipped: true, openLightbox: () => 'x' }; assert.equal(p.openLightbox([], 0), null, 'media-nav 被跳过：null');
   const seen = []; p.mediaNav = { openLightbox: (...a) => { seen.push(a); return { close() {} }; } };

@@ -155,7 +155,7 @@ OCR_MEDIUM_BYTES = 62119454 + 76629984  # PP-OCRv6 medium det + rec（开发机�
 
 
 def _ocr() -> dict[str, Any]:
-    tier, model_dir, mode = _ocr_settings()
+    tier, model_dir, _mode = _ocr_settings()
     pkgs_ok = all(_has(m) for m in OCR_REQS.values())
     pkg_bytes, _ = sysinfo.dist_bytes(list(OCR_REQS), transitive=False)
     root, files = _ocr_model_files(tier, model_dir)
@@ -170,8 +170,7 @@ def _ocr() -> dict[str, Any]:
     if not pkgs_ok:
         row = _row("ocr", "missing", "没装 rapidocr / onnxruntime", fix="auto",
                    hint=f"点「安装」用 pip 补装，或自己装：{extras.install_hint('ocr')}")
-    elif mode == "off":
-        row = _row("ocr", "partial", "OCR 在设置里关着", fix="manual", hint="设置 → AI → 本地 OCR 打开")
+    # 1103：check 只答「装没装」——设置里关着（mode == "off"）不算没装好，开没开由界面按设置自己判断
     elif sys.platform == "win32" and not _vc_runtime_ok():
         row = _row("ocr", "partial", "这台电脑缺 VC++ 运行库（msvcp140.dll），OCR 加载不了", fix="auto",
                    hint="点「安装」自动补装（约 2 MB）")
@@ -222,15 +221,10 @@ def _capslock(det: dict[str, Any]) -> dict[str, Any]:
     else:
         ram, ram_note = RAM_MEASURED["capswriter_client"], f"开发机上客户端峰值工作集实测约 {RAM_MEASURED['capswriter_client']} MB"
     basis = f"磁盘：客户端在 CapsWriter 同一个包里，不另占；内存：{ram_note}，开着 CapsLock 语音时常驻"
-    try:
-        from .. import ai_config
-        on = bool((ai_config.load().get("voice") or {}).get("capsLock", True))
-    except Exception:  # noqa: BLE001
-        on = True
     if det.get("client_exe"):
+        # 1103：check 只答「装没装」——设置里 CapsLock 语音关着不算没装好
         detail = "客户端在" + ("（正在运行）" if clients else "（插件开着 CapsLock 语音时自动拉起）")
-        row = _row("capslock", "ready" if on else "partial", detail if on else detail + "；设置里 CapsLock 语音关着",
-                   fix="" if on else "manual", hint="" if on else "设置 → AI → 语音输入 打开 CapsLock")
+        row = _row("capslock", "ready", detail)
     elif det.get("dir"):
         row = _row("capslock", "missing", f"CapsWriter 目录里没有 {capswriter.CLIENT_EXE}：{det['dir']}", fix="manual",
                    hint="用 CapsWriter 的完整包（含客户端）")
