@@ -257,6 +257,19 @@ a.lb-report-title { color: var(--link-color); cursor: pointer; }
 .lb-install-btns:empty { display: none; }
 .lb-install-summary { margin-top: 8px; color: var(--text-muted); }
 .lb-install-summary.is-done { color: var(--color-green, var(--text-success)); }
+/* 1103 安装窗口（installer-ui.js）：上面自选，下面一条总进度条 */
+.lb-installer-modal { width: min(560px, 92vw); }
+.lb-installer-lead { margin: 0 0 8px; color: var(--text-muted); }
+.lb-installer-pick { padding-bottom: 12px; border-bottom: 1px solid var(--background-modifier-border); }
+.lb-installer-foot { padding-top: 14px; }
+.lb-installer-pct { font-size: 1.4em; font-weight: 600; font-variant-numeric: tabular-nums; }
+.lb-installer-bar { height: 8px; border-radius: 4px; }
+.lb-installer-bar .lb-bar-fill { border-radius: 4px; }
+.lb-installer-now { min-height: 1.4em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lb-installer-err { color: var(--text-error); margin: 6px 0; }
+.lb-installer-warn { color: var(--color-orange, var(--text-warning)); margin: 6px 0; }
+.lb-installer-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; flex-wrap: wrap; }
+.lb-installer-actions:empty { display: none; }
 .lb-bar { height: 6px; margin: 4px 0; border-radius: 3px; background: var(--background-modifier-border); overflow: hidden; }
 .lb-bar-fill { height: 100%; width: 0; border-radius: 3px; background: var(--interactive-accent); transition: width .3s; }
 .lb-bar.is-indeterminate .lb-bar-fill { width: 35%; animation: lb-slide 1.3s ease-in-out infinite; }

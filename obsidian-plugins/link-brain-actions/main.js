@@ -6362,13 +6362,9 @@ var require_onboarding_ui = __commonJS({
         async startup() {
           const b = plugin.currentBackend();
           if (b.mode === "missing") {
-            plugin.notify("Link Brain：这台电脑还没有后端程序，正在自动安装（uv · Python 3.12 · link-brain，约 100 MB）。进度在设置页顶部「懒人安装」。", {
-              ms: 12e3,
-              actions: [{ label: "打开设置", run: () => plugin.openSetupPage?.() }]
-            });
-            const got = await installBackend({ quiet: true });
+            const got = await plugin.installerUI().openAndRun();
             if (!got || !got.ok || plugin.currentBackend().mode === "missing") {
-              noticeWithButton(plugin.backendMissingText() + (got && got.message ? "（自动安装没做成：" + got.message + "）" : ""), "复制安装命令", () => copy(BACKEND_INSTALL2), 3e4);
+              noticeWithButton("Link Brain 没装完：" + (got && got.error && got.error.text || "原因见安装窗口"), "打开安装窗口", () => plugin.installerUI().open(), 3e4);
               return "backend-missing";
             }
           }
@@ -6395,7 +6391,12 @@ var require_onboarding_ui = __commonJS({
           const shown = [];
           const b = plugin.currentBackend();
           if (b.mode === "missing") {
-            hintBox(c, plugin.backendMissingText(), [["一键装好", () => installBackend()], ["复制安装命令", () => copy(BACKEND_INSTALL2)]], "is-backend");
+            const inst = plugin.installerUI();
+            if (inst.running()) hintBox(c, `正在安装 Link Brain（${inst.pct()}%），装好就能用。`, [["打开安装窗口", () => inst.open()]], "is-backend is-installing");
+            else hintBox(c, plugin.backendMissingText(), [["一键装好", () => {
+              inst.open();
+              inst.run();
+            }], ["复制安装命令", () => copy(BACKEND_INSTALL2)]], "is-backend");
             shown.push("backend");
           }
           if (plugin.mediaNav?.skipped) {
@@ -10007,7 +10008,7 @@ ${String(r.all || r.err || "").trim()}`);
       async function stopRun() {
         await plugin.stopRunning?.();
       }
-      async function installBackend({ upgrade = false, quiet = false } = {}) {
+      async function installBackend({ upgrade = false, quiet = false, onProgress = null } = {}) {
         const st = S();
         if (st.backendRun && st.backendRun.state === "running") {
           plugin.notify("正在装后端，装完再点", { kind: "warn" });
@@ -10024,6 +10025,13 @@ ${String(r.all || r.err || "").trim()}`);
         try {
           res = await plugin.backendInstall().ensureBackend(plugin, { upgrade, onProgress: (ev) => {
             st.backendRun.stages[ev.stage] = ev;
+            if (onProgress) {
+              try {
+                onProgress(ev);
+              } catch (e) {
+                console.error("[lb] 安装窗口没画上", e);
+              }
+            }
             plugin.runningProgress = (ev.label || "") + (ev.text ? "：" + ev.text : "");
             plugin.taskChanged?.();
             if (frame == null) frame = setTimeout(() => {
@@ -10253,7 +10261,14 @@ ${String(r.all || r.err || "").trim()}`);
           else if (missing || installing) {
             const go = acts.createEl("button", { cls: "lb-run-go lb-run-install mod-cta", text: installing ? "正在装后端…" : "一键装好" });
             go.disabled = installing;
-            go.onclick = () => installBackend();
+            go.onclick = () => {
+              const inst = plugin.installerUI?.();
+              if (inst) {
+                inst.open();
+                inst.run();
+              } else installBackend();
+            };
+            if (installing && plugin.installerUI) acts.createEl("button", { cls: "lb-link", text: "打开安装窗口" }).onclick = () => plugin.installerUI().open();
             acts.createEl("span", { cls: "setting-item-description", text: installing ? "正在下载并安装后端程序（uv · Python 3.12 · link-brain），进度在下面。" : "这台电脑还没有后端程序：点一下自动装到 ~/.link-brain（没有 Python 也行，约 100 MB）。装好后这里变成「一键装好 / 跑完」。" });
           } else {
             const again = !!(run && run.result && run.result.interrupted);
@@ -10463,13 +10478,14 @@ var require_backend_install = __commonJS({
     };
     var PYTHON_VERSION = "3.12";
     var BACKEND_RELEASE = {
-      version: "0.2.0",
-      wheelUrl: "https://github.com/CyberMist123/light-web-archieve/releases/download/v0.2.0/link_brain-0.2.0-py3-none-any.whl",
-      wheelSha256: "5f0e8ece16d9b556c8c74b450b6cbdae03d2e652e027782efcd53b1d61e48c9f",
-      // Release v0.2.0 的 SHA256SUMS（1102 第二次发布：lock 改 universal；本机 Windows 下载、--require-hashes 装过）
-      lockUrl: "https://github.com/CyberMist123/light-web-archieve/releases/download/v0.2.0/requirements.lock",
-      lockSha256: "546dafc3bdf8daec89ab4799fbe5498dc2ecf88a819fad8db113b2e215bd8ad1"
+      version: "0.2.1",
+      wheelUrl: "https://github.com/CyberMist123/light-web-archieve/releases/download/v0.2.1/link_brain-0.2.1-py3-none-any.whl",
+      wheelSha256: "",
+      // TODO 发 v0.2.1 后回填（Release 的 SHA256SUMS）
+      lockUrl: "https://github.com/CyberMist123/light-web-archieve/releases/download/v0.2.1/requirements.lock",
+      lockSha256: ""
     };
+    var BACKEND_EXTRAS = ["ocr", "bilibili", "docs"];
     var STAGES = [["uv", "准备安装工具 uv"], ["python", "准备 Python " + PYTHON_VERSION], ["venv", "建后端环境"], ["install", "安装 link-brain"], ["check", "自检"]];
     var STAGE_LABEL = Object.fromEntries(STAGES);
     var BACKEND_DIR_KEY = "backend_dir";
@@ -10730,6 +10746,62 @@ var require_backend_install = __commonJS({
       if (r2.code === 0) return { ok: true, exe, python: py, version: "" };
       return fail("PERMANENT.BAD_PACKAGE", "装好了但跑不起来：" + lastLine(r.code === -1 ? r2 : r), { exe, python: py });
     }
+    var METER_TOTAL = 1e3;
+    function uvInstallMeter() {
+      const sizes = /* @__PURE__ */ new Map(), finished = /* @__PURE__ */ new Set();
+      let pkgs = 0, added = 0, best = 0, phase = "resolve";
+      const mbOf = (s) => {
+        const m = /([\d.]+)\s*(KiB|MiB|GiB)/i.exec(s || "");
+        if (!m) return 1;
+        const n = Number(m[1]);
+        return /k/i.test(m[2]) ? n / 1024 : /g/i.test(m[2]) ? n * 1024 : n;
+      };
+      return (line) => {
+        const l = String(line || "").trim();
+        let m, text = null;
+        if (m = /^Resolved (\d+) packages?/i.exec(l)) {
+          pkgs = Number(m[1]);
+          phase = "download";
+          text = `要装 ${pkgs} 个依赖包，开始下载…`;
+        } else if (m = /^Downloading (\S+) \(([^)]+)\)/i.exec(l)) {
+          sizes.set(m[1], mbOf(m[2]));
+          text = `正在下载 ${m[1]}（${m[2].replace(/MiB/i, " MB").replace(/KiB/i, " KB").replace(/GiB/i, " GB")}）`;
+        } else if (m = /^Downloaded (\S+)/i.exec(l)) {
+          finished.add(m[1]);
+          text = `下载好了 ${m[1]}`;
+        } else if (/^Prepared \d+ packages?/i.test(l)) {
+          phase = "install";
+          text = "下载完了，正在安装…";
+        } else if (m = /^\+ (\S+?)==/.exec(l)) {
+          added++;
+          phase = "install";
+          text = `已装 ${m[1]}`;
+        } else if (/^Installed \d+ packages?/i.test(l)) {
+          phase = "done";
+          text = "依赖都装好了";
+        } else return null;
+        let pct;
+        if (phase === "resolve") pct = 2;
+        else if (phase === "download") {
+          let all = 0, got = 0;
+          for (const [k, v] of sizes) {
+            all += v;
+            if (finished.has(k)) got += v;
+          }
+          pct = 5 + (all ? 80 * got / all : 0);
+        } else if (phase === "install") pct = 90 + (pkgs ? 9 * Math.min(1, added / pkgs) : 0);
+        else pct = 100;
+        best = Math.max(best, Math.round(pct * 10));
+        return { done: best, total: METER_TOTAL, text };
+      };
+    }
+    function pythonLineText(line) {
+      const l = String(line || "").trim();
+      let m;
+      if (m = /^Downloading cpython-(\d+\.\d+\.\d+)\S*.*?\(([\d.]+)\s*MiB\)/i.exec(l)) return `正在下载 Python ${m[1]}（${m[2]} MB）`;
+      if (m = /^Installed Python (\S+)/i.exec(l)) return `Python ${m[1]} 装好了`;
+      return l.slice(0, 160);
+    }
     async function ensureBackend(plugin, {
       onProgress = null,
       upgrade = false,
@@ -10801,7 +10873,7 @@ var require_backend_install = __commonJS({
         }
         progress("uv", { state: "ok", text: "就绪" });
         progress("python", { text: `uv python install ${pythonVersion}（第一次要下载约 30 MB）` });
-        const py = await runImpl(uv, ["python", "install", pythonVersion], { env: uvEnvironment, timeoutMs: 20 * 6e4, onLine: (l) => progress("python", { text: l.slice(0, 160) }) });
+        const py = await runImpl(uv, ["python", "install", pythonVersion], { env: uvEnvironment, timeoutMs: 20 * 6e4, onLine: (l) => progress("python", { text: pythonLineText(l) }) });
         if (py.code !== 0) return bad("python", fail(/download|fetch|connect|timed out|dns/i.test(py.err + py.out) ? "TRANSIENT.NETWORK" : "PERMANENT.BAD_PACKAGE", `装 Python ${pythonVersion} 没成功：` + lastLine(py)));
         progress("python", { state: "ok", text: `Python ${pythonVersion} 就绪` });
         progress("venv", { text: `uv venv ${targetDir}` });
@@ -10818,13 +10890,17 @@ var require_backend_install = __commonJS({
         const wh = await download(release.wheelUrl, wheelFile, { sha256: release.wheelSha256, request, label: "下载 link-brain", onProgress: (p) => progress("install", { ...p, text: "link-brain " + p.text }) });
         if (!wh.ok) return bad("install", wh);
         const wheelReq = path2.join(dl, `link-brain-${release.version}.txt`);
-        fs2.writeFileSync(wheelReq, `link-brain @ ${fileUrl(wheelFile)} --hash=sha256:${release.wheelSha256}
+        fs2.writeFileSync(wheelReq, `link-brain[${BACKEND_EXTRAS.join(",")}] @ ${fileUrl(wheelFile)} --hash=sha256:${release.wheelSha256}
 `, "utf8");
-        progress("install", { done: null, total: null, text: "uv pip install --require-hashes …" });
+        const meter = uvInstallMeter();
+        progress("install", { done: 0, total: METER_TOTAL, text: "准备安装依赖（OCR、B 站下载等，约几百 MB）…" });
         const inst = await runImpl(
           uv,
           ["pip", "install", "--python", pyExe, "--require-hashes", "-r", lockFile, "-r", wheelReq],
-          { env: uvEnvironment, timeoutMs: 30 * 6e4, onLine: (l) => progress("install", { text: l.slice(0, 160) }) }
+          { env: uvEnvironment, timeoutMs: 30 * 6e4, onLine: (l) => {
+            const p = meter(l);
+            if (p) progress("install", p);
+          } }
         );
         if (inst.code !== 0) {
           const text = inst.err + inst.out;
@@ -10921,11 +10997,316 @@ var require_backend_install = __commonJS({
       readConfig,
       writeConfig,
       fileUrl,
+      uvInstallMeter,
       UV_RELEASE,
       BACKEND_RELEASE,
+      BACKEND_EXTRAS,
       PYTHON_VERSION,
-      STAGES
+      STAGES,
+      METER_TOTAL
     };
+  }
+});
+
+// obsidian-plugins/link-brain-actions/installer-ui.js
+var require_installer_ui = __commonJS({
+  "obsidian-plugins/link-brain-actions/installer-ui.js"(exports2, module2) {
+    "use strict";
+    var WEIGHTS = [["uv", 4], ["python", 10], ["venv", 2], ["install", 52], ["check", 3], ["reader", 14], ["ocr", 15]];
+    var STEP_TEXT = {
+      uv: "准备安装工具",
+      python: "下载 Python",
+      venv: "建后端环境",
+      install: "下载并安装依赖",
+      check: "自检",
+      reader: "下载读取组件",
+      ocr: "下载认字模型并试认一张图"
+    };
+    var CREEP_S = { uv: 15, python: 40, venv: 10, install: 180, check: 20, reader: 40, ocr: 60 };
+    var COMPONENTS = ["reader", "ocr"];
+    var num = (v) => v === null || v === void 0 || v === "" || !Number.isFinite(Number(v)) ? null : Number(v);
+    function stepFraction(st, now = Date.now()) {
+      if (!st) return 0;
+      if (st.state === "ok" || st.state === "skipped") return 1;
+      const d = num(st.done), t = num(st.total);
+      if (d != null && t) return Math.max(0, Math.min(0.99, d / t));
+      if (st.state === "running" && st.startedAt) return 0.9 * (1 - Math.exp(-Math.max(0, now - st.startedAt) / 1e3 / (CREEP_S[st.stage] || 30)));
+      return st.frac || 0;
+    }
+    function overallPct(steps, now = Date.now()) {
+      let sum = 0, all = 0;
+      for (const [k, w] of WEIGHTS) {
+        all += w;
+        sum += w * stepFraction(steps[k], now);
+      }
+      return Math.max(0, Math.min(100, Math.floor(sum / all * 100)));
+    }
+    function currentText(steps) {
+      for (const [k] of WEIGHTS) {
+        const st = steps[k];
+        if (st && st.state === "running") return st.text ? `${STEP_TEXT[k]}：${st.text}` : STEP_TEXT[k] + "…";
+      }
+      return "";
+    }
+    function friendlyError(step, res) {
+      const code = String(res && res.code || ""), raw = String(res && res.message || "");
+      const what = STEP_TEXT[step] || "安装";
+      let text;
+      if (code === "TRANSIENT.NETWORK" || code === "TRANSIENT.HTTP_5XX" || code === "TRANSIENT.DISCONNECTED") text = `${what}时网络断了或太慢。已经下好的会留着，点「重试」接着下。`;
+      else if (code === "PERMANENT.DISK_FULL") text = "磁盘空间不够：C 盘清出 1 GB 左右再点「重试」。";
+      else if (code === "PERMANENT.CHECKSUM_MISMATCH") text = `${what}时下载的文件没通过校验（可能下坏了），已经删掉。点「重试」重新下。`;
+      else if (code === "SKIPPED.NOT_CONFIGURED" && raw) text = raw;
+      else text = `${what}没成功。点「重试」再试一次；还不行就点「复制详情」发给作者。`;
+      return { text, detail: raw, code };
+    }
+    function componentEvent(line) {
+      let ev;
+      try {
+        ev = JSON.parse(line);
+      } catch {
+        return null;
+      }
+      if (!ev || typeof ev !== "object") return null;
+      if (ev.type === "progress") return { state: "running", done: num(ev.done), total: num(ev.total), text: ev.text || ev.phase || "" };
+      if (ev.type === "result") return { state: ev.ok ? "ok" : "failed", result: ev, text: ev.ok ? ev.message || "好了" : "" };
+      return null;
+    }
+    module2.exports = function installerUI(obsidian2, plugin) {
+      const { Modal: Modal2, Setting: Setting2 } = obsidian2;
+      const S = () => plugin.installerState || (plugin.installerState = { state: "idle", steps: {}, error: null, warnings: [], best: 0, startedAt: 0, goWaiters: [], modal: null });
+      const listeners = /* @__PURE__ */ new Set();
+      const changed = () => {
+        for (const f of listeners) {
+          try {
+            f();
+          } catch (e) {
+            console.error("[lb] 安装窗口没重画上", e);
+          }
+        }
+      };
+      const setStep = (k, patch) => {
+        const st = S(), cur = st.steps[k] || { stage: k, state: "pending" };
+        const next = { ...cur, ...patch, stage: k };
+        if (next.state === "running" && !cur.startedAt) next.startedAt = Date.now();
+        st.steps[k] = next;
+        changed();
+      };
+      const pct = () => {
+        const st = S();
+        st.best = Math.max(st.best, overallPct(st.steps));
+        return st.state === "done" ? 100 : st.best;
+      };
+      const running = () => S().state === "running";
+      function releaseGo() {
+        const st = S();
+        const ws = st.goWaiters.splice(0);
+        for (const w of ws) w();
+      }
+      function waitGo() {
+        const st = S();
+        if (!st.modal) return Promise.resolve();
+        return new Promise((r) => st.goWaiters.push(r));
+      }
+      async function installComponent(id) {
+        setStep(id, { state: "running", text: "" });
+        const r = await plugin.spawnPy(["-m", "link_brain", "setup", "install", "--component", id], {
+          exclusive: true,
+          label: "安装 " + STEP_TEXT[id],
+          timeoutMs: 30 * 6e4,
+          onLine: (line) => {
+            const p = componentEvent(line);
+            if (!p) return;
+            setStep(id, p);
+            if (p.state === "running") {
+              plugin.runningProgress = STEP_TEXT[id] + (p.text ? "：" + p.text : "");
+              plugin.taskChanged?.();
+            }
+          }
+        });
+        const cur = S().steps[id] || {};
+        if (cur.state === "ok") return { ok: true };
+        const res = cur.result || (r.json && r.json.type === "result" ? r.json : null) || { ok: false, code: r.busy ? "TRANSIENT.BUSY" : r.timedOut ? "TRANSIENT.TIMEOUT" : "TRANSIENT.STEP_CRASHED", message: r.busy ? plugin.busyText() : String(r.err || "").trim().split("\n").slice(-3).join("\n") };
+        setStep(id, { state: "failed", result: res });
+        return res;
+      }
+      async function run() {
+        const st = S();
+        if (st.state === "running") return st.promise;
+        st.state = "running";
+        st.error = null;
+        st.warnings = [];
+        st.startedAt = Date.now();
+        for (const k of Object.keys(st.steps)) if (st.steps[k].state !== "ok" && st.steps[k].state !== "skipped") delete st.steps[k];
+        changed();
+        st.promise = (async () => {
+          const home = plugin.homeUI();
+          if (plugin.currentBackend().mode === "missing") {
+            const res = await home.installBackend({ quiet: true, onProgress: (ev) => setStep(ev.stage, { state: ev.state, done: ev.done, total: ev.total, text: ev.text }) });
+            if (!res || !res.ok) {
+              const failed = Object.keys(st.steps).find((k) => st.steps[k].state === "failed") || "install";
+              st.error = friendlyError(failed, res || { code: "TRANSIENT.BUSY", message: plugin.busyText ? plugin.busyText() : "" });
+              st.state = "failed";
+              changed();
+              return { ok: false, error: st.error };
+            }
+          } else for (const [k] of WEIGHTS.slice(0, 5)) setStep(k, { state: "skipped" });
+          for (const id of COMPONENTS) {
+            const r = await installComponent(id);
+            if (!r.ok) st.warnings.push({ id, ...friendlyError(id, r) });
+          }
+          st.state = "done";
+          changed();
+          plugin.notify(st.warnings.length ? "Link Brain 装好了（有一项没装好，见安装窗口）" : "Link Brain 装好了", { kind: st.warnings.length ? "warn" : "ok", ms: 6e3 });
+          return { ok: true, warnings: st.warnings };
+        })();
+        return st.promise;
+      }
+      class InstallerModal extends Modal2 {
+        constructor(app) {
+          super(app);
+          this.unsub = null;
+          this.timer = null;
+        }
+        onOpen() {
+          const st = S();
+          st.modal = this;
+          this.modalEl.addClass?.("lb-installer-modal");
+          this.titleEl?.setText?.("安装 Link Brain");
+          const c = this.contentEl;
+          c.empty?.();
+          c.addClass?.("lb-installer");
+          const pick = c.createDiv({ cls: "lb-installer-pick" });
+          pick.createEl("p", { cls: "lb-installer-lead", text: "正在自动安装，大约几分钟。趁这会儿先选好下面几样（都能以后在设置里改）：" });
+          try {
+            plugin.onboardingUI().renderFolder(pick);
+          } catch (e) {
+            console.error("[lb] 收藏位置那一行没画上", e);
+          }
+          const ocr = new Setting2(pick).setName("认图片里的字").setDesc("截图、表格里的字也能搜到；在本机认，免费。关掉也照样装好，只是不用、不显示。");
+          ocr.addToggle((t) => t.setValue(ocrOn()).onChange(async (v) => {
+            try {
+              await setOcr(v);
+            } catch (e) {
+              plugin.notify("没保存上：" + (e && e.message || e), { kind: "error" });
+            }
+          }));
+          new Setting2(pick).setName("接 AI（问收藏、自动写概要）").setDesc("要自己的 API key，不接也能用。装完在设置里填。");
+          this.login = new Setting2(pick).setName("登录小红书").setDesc("");
+          this.login.addButton((b) => {
+            this.loginBtn = b;
+            b.setButtonText("扫码登录").onClick(() => this.doLogin());
+          });
+          const foot = c.createDiv({ cls: "lb-installer-foot" });
+          this.pctEl = foot.createDiv({ cls: "lb-installer-pct" });
+          const bar = foot.createDiv({ cls: "lb-bar lb-installer-bar" });
+          this.fillEl = bar.createDiv({ cls: "lb-bar-fill" });
+          this.nowEl = foot.createDiv({ cls: "lb-installer-now setting-item-description" });
+          this.msgEl = foot.createDiv({ cls: "lb-installer-msg" });
+          this.actsEl = foot.createDiv({ cls: "lb-installer-actions" });
+          const tick = () => {
+            this.timer = null;
+            this.paint();
+            if (running()) this.timer = setTimeout(tick, 1e3);
+          };
+          const paint = () => {
+            if (this.timer == null) tick();
+            else this.paint();
+          };
+          listeners.add(paint);
+          this.unsub = () => listeners.delete(paint);
+          tick();
+        }
+        paint() {
+          const st = S();
+          const p = pct();
+          this.pctEl.setText(st.state === "done" ? "装好了" : st.state === "failed" ? "没装完" : `${p}%`);
+          this.fillEl.style.width = p + "%";
+          this.nowEl.setText(st.state === "running" ? currentText(st.steps) || "准备中…" : "");
+          this.msgEl.empty?.();
+          this.actsEl.empty?.();
+          if (st.state === "failed" && st.error) {
+            this.msgEl.createDiv({ cls: "lb-installer-err", text: st.error.text });
+            this.button(this.actsEl, "重试", () => run(), true);
+            if (st.error.detail) this.button(this.actsEl, "复制详情", () => plugin.copyText?.(`[${st.error.code}] ${st.error.detail}`));
+          }
+          if (st.state === "done") {
+            for (const w of st.warnings) this.msgEl.createDiv({ cls: "lb-installer-warn", text: (w.id === "ocr" ? "认图片里的字没装好，不影响同步：" : "") + w.text });
+            if (st.warnings.length) this.button(this.actsEl, "重试没装好的", () => run());
+            this.button(this.actsEl, "开始同步", () => {
+              this.close();
+            }, true);
+          }
+          if (st.state === "running") this.button(this.actsEl, "放到后台装", () => this.close());
+          const readerOk = (st.steps.reader || {}).state === "ok";
+          const can = readerOk && !running() && !plugin.running;
+          this.loginBtn?.setDisabled?.(!can);
+          if (!this.loginState) this.login.setDesc(can ? "用手机小红书 App 扫一下；不扫也能装完，之后在设置里扫。" : "装好读取组件就能扫（装完会亮）。");
+        }
+        button(parent, text, fn, cta = false) {
+          const b = parent.createEl("button", { cls: cta ? "mod-cta" : "", text });
+          b.onclick = fn;
+          return b;
+        }
+        async doLogin() {
+          this.loginBtn?.setDisabled?.(true);
+          this.loginState = "running";
+          this.login.setDesc("已经打开扫码窗口，用手机扫一下…");
+          try {
+            const r = await plugin.loginAccount(false);
+            this.loginState = "done";
+            this.login.setDesc(r && r.ok !== false ? "✓ 已登录" : r && r.message || "没登录上，可以再点一次");
+          } catch (e) {
+            this.loginState = null;
+            this.login.setDesc("没登录上：" + (e && e.message || e));
+          }
+          this.paint();
+        }
+        onClose() {
+          if (this.unsub) this.unsub();
+          clearTimeout(this.timer);
+          this.timer = null;
+          const st = S();
+          if (st.modal === this) st.modal = null;
+          releaseGo();
+        }
+      }
+      const ocrOn = () => {
+        const o = plugin.settings && plugin.settings.ocr;
+        return !(o && o.mode === "off");
+      };
+      async function setOcr(v) {
+        const s = plugin.settings;
+        if (!s.ocr || typeof s.ocr !== "object") s.ocr = {};
+        s.ocr.mode = v ? s.ocr.mode && s.ocr.mode !== "off" ? s.ocr.mode : "local" : "off";
+        if (!s.setup || typeof s.setup !== "object") s.setup = {};
+        const cur = Array.isArray(s.setup.selected) ? s.setup.selected : ["core", "reader", "ocr"];
+        s.setup.selected = v ? [.../* @__PURE__ */ new Set([...cur, "ocr"])] : cur.filter((x) => x !== "ocr" && x !== "ai_vision");
+        await plugin.saveSettings();
+      }
+      function open() {
+        const st = S();
+        if (st.modal) return st.modal;
+        const m = new InstallerModal(plugin.app);
+        m.open();
+        return m;
+      }
+      async function openAndRun() {
+        open();
+        const res = await run();
+        if (res && res.ok) await waitGo();
+        return res;
+      }
+      return {
+        open,
+        run,
+        openAndRun,
+        state: S,
+        pct,
+        running,
+        _internals: { overallPct, stepFraction, currentText, friendlyError, componentEvent, WEIGHTS }
+      };
+    };
+    module2.exports._internals = { overallPct, stepFraction, currentText, friendlyError, componentEvent, WEIGHTS, STEP_TEXT };
   }
 });
 
@@ -11790,6 +12171,7 @@ var LB_MODULES = {
   skillsUI: () => require_skills_ui(),
   homeUI: () => require_home_ui(),
   backendInstall: () => require_backend_install(),
+  installerUI: () => require_installer_ui(),
   problemsUI: () => require_problems_ui(),
   reportUI: () => require_report_ui()
 };
@@ -12010,6 +12392,7 @@ function backendMissingText(backend) {
   const cmd = backend && backend.command || BACKEND_DEFAULT;
   return `没找到后端程序（${cmd}）：到 Link Brain 设置页顶部点「一键装好」自动安装（没有 Python 也行）；或在终端运行 \`${BACKEND_INSTALL}\` 后重启 Obsidian。`;
 }
+var BACKEND_INSTALLING_TEXT = "正在安装后端程序，装好就能用（进度在「安装 Link Brain」窗口和底部状态栏）。";
 var PYTHON_MISSING_TEXT = "找不到 Python。到 Link Brain 设置页顶部点「一键装好」自动安装后端（没有 Python 也行），或按 README 安装 Python 3.11+ 与 link_brain，再重启 Obsidian。";
 function pickSyncTask(nightly, legacy) {
   const exists = (s) => !!s && s.freq && s.freq !== "none";
@@ -13266,7 +13649,7 @@ var LinkBrainActions = class extends Plugin {
   }
   pyChild(args, { env = null } = {}) {
     const b = this.currentBackend();
-    if (b.mode === "missing") throw Object.assign(new Error(backendMissingText(b)), { code: "ENOENT", backendMissing: true });
+    if (b.mode === "missing") throw Object.assign(new Error(this.backendMissingText()), { code: "ENOENT", backendMissing: true });
     if (b.mode === "repo" && !b.exe) throw Object.assign(new Error(PYTHON_MISSING_TEXT), { code: "ENOENT", pythonMissing: true });
     const opts = { env: this.pyEnv(env), windowsHide: true };
     opts.cwd = b.mode === "repo" ? b.cwd || this.repoRoot : this.vaultDir || require("os").homedir();
@@ -13390,7 +13773,7 @@ var LinkBrainActions = class extends Plugin {
       const mins = Math.max(1, Math.round(timeoutMs / 6e4));
       throw Object.assign(new Error(timeoutMessage || `${label || "后台命令"}超过 ${mins} 分钟没有结果，已停止。`), { timedOut: true, result: r });
     }
-    if (r.code === -1 && r.json == null && this.currentBackend().mode !== "repo") throw Object.assign(new Error(backendMissingText(this.currentBackend())), { result: r, backendMissing: true });
+    if (r.code === -1 && r.json == null && this.currentBackend().mode !== "repo") throw Object.assign(new Error(this.backendMissingText()), { result: r, backendMissing: true });
     if (r.code === -1 && r.json == null) throw Object.assign(new Error(PYTHON_MISSING_TEXT + "\n" + r.err), { result: r, pythonMissing: true });
     if (!okCodes.includes(r.code) && r.json == null) throw Object.assign(new Error(stderrTail(r.err) || fallback || `${label || "后台命令"}失败（退出码 ${r.code}）`), { result: r });
     return r;
@@ -13539,8 +13922,13 @@ var LinkBrainActions = class extends Plugin {
     this.notify(LEGACY_PAGE_HINT, { kind: "warn", ms: 15e3, actions: [{ label: "刷新目录", run: () => this.refreshCatalog() }] });
     return true;
   }
+  // 1103：插件正在自己装后端时，各处「没找到后端程序」改说「正在安装」（安装窗口里有进度），别让新用户以为装坏了
   backendMissingText() {
-    return backendMissingText(this.currentBackend());
+    return this.backendInstalling() ? BACKEND_INSTALLING_TEXT : backendMissingText(this.currentBackend());
+  }
+  backendInstalling() {
+    const br = this.homeState && this.homeState.backendRun;
+    return !!(br && br.state === "running");
   }
   openPluginSettings(tab = "community-plugins") {
     try {
@@ -13656,6 +14044,9 @@ var LinkBrainActions = class extends Plugin {
   }
   homeUI() {
     return this._homeUI || (this._homeUI = LB_MODULES.homeUI()(obsidian, this));
+  }
+  installerUI() {
+    return this._installerUI || (this._installerUI = LB_MODULES.installerUI()(obsidian, this));
   }
   // 1102 托管模式：下载 uv → Python 3.12 → venv → link-brain（backend-install.js）；进度画在设置页顶部「懒人安装」（home-ui installBackend）
   backendInstall() {

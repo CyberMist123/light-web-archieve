@@ -144,6 +144,7 @@ const PLAN = { ok: true, components: [
     q.runPy = async args => { if (args.includes('plan')) return { code: 0, json: PLAN }; throw new Error('意外的调用 ' + args.join(' ')); };
     let resolveInstall; const events = [];
     q.backendInstall = () => ({ ensureBackend: (pl, { onProgress }) => new Promise(r => { resolveInstall = res => r(res); events.push(onProgress); }) });
+    q.installerUI = null;   // 1103：有安装窗口时按钮开窗口（tests/test_installer_1103.cjs 测）；这里测没有窗口时的直装
     const h = homeFactory(OBS, q);
     const pane = dom.document.createElement('div');
     const stop = h.renderRun(pane, { sectionTextAI: () => {}, sectionVisionAI: () => {} });

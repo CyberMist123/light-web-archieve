@@ -34,12 +34,14 @@ const PYTHON_VERSION = '3.12';
 // —— LWA 自己的后端发布件（发布工作流由另一个会话在做，按 reader-v0.2.0 的约定：标签 v<版本>，资产 = wheel + 带哈希的 requirements.lock + SHA256SUMS）。
 //    TODO：Release v0.2.0 发出来后回填 wheelSha256 / lockSha256（SHA256SUMS 里的值）。两个哈希为空时 ensureBackend 如实说「后端发布包还没发布」，不装。
 const BACKEND_RELEASE = {
-  version: '0.2.0',
-  wheelUrl: 'https://github.com/CyberMist123/light-web-archieve/releases/download/v0.2.0/link_brain-0.2.0-py3-none-any.whl',
-  wheelSha256: '5f0e8ece16d9b556c8c74b450b6cbdae03d2e652e027782efcd53b1d61e48c9f',   // Release v0.2.0 的 SHA256SUMS（1102 第二次发布：lock 改 universal；本机 Windows 下载、--require-hashes 装过）
-  lockUrl: 'https://github.com/CyberMist123/light-web-archieve/releases/download/v0.2.0/requirements.lock',
-  lockSha256: '546dafc3bdf8daec89ab4799fbe5498dc2ecf88a819fad8db113b2e215bd8ad1',
+  version: '0.2.1',
+  wheelUrl: 'https://github.com/CyberMist123/light-web-archieve/releases/download/v0.2.1/link_brain-0.2.1-py3-none-any.whl',
+  wheelSha256: '',   // TODO 发 v0.2.1 后回填（Release 的 SHA256SUMS）
+  lockUrl: 'https://github.com/CyberMist123/light-web-archieve/releases/download/v0.2.1/requirements.lock',
+  lockSha256: '',
 };
+// 1103 作者：OCR / B 站 / 附件转文字默认一起装（Release 的 lock 带这三个 extra，见 python-release.yml），用户不开的功能只是不显示
+const BACKEND_EXTRAS = ['ocr', 'bilibili', 'docs'];
 const STAGES = [['uv', '准备安装工具 uv'], ['python', '准备 Python ' + PYTHON_VERSION], ['venv', '建后端环境'], ['install', '安装 link-brain'], ['check', '自检']];
 const STAGE_LABEL = Object.fromEntries(STAGES);
 const BACKEND_DIR_KEY = 'backend_dir', PREV_DIR_KEY = 'backend_prev_dir';
@@ -208,6 +210,46 @@ async function selfCheck(dir, { platform = process.platform, runImpl = run, env 
   return fail('PERMANENT.BAD_PACKAGE', '装好了但跑不起来：' + lastLine(r.code === -1 ? r2 : r), { exe, python: py });
 }
 
+// —— 1103：uv pip install 的输出 → 进度（uv 不给机读进度，只能按它打出来的几种行估）——
+//   Resolved N packages → 5%；Downloading X (12.3MiB) / Downloaded X → 5–85%（按已下完的大文件 MB / 已报的大文件 MB）；
+//   Prepared → 90%；+ pkg 逐个 → 90–99%；Installed → 100%。只进不退（后报的大文件会让分母变大）。done/total 用千分制。
+const METER_TOTAL = 1000;
+function uvInstallMeter() {
+  const sizes = new Map(), finished = new Set();
+  let pkgs = 0, added = 0, best = 0, phase = 'resolve';
+  const mbOf = s => { const m = /([\d.]+)\s*(KiB|MiB|GiB)/i.exec(s || ''); if (!m) return 1; const n = Number(m[1]); return /k/i.test(m[2]) ? n / 1024 : /g/i.test(m[2]) ? n * 1024 : n; };
+  return line => {
+    const l = String(line || '').trim();
+    let m, text = null;
+    if ((m = /^Resolved (\d+) packages?/i.exec(l))) { pkgs = Number(m[1]); phase = 'download'; text = `要装 ${pkgs} 个依赖包，开始下载…`; }
+    else if ((m = /^Downloading (\S+) \(([^)]+)\)/i.exec(l))) { sizes.set(m[1], mbOf(m[2])); text = `正在下载 ${m[1]}（${m[2].replace(/MiB/i, ' MB').replace(/KiB/i, ' KB').replace(/GiB/i, ' GB')}）`; }
+    else if ((m = /^Downloaded (\S+)/i.exec(l))) { finished.add(m[1]); text = `下载好了 ${m[1]}`; }
+    else if (/^Prepared \d+ packages?/i.test(l)) { phase = 'install'; text = '下载完了，正在安装…'; }
+    else if ((m = /^\+ (\S+?)==/.exec(l))) { added++; phase = 'install'; text = `已装 ${m[1]}`; }
+    else if (/^Installed \d+ packages?/i.test(l)) { phase = 'done'; text = '依赖都装好了'; }
+    else return null;
+    let pct;
+    if (phase === 'resolve') pct = 2;
+    else if (phase === 'download') {
+      let all = 0, got = 0;
+      for (const [k, v] of sizes) { all += v; if (finished.has(k)) got += v; }
+      pct = 5 + (all ? 80 * got / all : 0);
+    } else if (phase === 'install') pct = 90 + (pkgs ? 9 * Math.min(1, added / pkgs) : 0);
+    else pct = 100;
+    best = Math.max(best, Math.round(pct * 10));
+    return { done: best, total: METER_TOTAL, text };
+  };
+}
+
+// uv python install 的一行 → 给人看的一句（认不出的原样截短）
+function pythonLineText(line) {
+  const l = String(line || '').trim();
+  let m;
+  if ((m = /^Downloading cpython-(\d+\.\d+\.\d+)\S*.*?\(([\d.]+)\s*MiB\)/i.exec(l))) return `正在下载 Python ${m[1]}（${m[2]} MB）`;
+  if ((m = /^Installed Python (\S+)/i.exec(l))) return `Python ${m[1]} 装好了`;
+  return l.slice(0, 160);
+}
+
 // —— 主流程 ——
 // ensureBackend(plugin, {onProgress, upgrade}) → {ok, code, message, dir, python, exe, stages}
 //   upgrade=false：托管目录里已经有能跑的后端就只自检；没有就装到 ~/.link-brain/py。
@@ -266,7 +308,7 @@ async function ensureBackend(plugin, { onProgress = null, upgrade = false, env =
 
     // ② Python
     progress('python', { text: `uv python install ${pythonVersion}（第一次要下载约 30 MB）` });
-    const py = await runImpl(uv, ['python', 'install', pythonVersion], { env: uvEnvironment, timeoutMs: 20 * 60000, onLine: l => progress('python', { text: l.slice(0, 160) }) });
+    const py = await runImpl(uv, ['python', 'install', pythonVersion], { env: uvEnvironment, timeoutMs: 20 * 60000, onLine: l => progress('python', { text: pythonLineText(l) }) });
     if (py.code !== 0) return bad('python', fail(/download|fetch|connect|timed out|dns/i.test(py.err + py.out) ? 'TRANSIENT.NETWORK' : 'PERMANENT.BAD_PACKAGE', `装 Python ${pythonVersion} 没成功：` + lastLine(py)));
     progress('python', { state: 'ok', text: `Python ${pythonVersion} 就绪` });
 
@@ -288,10 +330,11 @@ async function ensureBackend(plugin, { onProgress = null, upgrade = false, env =
     if (!wh.ok) return bad('install', wh);
     // wheel 也走 --require-hashes：写一行带 --hash 的直连需求（本地文件 URL）
     const wheelReq = path.join(dl, `link-brain-${release.version}.txt`);
-    fs.writeFileSync(wheelReq, `link-brain @ ${fileUrl(wheelFile)} --hash=sha256:${release.wheelSha256}\n`, 'utf8');
-    progress('install', { done: null, total: null, text: 'uv pip install --require-hashes …' });
+    fs.writeFileSync(wheelReq, `link-brain[${BACKEND_EXTRAS.join(',')}] @ ${fileUrl(wheelFile)} --hash=sha256:${release.wheelSha256}\n`, 'utf8');
+    const meter = uvInstallMeter();
+    progress('install', { done: 0, total: METER_TOTAL, text: '准备安装依赖（OCR、B 站下载等，约几百 MB）…' });
     const inst = await runImpl(uv, ['pip', 'install', '--python', pyExe, '--require-hashes', '-r', lockFile, '-r', wheelReq],
-      { env: uvEnvironment, timeoutMs: 30 * 60000, onLine: l => progress('install', { text: l.slice(0, 160) }) });
+      { env: uvEnvironment, timeoutMs: 30 * 60000, onLine: l => { const p = meter(l); if (p) progress('install', p); } });
     if (inst.code !== 0) {
       const text = inst.err + inst.out;
       const code = /Failed building wheel|No matching distribution|requires a different Python|No solution found|hash/i.test(text) ? 'PERMANENT.BAD_PACKAGE'
@@ -346,4 +389,4 @@ function managedInfo({ env = process.env, platform = process.platform, home = ho
 }
 
 module.exports = { ensureBackend, rollbackBackend, managedInfo, download, extractUv, selfCheck, run, uvAsset, uvEnv, homeDir, managedDir, uvExe, venvPython, venvBackend,
-  readConfig, writeConfig, fileUrl, UV_RELEASE, BACKEND_RELEASE, PYTHON_VERSION, STAGES };
+  readConfig, writeConfig, fileUrl, uvInstallMeter, UV_RELEASE, BACKEND_RELEASE, BACKEND_EXTRAS, PYTHON_VERSION, STAGES, METER_TOTAL };

@@ -222,8 +222,11 @@ function makePlugin(base, { saved = {}, files = new Set(), manifestDir = '.obsid
   { const real = require(path.join(ROOT, PLUGIN_DIR, 'backend-install.js'));
     env.p.backendInstall = () => ({ ...real, ensureBackend: (pl, o) => real.ensureBackend(pl, { ...o, release: { ...real.BACKEND_RELEASE, wheelSha256: '', lockSha256: '' } }) }); }
   try { assert.equal(await env.p.startupChecks(), 'backend-missing'); } finally { delete env.p.backendInstall; }
-  assert.ok(notices.some(n => /没找到后端程序/.test(String(n?.textContent ?? n))));
-  assert.ok(notices.some(n => /自动安装没做成.*还没发布/.test(String(n?.textContent ?? n))), '说清为什么没装上');
+  // 1103：启动时开「安装 Link Brain」窗口；没装上 → 窗口里一句话 + 重试，再弹一条带「打开安装窗口」的提示
+  assert.ok(notices.some(n => /没装完.*还没发布/.test(String(n?.textContent ?? n))), '说清为什么没装上');
+  assert.ok(env.p.installerUI().state().modal, '安装窗口开着');
+  assert.match(env.p.installerUI().state().error.text, /还没发布/);
+  env.p.installerUI().state().modal.close();
   assert.equal(spawned.length, 0, '没有后端就不起进程');
   // 1102：needsOnboarding 在后端缺失时也返回 true（以前返回 false，首次引导整个被跳过）
   env.p.settings.onboarding = {};
@@ -248,7 +251,21 @@ function makePlugin(base, { saved = {}, files = new Set(), manifestDir = '.obsid
       const firstRuns = [];
       const h = env.p.homeUI(); h.firstRun = async () => { firstRuns.push(1); return 'started'; };
       env.p.settings.onboarding = {};
-      assert.equal(await env.p.startupChecks(), 'onboarding', '装好了接着走首次自动跑');
+      // 1103：后端装好后安装窗口接着装读取组件、OCR（setup install；这里替身直接回成功），装完等用户点「开始同步」/ 关窗才往下
+      const realSpawn = env.p.spawnPy;
+      const comps = [];
+      env.p.spawnPy = async (args, o = {}) => {
+        if (args.includes('setup') && args.includes('install')) { comps.push(args[args.length - 1]); const res = { type: 'result', ok: true, message: '好了' }; o.onLine?.(JSON.stringify(res)); return { code: 0, json: res }; }
+        return realSpawn.call(env.p, args, o);
+      };
+      const started = env.p.startupChecks();
+      const inst = env.p.installerUI();
+      for (let i = 0; i < 200 && inst.state().state !== 'done'; i++) await new Promise(r => setTimeout(r, 5));
+      assert.equal(inst.state().state, 'done');
+      assert.deepEqual(comps, ['reader', 'ocr']);
+      assert.equal(firstRuns.length, 0, '窗口还开着：先不跑首次同步');
+      inst.state().modal.close();
+      try { assert.equal(await started, 'onboarding', '装好了接着走首次自动跑'); } finally { env.p.spawnPy = realSpawn; }
       assert.equal(firstRuns.length, 1);
       assert.equal(progress.length, 1); assert.equal(progress[0].ok, true);
       const mb = env.p.currentBackend();

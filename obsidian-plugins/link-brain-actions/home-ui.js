@@ -331,7 +331,7 @@ module.exports = function homeUI(obsidian, plugin) {
 
   // —— 1102 托管模式：没找到后端 → 插件自己装（backend-install.js ensureBackend：uv → Python 3.12 → venv → link-brain → 自检）——
   //    进度就画在「懒人安装」这一块（renderRun 的 paintRun 读 S().backendRun）；装好后 loadPlan 重读这台电脑。upgrade=true 是「更新后端」。
-  async function installBackend({ upgrade = false, quiet = false } = {}) {
+  async function installBackend({ upgrade = false, quiet = false, onProgress = null } = {}) {
     const st = S();
     if (st.backendRun && st.backendRun.state === 'running') { plugin.notify('正在装后端，装完再点', { kind: 'warn' }); return null; }
     if (plugin.running) { plugin.notify(plugin.busyText(), { kind: 'warn' }); return null; }
@@ -342,6 +342,7 @@ module.exports = function homeUI(obsidian, plugin) {
     try {
       res = await plugin.backendInstall().ensureBackend(plugin, { upgrade, onProgress: ev => {
         st.backendRun.stages[ev.stage] = ev;
+        if (onProgress) { try { onProgress(ev); } catch (e) { console.error('[lb] 安装窗口没画上', e); } }   // 1103：安装窗口（installer-ui.js）
         plugin.runningProgress = (ev.label || '') + (ev.text ? '：' + ev.text : '');
         plugin.taskChanged?.();
         if (frame == null) frame = setTimeout(() => { frame = null; repaint(); }, 120);
@@ -515,7 +516,8 @@ module.exports = function homeUI(obsidian, plugin) {
         // 1102：还没有后端（新电脑，可能连 Python 都没有）→ 这个主按钮先管「一键装好」：自己下载 uv / Python / link-brain
         const go = acts.createEl('button', { cls: 'lb-run-go lb-run-install mod-cta', text: installing ? '正在装后端…' : '一键装好' });
         go.disabled = installing;
-        go.onclick = () => installBackend();
+        go.onclick = () => { const inst = plugin.installerUI?.(); if (inst) { inst.open(); inst.run(); } else installBackend(); };   // 1103：开安装窗口
+        if (installing && plugin.installerUI) acts.createEl('button', { cls: 'lb-link', text: '打开安装窗口' }).onclick = () => plugin.installerUI().open();
         acts.createEl('span', { cls: 'setting-item-description', text: installing ? '正在下载并安装后端程序（uv · Python 3.12 · link-brain），进度在下面。'
           : '这台电脑还没有后端程序：点一下自动装到 ~/.link-brain（没有 Python 也行，约 100 MB）。装好后这里变成「一键装好 / 跑完」。' });
       } else {

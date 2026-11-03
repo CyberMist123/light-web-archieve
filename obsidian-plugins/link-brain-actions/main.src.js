@@ -44,6 +44,7 @@ const LB_MODULES = {
   skillsUI: () => require("./skills-ui.js"),
   homeUI: () => require("./home-ui.js"),
   backendInstall: () => require("./backend-install.js"),
+  installerUI: () => require("./installer-ui.js"),
   problemsUI: () => require("./problems-ui.js"),
   reportUI: () => require("./report-ui.js"),
 };
@@ -229,6 +230,7 @@ function backendMissingText(backend) {
   const cmd = (backend && backend.command) || BACKEND_DEFAULT;
   return `没找到后端程序（${cmd}）：到 Link Brain 设置页顶部点「一键装好」自动安装（没有 Python 也行）；或在终端运行 \`${BACKEND_INSTALL}\` 后重启 Obsidian。`;
 }
+const BACKEND_INSTALLING_TEXT = '正在安装后端程序，装好就能用（进度在「安装 Link Brain」窗口和底部状态栏）。';
 // 仓库模式找不到 Python（PATH 里没有、或只有 Windows 商店的别名桩）的那一句（runPy 起不来也是它）
 const PYTHON_MISSING_TEXT = '找不到 Python。到 Link Brain 设置页顶部点「一键装好」自动安装后端（没有 Python 也行），或按 README 安装 Python 3.11+ 与 link_brain，再重启 Obsidian。';
 // 定时同步管哪个计划任务：两份 `sync-schedule` 读到的状态（freq='none' = 没这个任务）→ 任务名；都没有 = null（「开启」时自己注册）。
@@ -1273,7 +1275,7 @@ class LinkBrainActions extends Plugin {
   }
   pyChild(args, { env = null } = {}) {
     const b = this.currentBackend();
-    if (b.mode === 'missing') throw Object.assign(new Error(backendMissingText(b)), { code: 'ENOENT', backendMissing: true });
+    if (b.mode === 'missing') throw Object.assign(new Error(this.backendMissingText()), { code: 'ENOENT', backendMissing: true });
     // 1102：仓库模式但找不到 Python（PATH 里没有 / 只有商店别名桩）——不起进程，直接说那一句
     if (b.mode === 'repo' && !b.exe) throw Object.assign(new Error(PYTHON_MISSING_TEXT), { code: 'ENOENT', pythonMissing: true });
     const opts = { env: this.pyEnv(env), windowsHide: true };
@@ -1352,7 +1354,7 @@ class LinkBrainActions extends Plugin {
       throw Object.assign(new Error(timeoutMessage || `${label || '后台命令'}超过 ${mins} 分钟没有结果，已停止。`), { timedOut: true, result: r });
     }
     // 后端命令模式起不来：如实说「没找到后端程序 + 怎么装」（设置页 / 引导里有复制按钮）；仓库模式照旧指向 Python
-    if (r.code === -1 && r.json == null && this.currentBackend().mode !== 'repo') throw Object.assign(new Error(backendMissingText(this.currentBackend())), { result: r, backendMissing: true });
+    if (r.code === -1 && r.json == null && this.currentBackend().mode !== 'repo') throw Object.assign(new Error(this.backendMissingText()), { result: r, backendMissing: true });
     if (r.code === -1 && r.json == null) throw Object.assign(new Error(PYTHON_MISSING_TEXT + '\n' + r.err), { result: r, pythonMissing: true });
     if (!okCodes.includes(r.code) && r.json == null) throw Object.assign(new Error(stderrTail(r.err) || fallback || `${label || '后台命令'}失败（退出码 ${r.code}）`), { result: r });
     return r;
@@ -1447,7 +1449,9 @@ class LinkBrainActions extends Plugin {
     this.notify(LEGACY_PAGE_HINT, { kind: 'warn', ms: 15000, actions: [{ label: '刷新目录', run: () => this.refreshCatalog() }] });
     return true;
   }
-  backendMissingText() { return backendMissingText(this.currentBackend()); }
+  // 1103：插件正在自己装后端时，各处「没找到后端程序」改说「正在安装」（安装窗口里有进度），别让新用户以为装坏了
+  backendMissingText() { return this.backendInstalling() ? BACKEND_INSTALLING_TEXT : backendMissingText(this.currentBackend()); }
+  backendInstalling() { const br = this.homeState && this.homeState.backendRun; return !!(br && br.state === 'running'); }
   openPluginSettings(tab = 'community-plugins') { try { this.app.setting.open(); this.app.setting.openTabById(tab); } catch (e) { new Notice('没打开设置：' + e.message); } }
   commandTable() {
     return [
@@ -1522,6 +1526,7 @@ class LinkBrainActions extends Plugin {
   usageUI() { return LB_MODULES.usageUI()(obsidian, this); }
   skillsUI() { return LB_MODULES.skillsUI()(obsidian, this); }
   homeUI() { return this._homeUI || (this._homeUI = LB_MODULES.homeUI()(obsidian, this)); }
+  installerUI() { return this._installerUI || (this._installerUI = LB_MODULES.installerUI()(obsidian, this)); }
   // 1102 托管模式：下载 uv → Python 3.12 → venv → link-brain（backend-install.js）；进度画在设置页顶部「懒人安装」（home-ui installBackend）
   backendInstall() { return this._backendInstall || (this._backendInstall = LB_MODULES.backendInstall()); }
   managedPaths() { return managedPaths(); }

@@ -172,6 +172,9 @@ def _ocr() -> dict[str, Any]:
                    hint=f"点「安装」用 pip 补装，或自己装：{extras.install_hint('ocr')}")
     elif mode == "off":
         row = _row("ocr", "partial", "OCR 在设置里关着", fix="manual", hint="设置 → AI → 本地 OCR 打开")
+    elif sys.platform == "win32" and not _vc_runtime_ok():
+        row = _row("ocr", "partial", "这台电脑缺 VC++ 运行库（msvcp140.dll），OCR 加载不了", fix="auto",
+                   hint="点「安装」自动补装（约 2 MB）")
     elif not models_ok:
         where = f"设置里的模型目录 {model_dir}" if model_dir else "rapidocr 的模型目录"
         row = _row("ocr", "partial", f"PP-OCRv6 {tier} 档模型还没下（{where}）；第一次用时会自动下载",
@@ -464,10 +467,42 @@ def _install_ocr(emit: Emit | None) -> dict[str, Any]:
             patch = {"ocr": {"modelDir": str(target)}}
             model_dir = str(target)
         changed = True
+    if _ensure_vc_runtime(emit):
+        changed = True
     progress(emit, "ocr", "验证", None, None, "加载 OCR 模型认一张测试图")
     _ocr_selftest(tier, model_dir)
     msg = (f"本地 OCR 可用（PP-OCRv6 {tier}）" + ("，模型已下好" if need_models else ""))
     return {"message": msg, "changed": changed, "settings_patch": patch}
+
+
+VC_RUNTIME_SPEC = "msvc-runtime>=14.40"
+
+
+def _vc_runtime_ok() -> bool:
+    """msvcp140.dll 加载得上（System32 里有，或 link_brain 启动时已把 sys.prefix 加进 DLL 搜索路径）。"""
+    import ctypes
+    try:
+        ctypes.WinDLL("msvcp140.dll")
+        return True
+    except OSError:
+        return False
+
+
+def _ensure_vc_runtime(emit: Emit | None) -> bool:
+    """1103 干净 Win11 实测：没装 VC++ 运行库时 pyclipper（rapidocr 依赖）导入报 DLL load failed。
+    缺就装 PyPI 的 msvc-runtime（微软可再分发 DLL，约 2 MB，落在 sys.prefix），再把 sys.prefix 加进 DLL 搜索路径。
+    不用系统级 vc_redist.exe：要管理员权限、要弹 UAC。返回这次装了没有。"""
+    if sys.platform != "win32" or _vc_runtime_ok():
+        return False
+    progress(emit, "ocr", "补运行库", None, None, "这台电脑没有 VC++ 运行库，补装 msvc-runtime（约 2 MB）")
+    _pip_install("ocr", [VC_RUNTIME_SPEC], emit)
+    if os.path.isfile(os.path.join(sys.prefix, "msvcp140.dll")):
+        import link_brain
+        if link_brain._VC_RUNTIME_DIR is None:
+            link_brain._VC_RUNTIME_DIR = link_brain._add_vc_runtime_dir()
+    if not _vc_runtime_ok():
+        raise SetupError("PERMANENT.BAD_PACKAGE", "装了 VC++ 运行库还是加载不上：到微软官网装「Visual C++ 可再发行程序包（x64）」后再点一次")
+    return True
 
 
 def _ocr_selftest(tier: str, model_dir: str) -> None:

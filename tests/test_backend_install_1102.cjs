@@ -52,7 +52,7 @@ const listen = () => new Promise(r => server.listen(0, '127.0.0.1', () => r(`htt
   for (const a of Object.values(B.UV_RELEASE.assets)) assert.match(a.sha256, /^[0-9a-f]{64}$/, '每个资产都有 sha256');
   assert.ok(B.uvAsset('win32', 'x64').url.startsWith('https://github.com/astral-sh/uv/releases/download/' + B.UV_RELEASE.version + '/'));
   assert.equal(typeof B.BACKEND_RELEASE.wheelUrl, 'string');
-  assert.ok(/\/releases\/download\/v0\.2\.0\//.test(B.BACKEND_RELEASE.wheelUrl) && /requirements\.lock$/.test(B.BACKEND_RELEASE.lockUrl), '按 v0.2.0 的命名约定');
+  assert.ok(B.BACKEND_RELEASE.wheelUrl.includes(`/releases/download/v${B.BACKEND_RELEASE.version}/link_brain-${B.BACKEND_RELEASE.version}-py3-none-any.whl`) && /requirements\.lock$/.test(B.BACKEND_RELEASE.lockUrl), '按 v<版本> 的命名约定');
 
   // —— 2. download ——
   const dl = path.join(tmp, 'dl');
@@ -110,7 +110,7 @@ const listen = () => new Promise(r => server.listen(0, '127.0.0.1', () => r(`htt
         assert.equal(args[1], 'install'); assert.equal(args[2], '--python'); assert.ok(args.includes('--require-hashes'), '必带 --require-hashes');
         const lock = args[args.indexOf('-r') + 1], wheelReq = args[args.lastIndexOf('-r') + 1];
         assert.ok(fs.readFileSync(lock, 'utf8').includes('--hash=sha256:'), 'lock 真下到了本地');
-        assert.match(fs.readFileSync(wheelReq, 'utf8'), /^link-brain @ file:\/\/.*\.whl --hash=sha256:[0-9a-f]{64}\n$/, 'wheel 也带哈希');
+        assert.match(fs.readFileSync(wheelReq, 'utf8'), /^link-brain\[ocr,bilibili,docs\] @ file:\/\/.*\.whl --hash=sha256:[0-9a-f]{64}\n$/, 'wheel 也带哈希（1103：OCR / B 站 / 附件默认一起装）');
         if (failAt === 'pip') return { code: 1, out: '', err: 'error: No solution found when resolving dependencies\n' };
         const dir = path.dirname(path.dirname(args[3]));
         touch(B.venvBackend(dir, P), '#!/bin/sh\n');
@@ -144,7 +144,7 @@ const listen = () => new Promise(r => server.listen(0, '127.0.0.1', () => r(`htt
   const last = st => prog.filter(e => e.stage === st).at(-1);
   for (const st of order) assert.equal(last(st).state, 'ok', st + ' 最后一条是 ok');
   assert.ok(prog.some(e => e.stage === 'install' && e.total === files['link_brain-0.2.0-py3-none-any.whl'].length), '下载 wheel 的进度带 total');
-  assert.ok(prog.some(e => e.stage === 'python' && /Installed Python/.test(e.text)), 'uv 的输出逐行成为进度文字');
+  assert.ok(prog.some(e => e.stage === 'python' && /^Python \S+ 装好了$/.test(e.text)), 'uv 的输出逐行成为进度文字（1103：认得的行换成人话）');
   assert.ok(fs.existsSync(B.uvExe(home, P)), 'uv 解到 ~/.link-brain/bin');
   assert.ok(!fs.existsSync(path.join(home, 'downloads', 'uv-fake.tar.gz')), 'uv 压缩包用完删掉');
   assert.deepEqual(B.readConfig(home), { backend_dir: path.join(home, 'py') }, 'config.json 记下后端目录');

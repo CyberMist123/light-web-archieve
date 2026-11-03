@@ -109,12 +109,11 @@ module.exports = function (obsidian, plugin) {
     async startup() {
       const b = plugin.currentBackend();
       if (b.mode === 'missing') {
-        // 1102：不再只弹「复制安装命令」——新电脑（可能连 Python 都没有）由插件自己装后端；装好接着走首次自动跑，没装上才提示并停下
-        plugin.notify('Link Brain：这台电脑还没有后端程序，正在自动安装（uv · Python 3.12 · link-brain，约 100 MB）。进度在设置页顶部「懒人安装」。', { ms: 12000,
-          actions: [{ label: '打开设置', run: () => plugin.openSetupPage?.() }] });
-        const got = await installBackend({ quiet: true });
+        // 1102：新电脑（可能连 Python 都没有）由插件自己装后端。1103 作者：像安装器——开「安装 Link Brain」窗口，上面趁着装先选好，
+        // 下面一条总进度条；后端 + 读取组件 + OCR 一次装完。用户点「开始同步」或关掉窗口后，接着走首次自动跑；没装上窗口里有「重试」
+        const got = await plugin.installerUI().openAndRun();
         if (!got || !got.ok || plugin.currentBackend().mode === 'missing') {
-          noticeWithButton(plugin.backendMissingText() + (got && got.message ? '（自动安装没做成：' + got.message + '）' : ''), '复制安装命令', () => copy(BACKEND_INSTALL), 30000);
+          noticeWithButton('Link Brain 没装完：' + ((got && got.error && got.error.text) || '原因见安装窗口'), '打开安装窗口', () => plugin.installerUI().open(), 30000);
           return 'backend-missing';
         }
       }
@@ -132,7 +131,13 @@ module.exports = function (obsidian, plugin) {
     renderSetupHints(c) {
       const shown = [];
       const b = plugin.currentBackend();
-      if (b.mode === 'missing') { hintBox(c, plugin.backendMissingText(), [['一键装好', () => installBackend()], ['复制安装命令', () => copy(BACKEND_INSTALL)]], 'is-backend'); shown.push('backend'); }
+      // 1103：没后端时只有这一块说（正在装 → 「正在安装」+ 打开安装窗口；没在装 → 一键装好 = 开安装窗口）
+      if (b.mode === 'missing') {
+        const inst = plugin.installerUI();
+        if (inst.running()) hintBox(c, `正在安装 Link Brain（${inst.pct()}%），装好就能用。`, [['打开安装窗口', () => inst.open()]], 'is-backend is-installing');
+        else hintBox(c, plugin.backendMissingText(), [['一键装好', () => { inst.open(); inst.run(); }], ['复制安装命令', () => copy(BACKEND_INSTALL)]], 'is-backend');
+        shown.push('backend');
+      }
       if (plugin.mediaNav?.skipped) {
         hintBox(c, '图片导航已经并进本插件。旧插件「Link Brain Native Media Nav」还开着，现在由它负责；在「第三方插件」里停用它并重启 Obsidian，就由本插件接管（两个同时开会重复）。',
           [['打开第三方插件', () => plugin.openPluginSettings('community-plugins')]], 'is-medianav');
