@@ -1,2 +1,4 @@
 *.patch -text
 .githooks/pre-push text eol=lf
+# 插件源码和构建产物一律 LF：esbuild 的 text loader 会把 CRLF 原样打进 main.js，Windows 上 build:check 就和 Linux 不一致
+obsidian-plugins/link-brain-actions/* text eol=lf

@@ -11,6 +11,11 @@
 'use strict';
 const fs = require('fs');
 const path = require('path');
+function noteCss(plugin) {
+  try { const t = require('./note.css'); if (typeof t === 'string') return t; } catch {}
+  // 直接跑源文件（node 单测）时 require 不了 .css：退回读插件目录那份
+  return fs.readFileSync(path.join(plugin.app.vault.adapter.getBasePath(), plugin.manifest.dir, 'note.css'), 'utf8');
+}
 
 const NOTE_STYLE_ID = 'lb-note-style';
 const mmss = ms => { const s = Math.max(0, Math.floor((Number(ms) || 0) / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
@@ -96,8 +101,8 @@ class NoteActions {
     if (!D || !D.head) return null;
     let css = '';
     try {
-      const base = this.app.vault.adapter.getBasePath();
-      css = fs.readFileSync(path.join(base, this.plugin.manifest.dir, 'note.css'), 'utf8');
+      // 1102：note.css 打进 main.js（BRAT 装的插件目录里没有这个文件），从插件主体取那份文本
+      css = noteCss(this.plugin);
     } catch (e) { console.error('[lb] 笔记样式没读到（照常用 CSS 片段）', e); return null; }
     let el = D.getElementById(NOTE_STYLE_ID);
     if (!el) {

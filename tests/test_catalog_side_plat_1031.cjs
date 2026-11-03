@@ -23,7 +23,8 @@ const bili = () => [
   item('bili-BV1aa', 'B站一', { source: 'bilibili', ts: ago(0).toISOString(), date: today, cats: ['吃的'] }),
   item('bili-BV1bb', 'B站二', { source: 'bilibili', ts: ago(3).toISOString(), date: ymdOf(ago(3)), starred: true }),
 ];
-const finished = new Date(now.getTime() - 3600e3);
+// 「上次」要落在今天：一小时前跨了午夜（本地 0–1 点跑）就取今天 0 点，免得断言「上次 今天」随钟点变红
+const finished = new Date(Math.max(now.getTime() - 3600e3, new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()));
 const lastDone = () => JSON.stringify({ state: 'done', started_at: new Date(finished.getTime() - 600e3).toISOString(), finished_at: finished.toISOString(),
   counts: { downloaded: 3, failed: 1, multi_p: 2, hit: 40 }, ok: false, code: 'SYNC_FAILED', message: '同步完：新下 3 条' });
 const mkPlugin = (more = {}) => {

@@ -10,7 +10,7 @@ const obsidianMock={Plugin:class{},Modal:class{},Notice:class{},TFile:class{},Pl
 // node 测试不许起真进程（CONVENTIONS §7.5）：child_process 换成一碰就炸的桩
 const context={module:{exports:{}},URL,require:name=>name==='obsidian'?obsidianMock:name==='child_process'?{spawn(){throw new Error('测试里不许 spawn 真进程');}}:require(name)};
 vm.createContext(context);
-vm.runInContext(fs.readFileSync('obsidian-plugins/link-brain-actions/main.js','utf8')+';module.exports.cleanLinks=cleanLinks;module.exports.parseCatsText=parseCatsText;module.exports.serializeCats=serializeCats;',context);
+vm.runInContext(fs.readFileSync('obsidian-plugins/link-brain-actions/main.js','utf8'),context);
 const Plugin=context.module.exports;
 const links=Plugin.cleanLinks('分享：https://www.xiaohongshu.com/explore/abc?xsec_token=keep&share_from=test，重复 https://www.xiaohongshu.com/explore/abc?xsec_token=keep https://xiaohongshu.com.evil.test/a https://xhslink.com/a/test。');
 assert.equal(links.length,2);

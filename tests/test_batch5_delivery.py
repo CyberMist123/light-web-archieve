@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import http.server
 import json
+import re
 import sys
 import threading
 import zipfile
@@ -515,10 +516,11 @@ def test_doctor_plugin_files_match_plugin_dir_and_no_dataview(tmp_path):
     plugin_dir = Path(__file__).resolve().parent.parent / "obsidian-plugins" / "link-brain-actions"
     for name in doctor.PLUGIN_FILES:
         assert (plugin_dir / name).is_file(), f"doctor 要求的 {name} 不在插件目录里"
-    assert "media-nav.js" in doctor.PLUGIN_FILES and "onboarding-ui.js" in doctor.PLUGIN_FILES
-    assert "home-ui.js" in doctor.PLUGIN_FILES and "setup-ui.js" not in doctor.PLUGIN_FILES, "1009：分步向导换成设置页顶部"
+    # 1102：插件打成单个 main.js，和 BRAT 装出来的一样只要这三个文件
+    assert doctor.PLUGIN_FILES == ("main.js", "manifest.json", "styles.css")
     rows = {r["id"]: r for r in doctor.diagnose(obsidian_dir=str(tmp_path / ".obsidian"), only="local")["checks"]}
     main_js = (plugin_dir / "main.js").read_text(encoding="utf-8")
-    assert "var LBPageHost = " in main_js, "1102：目录页等由插件的 page-host.js 显示（esbuild 打进 main.js）"
+    assert "obsidian-plugins/link-brain-actions/page-host.js" in main_js, "1102：目录页等由插件的 page-host.js 显示（esbuild 打进 main.js）"
+    assert not re.search(r"""require\((["'])\.{1,2}/""", main_js), "1102：main.js 不按路径 require 同目录文件（BRAT 只下三个文件）"
     assert "dataview" not in rows, "1102：Dataview 不再需要（页面是 lb-page 块，插件自己显示）"
     assert rows["obsidian"]["message"] == "未安装"

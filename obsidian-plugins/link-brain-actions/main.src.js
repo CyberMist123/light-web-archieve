@@ -20,10 +20,38 @@ function defaultDownloadsFolder() {
   if (typeof process === "undefined" || !process.versions || !process.versions.node) return "";   // 手机（没有 Node）：不去碰 os / path
   try { return path.join(require("os").homedir(), "Downloads"); } catch { return ""; }
 }
-// page-host.js 由 esbuild 打进 main.js（全局名 LBPageHost，tools/build_plugin.cjs）；直接跑 main.src.js（单测）时退回 require 同目录那份
-function pageHostFactory() {
-  if (typeof LBPageHost !== "undefined" && LBPageHost) return LBPageHost;
-  return require("./page-host.js");
+// 1102 单文件：同目录的模块一律写成 require('./xxx.js')，tools/build_plugin.cjs 用 esbuild 把它们全打进 main.js
+// （BRAT 只下载 main.js / manifest.json / styles.css）。esbuild 把每个模块包成「第一次调用才执行」的函数，
+// 所以这里只放取模块的函数，不在顶层执行：手机加载 main.js 时这些模块（和它们引用的 Node 模块）一个都不碰。
+const LB_MODULES = {
+  pageHost: () => require("./page-host.js"),
+  remoteUI: () => require("./remote-ui.js"),
+  mediaNav: () => require("./media-nav.js"),
+  noTooltip: () => require("./no-tooltip.js"),
+  noteActions: () => require("./note-actions.js"),
+  noteTools: () => require("./note-tools.js"),
+  imageActions: () => require("./image-actions.js"),
+  playerUI: () => require("./player-ui.js"),
+  indexUI: () => require("./index-ui.js"),
+  scheduleUI: () => require("./schedule-ui.js"),
+  libraryUI: () => require("./library-ui.js"),
+  onboardingUI: () => require("./onboarding-ui.js"),
+  settingsV6: () => require("./settings-v6.js"),
+  lbTheme: () => require("./lb-theme.js"),
+  providerIcons: () => require("./provider-icons.js"),
+  settingsPages: () => require("./settings-pages.js"),
+  usageUI: () => require("./usage-ui.js"),
+  skillsUI: () => require("./skills-ui.js"),
+  homeUI: () => require("./home-ui.js"),
+  backendInstall: () => require("./backend-install.js"),
+  problemsUI: () => require("./problems-ui.js"),
+  reportUI: () => require("./report-ui.js"),
+};
+function pageHostFactory() { return LB_MODULES.pageHost(); }
+// note.css 的文本：构建时 esbuild 用 text loader 打进 main.js；直接跑 main.src.js（node 单测）时 require 不了 .css，退回读同目录文件
+function noteCssText() {
+  try { const t = require("./note.css"); if (typeof t === "string") return t; } catch {}
+  return fs.readFileSync(path.join(typeof __dirname === "string" ? __dirname : ".", "note.css"), "utf8");
 }
 
 function endpointHost(value) {
@@ -862,20 +890,18 @@ class LinkBrainActions extends Plugin {
     // 再解 junction 拿真路径；它的上一级是 LWA 仓库就照旧 python -m link_brain（作者本机），否则用设置里的后端命令。
     await this.locateCollection();
     refreshTask().catch(console.error);
-    try { this.remoteUI = require(path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir, 'remote-ui.js'))(obsidian, this); await this.remoteUI.attach(); } catch (e) { console.error('[lb] 远程阅读设置没加载上', e); }   // 第 6 批：远程阅读（MCP）
+    try { this.remoteUI = LB_MODULES.remoteUI()(obsidian, this); await this.remoteUI.attach(); } catch (e) { console.error('[lb] 远程阅读设置没加载上', e); }   // 第 6 批：远程阅读（MCP）
     // 第 5 批 B2：原「Link Brain Native Media Nav」插件并进来（图片 ←/→、滚轮翻页、点图放大、钉住媒体、视频倍速）
-    try { this.mediaNav = require(path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir, 'media-nav.js'))(obsidian, this); this.mediaNav.attach(); } catch (e) { console.error('[lb] 图片导航没加载上', e); }
+    try { this.mediaNav = LB_MODULES.mediaNav()(obsidian, this); this.mediaNav.attach(); } catch (e) { console.error('[lb] 图片导航没加载上', e); }
     // 1031 作者：LWA 自己的界面悬停不出提示气泡（title 白框 / Obsidian 黑气泡都不要），见 no-tooltip.js
-    try { this.noTooltip = require(path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir, 'no-tooltip.js'))(obsidian, this); this.noTooltip.attach(); } catch (e) { console.error('[lb] 去提示气泡没加载上', e); }
+    try { this.noTooltip = LB_MODULES.noTooltip()(obsidian, this); this.noTooltip.attach(); } catch (e) { console.error('[lb] 去提示气泡没加载上', e); }
     // 批次 D 地基：笔记页动作 / 笔记工具 / 图片动作 / 连播 各一个文件，挂到 this.noteActions / noteTools / imageActions / playerUI。
     // 各线只改自己那个文件（工厂 (obsidian, plugin) => ({attach(){}, detach?(){}})），onload 这里不再动；卸载清理各自用 plugin.register / registerEvent，
-    // 或给实例一个 detach()（onunload 会调）。先删 require 缓存再加载：只重载插件（LB.ensure 关了再开）也拿到新部署的文件，不用重启 Obsidian。
+    // 或给实例一个 detach()（onunload 会调）。1102 起这些文件都打进 main.js，重载插件就会重新执行 main.js，不再需要删 require 缓存。
     // 10-10：index-ui.js = 索引树（保存 索引.md 就重算、起草 / 用这版、未归类建议、生成 wiki），挂到 this.indexUI。
     for (const [file, key] of [['note-actions.js', 'noteActions'], ['note-tools.js', 'noteTools'], ['image-actions.js', 'imageActions'], ['player-ui.js', 'playerUI'], ['index-ui.js', 'indexUI']]) {
       try {
-        const p = path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir, file);
-        for (const r of [require, typeof window !== 'undefined' ? window.require : null]) { try { if (r && r.cache) delete r.cache[typeof r.resolve === 'function' ? r.resolve(p) : p]; } catch {} }
-        this[key] = require(p)(obsidian, this);
+        this[key] = LB_MODULES[key]()(obsidian, this);
         const r = this[key].attach();
         if (r && typeof r.catch === 'function') r.catch(e => console.error(`[lb] ${file} 没挂上`, e));
       } catch (e) { console.error(`[lb] ${file} 没加载上`, e); }
@@ -1190,7 +1216,7 @@ class LinkBrainActions extends Plugin {
       { label: '保存同步计划', fallback: '保存失败', okCodes: [0, 1], env: { LINK_BRAIN_SYNC_TASK: this.syncTask } });
     return r.json || { ok: false, error: '后台没返回结果' };
   }
-  scheduleUI() { return require(path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir, 'schedule-ui.js'))(obsidian, this); }
+  scheduleUI() { return LB_MODULES.scheduleUI()(obsidian, this); }
   // 收藏库（LINK_BRAIN_VAULT）= 本库根 + lbRoot 的真路径；后端 = 仓库模式 / 后端命令 / 没找到。onload 和首次引导改位置后调。
   async locateCollection() {
     const base = this.app.vault.adapter.getBasePath();
@@ -1222,7 +1248,7 @@ class LinkBrainActions extends Plugin {
     return '';
   }
   lbPath(p) { return this.lbRoot ? `${this.lbRoot}/${p}` : p; }
-  libraryUI() { return require(path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir, 'library-ui.js'))(obsidian); }
+  libraryUI() { return LB_MODULES.libraryUI()(obsidian); }
   openAttachments(items, refresh) {
     if (!items.length) { new Notice('附件已齐'); return; }
     new (this.libraryUI().AttachmentModal)(this, items, refresh).open();
@@ -1401,7 +1427,7 @@ class LinkBrainActions extends Plugin {
   }
 
   // 第 5 批 B2：首次引导 / 启动提示 / 设置页顶部提示（整块在 onboarding-ui.js）
-  onboardingUI() { return this._onboardingUI || (this._onboardingUI = require(path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir, 'onboarding-ui.js'))(obsidian, this)); }
+  onboardingUI() { return this._onboardingUI || (this._onboardingUI = LB_MODULES.onboardingUI()(obsidian, this)); }
   openOnboarding() { return this.onboardingUI().open(); }
   startupChecks() { return this.onboardingUI().startup(); }
   renderSetupHints(c) {
@@ -1484,20 +1510,20 @@ class LinkBrainActions extends Plugin {
     return box;
   }
   // 设置页顶部（状态 + 功能 + 一键装好 / 跑完 + 首次零配置）整块在 home-ui.js
-  settingsV6() { return this._settingsV6 || (this._settingsV6 = require(path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir, 'settings-v6.js'))(obsidian, this)); }
+  settingsV6() { return this._settingsV6 || (this._settingsV6 = LB_MODULES.settingsV6()(obsidian, this)); }
   // 1027 样式集：变量在 styles.css 顶部的 lb-tokens 块；用户的「Aa 样式」（settings.catalogLayout.theme）换算在 lb-theme.js（和页面 LB.applyTheme 同一段代码）。
   // applyTheme(theme?, el?)：theme 不传 = 读设置，null = 回默认；el 不传 = document.body（全局：设置页、各页面都跟着），传别的元素只改那一块（自动加 .lb-scope）。
-  lbTheme() { return this._lbTheme || (this._lbTheme = require(path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir, 'lb-theme.js'))); }
+  lbTheme() { return this._lbTheme || (this._lbTheme = LB_MODULES.lbTheme()); }
   applyTheme(theme = this.settings?.catalogLayout?.theme, el = (typeof document !== 'undefined' ? document.body : null)) {
     try { return this.lbTheme().lbApplyTheme(el, theme ?? null); } catch (e) { console.error('[lb] 样式没套上', e); return null; }
   }
-  providerIcons() { return this._providerIcons || (this._providerIcons = require(path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir, 'provider-icons.js'))); }
-  settingsPages() { return this._settingsPages || (this._settingsPages = require(path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir, 'settings-pages.js'))(obsidian, this)); }
-  usageUI() { return require(path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir, 'usage-ui.js'))(obsidian, this); }
-  skillsUI() { return require(path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir, 'skills-ui.js'))(obsidian, this); }
-  homeUI() { return this._homeUI || (this._homeUI = require(path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir, 'home-ui.js'))(obsidian, this)); }
+  providerIcons() { return this._providerIcons || (this._providerIcons = LB_MODULES.providerIcons()); }
+  settingsPages() { return this._settingsPages || (this._settingsPages = LB_MODULES.settingsPages()(obsidian, this)); }
+  usageUI() { return LB_MODULES.usageUI()(obsidian, this); }
+  skillsUI() { return LB_MODULES.skillsUI()(obsidian, this); }
+  homeUI() { return this._homeUI || (this._homeUI = LB_MODULES.homeUI()(obsidian, this)); }
   // 1102 托管模式：下载 uv → Python 3.12 → venv → link-brain（backend-install.js）；进度画在设置页顶部「懒人安装」（home-ui installBackend）
-  backendInstall() { return this._backendInstall || (this._backendInstall = require(path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir, 'backend-install.js'))); }
+  backendInstall() { return this._backendInstall || (this._backendInstall = LB_MODULES.backendInstall()); }
   managedPaths() { return managedPaths(); }
   async copyText(text) {
     try { await navigator.clipboard.writeText(text); new Notice('已复制：' + text); return true; }
@@ -1519,10 +1545,10 @@ class LinkBrainActions extends Plugin {
   }
 
   // 第 4 批：目录页顶部问题入口 → 问题列表（整个窗口在 problems-ui.js）
-  problemsUI() { return require(path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir, 'problems-ui.js'))(obsidian, this); }
+  problemsUI() { return LB_MODULES.problemsUI()(obsidian, this); }
   openProblems() { return this.problemsUI().open(); }
   // 第 6 批：目录页标题下「N 篇 · 更新 …」那行点开 → 本周同步情况（整个窗口在 report-ui.js）
-  reportUI() { return require(path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir, 'report-ui.js'))(obsidian, this); }
+  reportUI() { return LB_MODULES.reportUI()(obsidian, this); }
   // 10-03：目录页标题（大标题 Collections 可改）和瀑布流列数（2–6；和 Ctrl + 滚轮同一个设置）。改完通知开着的目录页 / 星标页就地换。
   async setCatalogPrefs({ title, columns } = {}) {
     if (title !== undefined) { this.settings.catalogTitle = String(title || '').trim().slice(0, 40); this.markSettingDirty('catalogTitle'); }
@@ -2127,8 +2153,8 @@ class LinkBrainActions extends Plugin {
     } catch (e) { console.error('[lb] 手机上页面处理器没注册上', e); }
     try {
       const doc = typeof document !== 'undefined' ? document : null;
-      // note.css 构建时打进 main.js（LBNoteCss；BRAT 装的插件目录里只有 main.js / manifest.json / styles.css），直接跑源文件时才读文件
-      const css = typeof LBNoteCss === 'string' ? LBNoteCss : await this.app.vault.adapter.read(`${this.manifest.dir}/note.css`);
+      // note.css 构建时打进 main.js（noteCssText；BRAT 装的插件目录里只有 main.js / manifest.json / styles.css），直接跑源文件时才读文件
+      const css = noteCssText();
       if (doc && doc.head && !this.unloading) {
         doc.getElementById('lb-note-style')?.remove();
         const el = doc.createElement('style');
@@ -3526,6 +3552,10 @@ class LinkBrainSettingTab extends PluginSettingTab {
 }
 
 module.exports = LinkBrainActions;
+module.exports.noteCssText = noteCssText;
+// 1102 单文件：main.js 由 esbuild 打包后顶层名字不再是 vm 上下文的全局，node 单测要用的一律从导出取
+Object.assign(module.exports, { mergeSettings, selectKillPids, LinkBrainSettingTab, externalSyncText, ConfirmModal, cleanLinks, parseCatsText, serializeCats });
+module.exports.LB_MODULES = LB_MODULES;
 module.exports.rewriteInbox = rewriteInbox;   // 给 node 单测（第 3 批投喂回写）
 module.exports.mergeSyncStatus = mergeSyncStatus;   // 给 node 单测（第 4 批）
 module.exports.registryEntry = registryEntry;

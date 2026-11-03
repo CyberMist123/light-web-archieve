@@ -3,9 +3,9 @@
 //   ① main.js（构建产物）在「Node 模块一 require 就抛错」的假环境里能加载完，顶层不碰 Node 模块；
 //   ② 手机上 onload 不抛错、注册了 lb-page 代码块处理器、把 note.css（经 vault.adapter 读）注入 head；
 //      不加命令、不加设置页、不加状态栏 / 功能区图标、不起进程；onunload 拆掉处理器画的块和样式；
-//   ③ 处理器是打进 main.js 的那份（LBPageHost），真能把 _archive 下的页面脚本跑起来；
+//   ③ 处理器是打进 main.js 的那份，真能把 _archive 下的页面脚本跑起来；
 //   ④ 页面在手机上看不到插件（LB.provider() 是 null）→ 走原来那条手机只读路；桌面上照旧拿得到插件；
-//   ⑤ main.js 是 main.src.js 的最新构建（tools/build_plugin.cjs --check；没装 esbuild 就只核「main.src.js 原样在里面」）。
+//   ⑤ main.js 是 main.src.js 的最新构建（tools/build_plugin.cjs --check），里面不 require 任何同目录文件。
 'use strict';
 const assert = require('assert');
 const fs = require('fs');
@@ -67,12 +67,11 @@ function loadMain(obs, { mobile = true, D = null } = {}) {
 (async () => {
   // ⑤ 构建产物是最新的
   let esbuild = null; try { esbuild = require('esbuild'); } catch {}
-  const src = fs.readFileSync(path.join(DIR, 'main.src.js'), 'utf8').replace(/\r\n/g, '\n').trimEnd();
-  assert.ok(MAIN.includes(src), 'main.js 里原样带着 main.src.js（改了源要 npm run build）');
-  assert.ok(/var LBPageHost = \(\(\) => \{/.test(MAIN), 'page-host.js 由 esbuild 打进 main.js（全局名 LBPageHost）');
-  assert.ok(!/^"use strict";/.test(MAIN), '打包段的 use strict 不提到文件头（不改变 main.src.js 的模式）');
-  if (esbuild) assert.strictEqual(MAIN.replace(/\r\n/g, '\n'), require(path.join(ROOT, 'tools', 'build_plugin.cjs')).build(), 'main.js 不是最新构建：npm run build');
-  else console.log('（没装 esbuild：只核了 main.src.js 原样在 main.js 里；CI 上 npm run build:check 全核）');
+  // 1102 单文件：整个 main.src.js 由 esbuild 打包（CJS），同目录文件全打进去，产物里不再 require 任何相对路径
+  assert.ok(!/require\((["'])\.{1,2}\//.test(MAIN), 'main.js 里没有 require 同目录文件（BRAT 只下 main.js / manifest.json / styles.css）');
+  assert.ok(MAIN.includes('lb-page'), 'page-host.js 打进了 main.js');
+  if (esbuild) assert.strictEqual(MAIN.replace(/\r\n/g, '\n'), (await require(path.join(ROOT, 'tools', 'build_plugin.cjs')).build()).replace(/\r\n/g, '\n'), 'main.js 不是最新构建：npm run build（两边先去 \\r，Windows CRLF 检出也一致）');
+  else console.log('（没装 esbuild：没核 main.js 是不是最新构建；CI 上 npm run build:check 全核）');
   const manifest = JSON.parse(fs.readFileSync(path.join(DIR, 'manifest.json'), 'utf8'));
   assert.strictEqual(manifest.isDesktopOnly, false, '手机上也能装');
 
@@ -140,5 +139,5 @@ dv.container.createEl('p', { text: '目录页（手机只读）' });`;
     // 桌面上加载时只为「下载文件夹」默认值碰 path / os；child_process / fs / electron 都是用到时才 require
     assert.deepStrictEqual(req2.filter(n => !['obsidian', 'path', 'os'].includes(n)), [], '桌面上 child_process / fs / electron 懒加载');
   }
-  console.log('PASS plugin mobile 1102: main.js 是 main.src.js + esbuild 打包的 page-host 的最新构建；没有 Node 模块的假环境里加载 / onload / onunload 都不抛、不 require；手机上只注册 lb-page 处理器 + 注入 note.css（不加命令 / 设置页 / 状态栏）；打进去的处理器能跑页面；手机上 LB.provider() 为 null（只读路），桌面照旧');
+  console.log('PASS plugin mobile 1102: main.js 是 esbuild 整体打包的最新构建（不 require 同目录文件）；没有 Node 模块的假环境里加载 / onload / onunload 都不抛、不 require；手机上只注册 lb-page 处理器 + 注入 note.css（不加命令 / 设置页 / 状态栏）；打进去的处理器能跑页面；手机上 LB.provider() 为 null（只读路），桌面照旧');
 })().catch(e => { console.error(e); process.exit(1); });

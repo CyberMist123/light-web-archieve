@@ -84,7 +84,7 @@ def test_js_and_python_share_the_same_rule(tmp_path):
     node = subprocess.run(["node", "-e", r"""
 const fs=require('fs'),vm=require('vm');
 const ctx={module:{exports:{}},require:n=>n==='obsidian'?{Plugin:class{},PluginSettingTab:class{},Modal:class{}}:n==='child_process'?{spawn(){throw Error('no spawn in test')}}:require(n)};
-vm.createContext(ctx);vm.runInContext(fs.readFileSync('obsidian-plugins/link-brain-actions/main.js','utf8')+';module.exports.selectKillPids=selectKillPids;',ctx);
+vm.createContext(ctx);vm.runInContext(fs.readFileSync('obsidian-plugins/link-brain-actions/main.js','utf8'),ctx);
 const table=JSON.parse(fs.readFileSync(process.argv[1],'utf8'));
 process.stdout.write(JSON.stringify([10,20,41,50].map(r=>ctx.module.exports.selectKillPids(table,r))));
 """, str(table_file)], cwd=REPO, capture_output=True, text=True, timeout=60)

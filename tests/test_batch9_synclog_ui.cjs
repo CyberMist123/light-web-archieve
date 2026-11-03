@@ -222,7 +222,7 @@ async function pluginTests() {
     return { code: 0, json: { task: opts.env?.LINK_BRAIN_SYNC_TASK, freq: 'none', enabled: false } };
   };
   const m = p.openSyncLog(); await m.opened;
-  assert.deepEqual(ran[0].args, ['synclog', 'list', '--limit', '30']);
+  assert.equal(JSON.stringify(ran[0].args), JSON.stringify(['synclog', 'list', '--limit', '30']));   // 1102：report-ui 在 vm 里跑，按 JSON 比
   assert.equal(m.contentEl.querySelectorAll('.lb-synclog-run').length, 3);
   const m2 = p.openWeekReport(); await m2.opened;
   assert.equal(m2.contentEl.querySelector('h2').textContent, '同步记录', '旧名 openWeekReport 也开同步记录');
@@ -245,9 +245,10 @@ async function pluginTests() {
   assert.equal(Plugin.scheduleStatusText({ freq: 'custom', summary: '每周一 08:00 · 每 4 小时一次 · 下次 10/06 08:00', rules: [{}], others: [] }),
     '当前：每周一 08:00 · 每 4 小时一次 · 下次 10/06 08:00');
   const doctor = fs.readFileSync(path.join(ROOT, 'link_brain', 'doctor.py'), 'utf8');
-  assert.ok(/PLUGIN_FILES = \([^)]*'schedule-ui\.js'/.test(doctor), 'doctor 必需文件里有 schedule-ui.js');
-  assert.ok(/PLUGIN_FILES = \([^)]*'report-ui\.js'/.test(doctor));
-  console.log('PASS plugin: openSyncLog (and old openWeekReport) → synclog list; syncNow env trigger=manual; setSyncRules installs then --rules with task env; summary status line; doctor lists schedule-ui.js');
+  assert.ok(/PLUGIN_FILES = \('main\.js', 'manifest\.json', 'styles\.css'\)/.test(doctor), '1102：插件打成单个 main.js，doctor 只要三个文件');
+  const bundle = fs.readFileSync(path.join(ROOT, PLUGIN_DIR, 'main.js'), 'utf8');
+  for (const f of ['schedule-ui.js', 'report-ui.js']) assert.ok(bundle.includes(`obsidian-plugins/link-brain-actions/${f}`), f + ' 打进了 main.js');
+  console.log('PASS plugin: openSyncLog (and old openWeekReport) → synclog list; syncNow env trigger=manual; setSyncRules installs then --rules with task env; summary status line; schedule-ui / report-ui bundled into main.js');
 
   // 同步记录窗口顶部：立即同步 / 改定时
   let synced = 0, planned = 0;

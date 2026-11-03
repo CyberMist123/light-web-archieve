@@ -29,8 +29,9 @@
   **同一个插件手机上也装**（manifest `isDesktopOnly: false`）：手机上 `onload` 只注册这个处理器、把 `note.css` 注入 head，不加命令 / 设置页、不起进程；
   页面在手机上看到的 `LB.provider()` 是 null，走原来的手机只读路（要插件的按钮不画，或点了说「手机上只能看…」）。
   兜底：不想在手机上装 LWA 插件的，`pageBlock` 改成 `dataviewjs`（或环境变量 `LINK_BRAIN_PAGE_BLOCK`），下次 `catalog` 重建换回旧写法、靠手机上的 Dataview 显示。
-- **插件 main.js 是构建产物**：源是 `main.src.js`，`npm run build`（`tools/build_plugin.cjs`）用 esbuild 把 `page-host.js` 打成 IIFE（全局名 `LBPageHost`）放在前面、
-  `main.src.js` 原样跟在后面。手机上只加载 main.js 一个文件，所以手机要用的代码必须打进去；桌面上其余几个 ui 文件照旧在运行时按路径加载。
+- **插件 main.js 是构建产物**：源是 `main.src.js`，`npm run build`（`tools/build_plugin.cjs`）用 esbuild 把它和它 `require('./xxx.js')` 的所有同目录文件
+  （各 ui 模块、`page-host.js`、`note.css` 用 text loader 变成字符串）打成一个 CJS 文件；`obsidian`、`electron` 和 Node 内置模块 external。
+  插件目录只要 `main.js` / `manifest.json` / `styles.css`（和 BRAT 一样）。界面模块经 `LB_MODULES` 表在用到时才执行，手机上加载 main.js 不碰任何 Node 模块。
   `path` / `fs` / `child_process` 都是用到时才加载（手机上没有）。CI 跑 `npm run build:check`，main.js 不是最新构建就红。
 - **插件拉 Python**：插件只有一个起进程入口 `spawnPy`，每次调用 `python -m link_brain <子命令> --json`，**只认 stdout 最后一行 JSON**（`{ok, code, message, …}`）；stderr 最后一行是人话原因。长任务互斥（同一时刻一个），轻量调用并行。
 - **Python 拉读取服务**：所有要登录小红书的操作经本机 HTTP 服务 `link-brain-reader`（`reader/` 里的 Go 补丁版 xiaohongshu-mcp，默认端口 18061）。它**不是任何 Python 的子进程**（经短命中转拉起），所以杀 Python 进程树不会杀掉浏览器会话；一个号只有一个浏览器 profile，操作串行。
