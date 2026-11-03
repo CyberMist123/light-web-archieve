@@ -25,6 +25,9 @@ def comment_gap_text(comment: dict[str, Any], missing: int, gap_reasons: dict[st
     if reason in ("old_reader", "not_expanded"):  # 只有 scoped（设置楼数之内）才会走到这里
         from .comment_fill import reason_text
         return f"还有 {missing} 条回复没拿到（{reason_text(reason)}，后台在补）"
+    from .comment_fill import QUIET_GAPS
+    if reason in QUIET_GAPS:   # 1103：楼中楼按额度放慢是正常的，不写原因
+        return f"还有 {missing} 条回复，后台在补"
     why = xhs.REPLY_GAP_CN.get(reason, "没读全")
     tail = "，后台在补" if reason in xhs.RESUMABLE_GAPS else ""
     return f"还有 {missing} 条回复没拿到（{why}{tail}）"
@@ -46,12 +49,12 @@ def comment_status_text(capture: dict[str, Any] | None, comments: list[dict[str,
             return ""
         from .comment_fill import floors_label
         attempts = int(view.get("attempts") or 0)
-        why = view.get("why") or "没读全"
+        why = view.get("why") or ("" if view.get("why_code") else "没读全")   # why_code 有、why 空 = 不写原因的那类（1103）
         if view.get("stuck"):
             tail = f"，试了 {attempts} 次没补上，已记进问题面板" if attempts else "，已记进问题面板"
         else:
             tail = "，后台在补" + (f"（已续读 {attempts} 次）" if attempts else "")
-        text = f"评论读到 {len(comments)} 楼，{floors_label(int(view.get('floors') or 10))}的楼中楼还缺 {missing} 条（{why}{tail}）"
+        text = f"评论读到 {len(comments)} 楼，{floors_label(int(view.get('floors') or 10))}的楼中楼还缺 {missing} 条（{(why + tail) if why else tail.lstrip('，')}）"
         return text
     cl = (capture or {}).get("comment_load") or {}
     missing = int(cl.get("replies_missing") or 0)
@@ -74,7 +77,8 @@ def comment_status_text(capture: dict[str, Any] | None, comments: list[dict[str,
         bits.append(f"前 {cl['floor_limit']} 楼展开回复")
     gaps = cl.get("gaps") or []
     main = max(gaps, key=lambda g: int(g.get("missing") or 0)).get("reason") if gaps else cl.get("stop_reason")
-    why = xhs.REPLY_GAP_CN.get(str(main or ""), "没读全")
+    from .comment_fill import QUIET_GAPS
+    why = "" if str(main or "") in QUIET_GAPS else xhs.REPLY_GAP_CN.get(str(main or ""), "没读全")
     attempts = int(cl.get("fill_attempts") or 0)
     if any(g.get("reason") in xhs.RESUMABLE_GAPS for g in gaps) and attempts < 3:
         tail = "，下次同步接着读" + (f"（已续读 {attempts} 次）" if attempts else "")
@@ -82,7 +86,8 @@ def comment_status_text(capture: dict[str, Any] | None, comments: list[dict[str,
         tail = f"，已续读 {attempts} 次，剩下的太长不再读"
     else:
         tail = ""
-    bits.append(f"楼中楼还缺 {missing} 条（{why}{tail}）")
+    inner = (why + tail) if why else tail.lstrip("，")
+    bits.append(f"楼中楼还缺 {missing} 条" + (f"（{inner}）" if inner else ""))
     return "，".join(bits)
 
 

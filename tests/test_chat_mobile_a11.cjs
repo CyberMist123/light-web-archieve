@@ -12,7 +12,7 @@ const { tick, src, openChat } = require('./_fake_L2.cjs');
   for (const isMobile of [true, false]) {
     // 旧会话（不在历史里）：电脑上会补进历史，只读时不写
     const C = await openChat({ turns, noPlugin: true, isMobile, run: false,
-      files: { 'Catalog.md': '---\nlb-page: catalog\n---\n' } });
+      files: { 'Catalog.md': '---\nlb-page: catalog\n---\n', 'Web/a.md': '# a' } });
     // Dataview 的 dv.el：块级 markdown（真 Dataview 也是整段渲染）
     const md = makeMiniMd();
     C.A.dv.el = (tag, text, attrs = {}) => { const el = C.A.container.createEl(tag, attrs); md.render(text, el); return el; };
@@ -29,9 +29,9 @@ const { tick, src, openChat } = require('./_fake_L2.cjs');
     assert.deepEqual(C.answers()[0].querySelector('.lbchat-actions').querySelectorAll('button').map(b => b.textContent), ['复制']);
     assert.equal(C.qa('.lbchat-src-pin').length + C.qa('.lbchat-src-del').length + C.qa('.lbchat-src-check').length, 0);
     assert.equal(C.q('.lbchat-followbar').hidden, true);
-    // (c) 点 [来源1] → openLinkText(lbPath('Web/a.md'))；「浏览收藏」走 LB.openPage('catalog')
+    // (c) 点 [来源1] → 按路径打开 Web/a.md（1103：LB.openNote，不走 openLinkText）；「浏览收藏」走 LB.openPage('catalog')
     C.answers()[0].querySelector('.lbchat-cite').onclick({ stopPropagation() {} }); await tick(5);
-    assert.deepEqual(C.app.workspace.opened.at(-1).slice(0, 1), ['Web/a.md']);
+    assert.equal(C.app.workspace.leaves.filter(l => l.opened.length).at(-1).opened.at(-1).path, 'Web/a.md');
     C.qa('.lbchat-jumps button').find(b => b.textContent === '浏览收藏').onclick(); await tick(5);
     assert.deepEqual(C.app.workspace.opened.at(-1).slice(0, 1), ['Catalog.md']);
     // (e) 历史面板：看得到，没有隐私开关 / 选中圈；点一段只在内存里切换

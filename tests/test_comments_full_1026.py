@@ -212,7 +212,7 @@ def test_manual_fetch_is_resumable_until_last_page(tmp_path, monkeypatch, capsys
     assert _ids(src)[:40] == [_cid(i) for i in range(1, 41)] and len(src["comments"]) == 45
     rep = out["report"]
     assert out["resumed"] is True and rep["reached_end"] is True and rep["missing"] == 11 and rep["resumable"] is True
-    assert "已翻到最后一页" in out["message"] and "1 楼的楼中楼还缺 11 条（楼中楼这会儿暂停" in out["message"]
+    assert "已翻到最后一页" in out["message"] and "1 楼的楼中楼还缺 11 条" in out["message"] and "楼中楼这会儿暂停" not in out["message"], "1103：限频放慢不写原因"
 
     # ③ 第三下：只展开缺回复的那楼，带游标从存下的最后一条往后拉
     def third(note_id, token, **kw):

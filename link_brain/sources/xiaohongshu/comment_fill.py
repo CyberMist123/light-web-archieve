@@ -128,6 +128,15 @@ def reason_text(reason: str) -> str:
     return REASON_CN.get(reason) or xhs.REPLY_GAP_CN.get(reason) or "没读全"
 
 
+# 1103 作者：楼中楼按每小时额度 / 限频放慢是正常现象，笔记页不再写「楼中楼这会儿暂停（…）」——这类缺口只说还缺几条、后台在补，不写原因
+QUIET_GAPS = frozenset({"sub_paused"})
+
+
+def shown_reason(reason: str) -> str:
+    """给笔记页的原因：不写原因的那类返回 ""。"""
+    return "" if reason in QUIET_GAPS else reason_text(reason)
+
+
 def may_have_more_floors(source: dict[str, Any]) -> bool:
     """原帖还可能有没存下来的一级评论（楼）吗：读取组件 / MCP 明说读到底了、或评论总数对得上，就没有。"""
     cap = source.get("capture") or {}
@@ -776,7 +785,7 @@ def view_for_render(source: dict[str, Any], state: dict[str, Any] | None, floors
         restricted_view = restricted.view(source["source_id"])   # 1011：网页版要验证才能看（笔记页给「打开验证」）
     # 1026：用户手动「抓全部评论」过的这篇，评论区顶上照实写抓到哪了（已抓楼数 / 翻没翻到最后一页 / 还缺什么、为什么），能接着补抓
     full = fetch_report(source, state) if state.get("full_at") else None
-    return {**sc, "stuck": stuck, "attempts": _int(state.get("attempts")), "why": reason_text(main) if main else "",
+    return {**sc, "stuck": stuck, "attempts": _int(state.get("attempts")), "why": shown_reason(main) if main else "", "why_code": main,
             "gap_reasons": {g["comment_id"]: g["reason"] for g in sc["gaps"] + sc["settled"]},
             "restricted": restricted_view, "full": full}
 
@@ -836,7 +845,8 @@ def fetch_report(source: dict[str, Any], state: dict[str, Any] | None = None) ->
     else:
         bits.append(f"还没翻到最后一页（{paging_why}），接着补抓会从第 {floors + 1} 楼往后翻")
     if sc["missing"]:
-        bits.append(f"{len(sc['gaps'])} 楼的楼中楼还缺 {sc['missing']} 条（{reason_text(main)}）")
+        why = shown_reason(main)
+        bits.append(f"{len(sc['gaps'])} 楼的楼中楼还缺 {sc['missing']} 条" + (f"（{why}）" if why else ""))
     if settled_missing:
         bits.append(f"另有 {settled_missing} 条原站显示但看不到（删了或被折叠，抓多少次都一样）")
     if error:

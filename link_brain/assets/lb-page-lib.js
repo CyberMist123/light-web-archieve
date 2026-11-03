@@ -650,6 +650,30 @@ function lbPageLib(dv, app, role) {
     return false;
   }
 
+  // 打开一篇收藏的笔记（仓根相对路径）：同一窗格，newTab 开新标签（§5.4）。
+  // 1103 作者「点卡片打不开，右上角 File already exists.」：openLinkText 把路径当链接文字解析——老文件名里带 # ^ [ ] |（1031 以前的规则），
+  // 或目录里记的大小写和磁盘上不一样时，它找不到这篇就去「新建」同名文件，撞上已有的那篇报这句。这里按路径拿到文件直接打开；
+  // 路径对不上（大小写不同 / 文件被改了名、目录还没重建）再按 frontmatter 的 link_brain.item_id 找；都找不到就说一句，不新建
+  async function openNote(rel, newTab = false, itemId = '') {
+    const p = path(rel);
+    let f = null;
+    try {
+      f = app.vault.getAbstractFileByPath(p);
+      if (!f || f.children) {
+        const low = String(p).toLowerCase(), files = app.vault.getMarkdownFiles?.() || [];
+        f = files.find(x => x.path.toLowerCase() === low)
+          || (itemId ? files.find(x => app.metadataCache?.getFileCache?.(x)?.frontmatter?.link_brain?.item_id === itemId) : null) || null;
+      }
+    } catch { f = null; }
+    if (!f) { say('找不到这篇的笔记文件（可能改了名或挪走了）：点右上角「…→刷新目录（手动）」再试', { kind: 'error' }); return false; }
+    try {
+      const leaf = app.workspace.getLeaf ? app.workspace.getLeaf(newTab ? 'tab' : false) : null;
+      if (leaf && typeof leaf.openFile === 'function') await leaf.openFile(f);
+      else await app.workspace.openLinkText(f.path, '', newTab);
+      return true;
+    } catch (e) { say('没打开：' + (e?.message || e), { kind: 'error' }); return false; }
+  }
+
   // ── 菜单（X15）：插件的 obsidian.Menu（自带 Esc / 方向键）；插件不在返回 null，页面自己处理 ──
   // menuOpen：菜单关掉后延一拍才变回 false，页面全局 Esc 先判它（同一次 Esc 不当成菜单外的 Esc）
   function showMenu(items, evt) { const p = provider(); return typeof p?.showMenu === 'function' ? p.showMenu(items, evt) : null; }
@@ -760,6 +784,6 @@ ${engrSel}::after{content:attr(data-text);position:absolute;left:0;top:0;color:t
     // 1027 样式集（CONVENTIONS「样式集」）
     applyTheme, themeVars: lbThemeVars, TOKENS_CSS: LB_SHARED_CSS.slice(0, LB_SHARED_CSS.indexOf('/* lb-tokens:end */') + 19).trim(),
     // 批次 D 地基
-    mountHost, style, dataUpdatedAt, schemaIssue, schemaBlocks, CATALOG_SCHEMA, mobile, MOBILE_ONLY_TEXT, mobileNote, need, openPage,
+    mountHost, style, dataUpdatedAt, schemaIssue, schemaBlocks, CATALOG_SCHEMA, mobile, MOBILE_ONLY_TEXT, mobileNote, need, openPage, openNote,
     say, progress, undoNotice, confirm, busy, showMenu, menuOpen, trackFocus, restoreFocus, activeLeafHas };
 }

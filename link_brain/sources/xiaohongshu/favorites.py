@@ -458,6 +458,15 @@ def _rest(wait: float, verbose: bool = True) -> None:
         _sleep(wait)
 
 
+def _catalog_catch_up() -> None:
+    """同步途中让目录跟上（不等锁：别人正在建就算了，收尾时 run() 还会再建一次）。"""
+    try:
+        from ...catalog import ensure_fresh
+        ensure_fresh(wait_s=0)
+    except Exception:  # noqa: BLE001 - 目录没跟上不挡同步
+        pass
+
+
 def _library_ids() -> set[str]:
     """库里已有的（对象目录）+ 回收站里的 note_id（口径在 fav_counts，进度条 / 同步记录同一份）。"""
     from . import fav_counts
@@ -674,6 +683,7 @@ def sync_favorites(
     fail_srcs: list[str] = []   # 1011：连着失败的那几篇是不是按名单（旧口令）抓的
     fetched_any = False
     fetched_new: list[str] = []
+    catalog_at = 0   # 目录已经跟上到 fetched_new 的第几篇
     stop_code = ""
     budget_left = (lambda: deadline - _clock()) if deadline is not None else None
     for i, fav in enumerate(favs):
@@ -702,6 +712,13 @@ def sync_favorites(
             nth = live.today_label(quota.count + 1)
             if wait > 0:
                 live.push("resting", f"歇 {wait:.0f} 秒，接着抓{nth}", rest_s=wait)
+                if len(fetched_new) > catalog_at:
+                    # 1103 作者「共 0 篇，侧栏却同步中 2/1420」：目录以前只在整轮收尾才重建，首页篇数 / 今日新增 / 卡片落后于进度。
+                    # 歇之前把刚存好的写进目录（catalog-data），建目录的时间算在歇里，抓取节奏不变
+                    catalog_at = len(fetched_new)
+                    t0 = _clock()
+                    _catalog_catch_up()
+                    wait = max(0.0, wait - (_clock() - t0))
             _rest(wait, verbose=True)
             live.title = str(fav.get("title") or "").strip() or "（没标题的一篇）"
             if live.started is None:

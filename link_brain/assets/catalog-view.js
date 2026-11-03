@@ -67,6 +67,9 @@ width:100%;max-width:1440px;margin:0 auto;box-sizing:border-box;height:auto;disp
 .lbc-top.is-tools-static .lbc-titleblock{padding:0;--lbc-title-pad:0px;}
 .lbc-titlerow{display:flex;align-items:flex-end;justify-content:flex-start;min-width:0;max-width:100%;padding-left:.1em;}
 ${LB.brandCss('.lbc-title', '.lbc-engr')}
+/* 1103「…→改标题」就地改：刻线那层（::after，旧字）先撤掉，不然打字时新旧两层叠成重影（编排才挂的那段样式这时不在） */
+.lbc-title-text.is-editing{outline:none;background:var(--background-modifier-hover,rgba(0,0,0,.05));border-radius:4px;}
+.lbc-title-text.is-editing::after{content:none;}
 /* 1026 场景 02：标题照共用的雕刻样式，字号再按右侧「编排 / 管理」让出的宽度收（长标题、放大都不出页头） */
 /* 1031 作者「应该和问收藏对齐（都是方型的框），目录页也是」：标题改成和问收藏 / Wiki 一样的小号刻线字（34px，窄了 30 / 26），靠左，后面紧跟三页切换 */
 .lbc-title{font-size:calc(34px * var(--lbc-title-k,1));line-height:1;font-family:var(--f-display);}
@@ -1286,6 +1289,7 @@ function paintProblems() {
   if (pv?.running && !syncing.hidden) { syncing.textContent = '· 同步中'; syncing.title = pv.tip + '\n点开看同步记录'; }
   paintSub();
   sideApi?.paintSync();
+  if (pageReady && !items.length && grid.querySelector('.lbc-empty')) render();   // 空页的话跟着「同步中」换
 }
 async function openProblemsPanel() {
   if (mobile) { LB.say('问题列表要在电脑上看'); return; }
@@ -1376,11 +1380,13 @@ function manageItems() {
   // 1027b 作者：「管理就留索引编辑、刷新目录（手动）、导出资料、设置、回收站就行。设置放最上面」
   //   （删分类在索引树里右键 / 「改名」那一排；彻底删除在回收站里；在 索引.md 里改 = 索引条上的「编辑 索引.md」）
   // 编排在索引编辑 / 边栏太窄时不出（和以前那颗「编排」钮藏起来的条件一样）
-  const arrangeOk = canArrange && !wrap.classList.contains('is-indexview') && !wrap.classList.contains('is-side-narrow');
+  const arrangeOk = ARRANGE_ON && canArrange && !wrap.classList.contains('is-indexview') && !wrap.classList.contains('is-side-narrow');
   return [
     { title: '设置', icon: 'settings-2', onClick: () => callPlugin('openSetupPage') },   // 1101 作者：设置提到第一行
     { separator: true },
     arrangeOk && { title: '编排', icon: 'grip-vertical', onClick: () => setArranging(true) },
+    // 1103 作者：编排先不放出来，只留「改 COLLECTIONS 标题」——点了标题字就地改（回车确定、Esc 放弃；空 = 默认标题）
+    !ARRANGE_ON && canArrange && { title: '改标题', icon: 'pencil', onClick: () => editTitleInline() },
     { title: '每行几列', icon: 'columns-3', children: COL_CHOICES.map(([n, label]) => ({ title: label, checked: (cols || 0) === n, onClick: () => setCols(n) })) },
     { separator: true },
     { title: '索引编辑', icon: 'list-tree', onClick: () => openIndexEditor() },
@@ -1412,6 +1418,9 @@ async function deleteCategoryFlow(path = '') {
 // 1027：插件没开就没有「编排」（只读：布局存不下来，不让用户白排一通）；1031 起在「···」菜单里
 const GRIP_SVG = '<svg viewBox="0 0 10 14" aria-hidden="true"><g fill="currentColor"><circle cx="2.5" cy="2.5" r="1.4"/><circle cx="7.5" cy="2.5" r="1.4"/><circle cx="2.5" cy="7" r="1.4"/><circle cx="7.5" cy="7" r="1.4"/><circle cx="2.5" cy="11.5" r="1.4"/><circle cx="7.5" cy="11.5" r="1.4"/></g></svg>';
 const canArrange = !(mobile || simplePage || !provider()?.settings);
+// 1103 作者「按了编排之后收藏区块跑到页面上方去了」：编排有 bug，先收起来——菜单里没有、设置页「去目录编排」只打开目录；
+// 以前编排存下的位置 / 隐藏 / 单块字体也先不套用（照默认摆），只留各模块自己的选项（Token 看天 / 周 / 月、收藏墙疏密）和整库的「Aa 样式」。改回 true 即恢复
+const ARRANGE_ON = false;
 if (importButton) importButton.type = 'button';
 if (importButton) importButton.onclick = async e => {
   e.preventDefault(); e.stopPropagation();
@@ -1840,7 +1849,7 @@ function renderTopicBar() {
   const typing = ae && topicBar.contains(ae) && ae.classList?.contains('lbc-topic-new');
   const draft = typing ? ae.value : (topicBar.querySelector?.('input.lbc-topic-new')?.value || '');
   topicBar.empty();
-  topicBar.createEl('span', { cls: 'lbc-topics-lab', text: 'STARRED' });
+  // 1103 作者「STARRED 挡住标题」：那几个字去掉（主题在筛选行里已经有 ★名字），这一行只留主题胶囊（删 / 新建用）
   const counts = new Map(); let nAny = 0;
   for (const it of items) { const ts = Array.isArray(it.topics) ? it.topics.filter(t => names.includes(t)) : []; if (ts.length) nAny++; for (const t of ts) counts.set(t, (counts.get(t) || 0) + 1); }
   if (names.length) {
@@ -3579,7 +3588,7 @@ function openItem(x, e, forceNew = false) {
   if (!x.note) return;
   const newTab = forceNew || !!(e && (e.ctrlKey || e.metaKey));
   saveState(); if (!newTab) leaving = true;
-  app.workspace.openLinkText(lbPath(x.note), '', newTab);
+  LB.openNote(x.note, newTab, x.id).then(ok => { if (!ok) leaving = false; });
 }
 
 // ── 1021「列表」视图：简单表格（标题、分类、作者、导入时间、♡），和瀑布流用同一份筛选 / 搜索结果；点行打开笔记，右键同卡片菜单 ──
@@ -3796,6 +3805,8 @@ function renderEmpty() {
   const actions = () => box.querySelector('.lbc-empty-actions') || box.createEl('div', { cls: 'lbc-empty-actions' });
   const btn = (label, fn) => { const b = actions().createEl('button', { text: label }); b.type = 'button'; b.onclick = fn; return b; };
   if (!items.length) {
+    // 1103 作者「正文写还没有收藏，侧栏却同步中 2/1420」：第一次同步正在跑——存好的几篇歇的时候就进目录，别叫人再点同步
+    if (syncState?.state === 'running') { text('正在同步收藏：每存好一篇，过一会儿就出现在这里（进度看左边「同步」）'); return; }
     if (mobile) { text('还没有收藏。导入和同步要在电脑上做。'); return; }
     text('还没有收藏：点标题旁的「+」导入网址，或登录后同步收藏');
     btn('导入网址', async () => (await want('openImportModal'))?.openImportModal());
@@ -4046,7 +4057,7 @@ function openFromSide(it, e, forceNew = false) {
   if (!it?.note) return;
   const newTab = forceNew || !!(e && (e.ctrlKey || e.metaKey));
   saveState(); if (!newTab) leaving = true;
-  app.workspace.openLinkText(lbPath(it.note), '', newTab);
+  LB.openNote(it.note, newTab, it.id).then(ok => { if (!ok) leaving = false; });
 }
 // RECENT：按入库时间 ts 新→旧；今天显示 HH:MM，否则 M/D；点行打开笔记（同一窗格，Ctrl 开新标签）
 // 1027b 作者：不要「查看全部」——折起来是一行「最新 …」，点开往下就是列表，框高 = 「调整」里的条数（2 / 4 / 6 / 8）或拖出来的高度，
@@ -4556,7 +4567,14 @@ function parseLayout(L) {
   } else rows = DEFAULT_ROWS();
   return { rows: normalizeRows(rows), cfg, theme };
 }
-function readLayout() { const L = provider()?.settings?.catalogLayout; return parseLayout(L && typeof L === 'object' ? L : null); }
+function readLayout() {
+  const L = provider()?.settings?.catalogLayout, saved = parseLayout(L && typeof L === 'object' ? L : null);
+  if (ARRANGE_ON) return saved;
+  const base = parseLayout(null);
+  for (const id of MOD_IDS) base.cfg[id].opt = saved.cfg[id].opt;
+  base.theme = saved.theme;   // 「Aa 样式」（字体 / 界面大小 / 间距）插件整库都在用（applyTheme），这页跟着它，别两样
+  return base;
+}
 let layout = ENGINE ? readLayout() : { rows: DEFAULT_ROWS(), cfg: Object.fromEntries(MOD_IDS.map(id => [id, cfgDefault(id)])), theme: { ...THEME_DEFAULT } };
 const modCfg = id => layout.cfg[id] || cfgDefault(id);
 function modOpt(id) { return modCfg(id).opt; }
@@ -4819,7 +4837,22 @@ function saveSettingSoon(...keys) {
   setSaveState('pending', '保存中…');
   clearTimeout(saveTimer); saveTimer = setTimeout(flushSave, 400);
 }
-function saveLayout() { const p = provider(); if (!p?.settings) return; p.settings.catalogLayout = layoutToSetting(); saveSettingSoon('catalogLayout'); }
+function saveLayout() {
+  const p = provider(); if (!p?.settings) return;
+  const L = p.settings.catalogLayout;
+  if (!ARRANGE_ON && L && typeof L === 'object' && Array.isArray(L.modules)) {
+    // 编排收起来时：只把各模块的选项写回存着的那份，存过的位置 / 隐藏 / 字体原样留着（以后放出编排还在）
+    const next = clone(L), have = new Set();
+    for (const m of next.modules) {
+      if (!m || !MOD_IDS.includes(m.id)) continue; have.add(m.id);
+      const o = layout.cfg[m.id].opt;
+      if (JSON.stringify(o) !== JSON.stringify(OPT_DEFAULT[m.id] || {})) m.options = clone(o); else delete m.options;
+    }
+    const miss = MOD_IDS.filter(id => !have.has(id) && JSON.stringify(layout.cfg[id].opt) !== JSON.stringify(OPT_DEFAULT[id] || {}));
+    if (!miss.length) { p.settings.catalogLayout = next; saveSettingSoon('catalogLayout'); return; }
+  }
+  p.settings.catalogLayout = layoutToSetting(); saveSettingSoon('catalogLayout');
+}
 async function flushSave() {
   clearTimeout(saveTimer); saveTimer = null;
   const p = provider(); if (!p?.settings) return;
@@ -5497,6 +5530,17 @@ async function loadUsage({ force = false } = {}) {
   if (mods.token) mods.token.sig = null;
   paintToken();
 }
+// 1103：月份默认不起进程（读目录里的 usage_month）；本月账本比目录新（建目录之后又调过 AI）才现读一次。一分钟最多核一次
+let ledgerAt = 0;
+async function checkLedger() {
+  if (mobile || usageBusy || Date.now() - ledgerAt < 60000) return;
+  ledgerAt = Date.now();
+  const d = new Date(), ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  let st = null;
+  try { st = await app.vault.adapter.stat(lbPath(`_archive/usage/${ym}.jsonl`)); } catch { return; }
+  const built = tsOf(LB.dataUpdatedAt(data));
+  if (st && st.mtime && (!built || st.mtime > built) && (!usageAt || st.mtime > usageAt)) loadUsage({ force: true });
+}
 const yuan = v => (v !== null && v !== undefined && v !== '' && Number.isFinite(Number(v)) ? '¥' + Number(v).toFixed(2) : '—');
 // 1027b 作者：费用能在块里直接切 天 / 周 / 月；周 = 近 7 天（usage summary 的 7d 窗口，和设置页「用量」同一口径）
 const TOKEN_PERIODS = [['day', '天', '今天（北京时间）'], ['week', '周', '近 7 天'], ['month', '月', '本月（人民币估算）']];
@@ -5520,7 +5564,8 @@ function paintToken() {
   const off = curPlat() === 'bili'; m.sec.classList.toggle('is-plat-off', off);
   if (off) return;
   const p = provider(), period = TOKEN_PERIODS.some(([k]) => k === modOpt('token').period) ? modOpt('token').period : 'month';
-  const um = data?.usage_month || {};
+  // 1103 作者「Token 费用没有消费记录」：catalog-data 的 usage_month 是上次建目录时算的（问收藏之后目录不重建，就一直空 / 旧）——插件在就现读账本（usage 命令的 month_summary），读到之前先用目录里那份
+  const um = (usage && 'month_summary' in usage ? usage.month_summary : data?.usage_month) || {};
   const capSet = p?.settings?.budget?.dailyYuan;
   const capIsSet = capSet !== undefined && capSet !== '' && capSet != null;
   const cap = capIsSet ? Number(capSet) : (usage?.budget && Number.isFinite(+usage.budget.daily_yuan) ? +usage.budget.daily_yuan : null);
@@ -5529,7 +5574,7 @@ function paintToken() {
   const val = period === 'month' ? (um.cost_cny ?? null) : period === 'week' ? (wk ? wk.cost : null) : (usage?.budget ? usage.budget.spent_today : null);
   const pname = { day: '今天 ', week: '近 7 天 ', month: '本月 ' }[period];
   setSum(m, [pname, [val == null ? '—' : '约 ' + yuan(val)], ' · 上限 ' + capText]);
-  if (period !== 'month' && !usage && !usageAt) loadUsage();
+  if (period !== 'month' && !usage && !usageAt) loadUsage(); else if (period === 'month') checkLedger();
   if (sideFold.token) return;
   const sig = JSON.stringify([period, val, capText, capIsSet, usageBusy, usageErr, um.month, um.unpriced, um.by_feature, !!p]);
   if (m.sig === sig) return; m.sig = sig;
@@ -5900,6 +5945,7 @@ function takePendingArrange() {
   const at = p.pendingCatalogArrange;
   p.pendingCatalogArrange = 0;
   if (Date.now() - at > 60000) return false;
+  if (!ARRANGE_ON) { LB.say('编排先收起来了（还有问题）：改标题在右上角「…」→「改标题」', { kind: 'warn' }); return false; }
   if (!SIDE_ON) { LB.say('这里没有编排：在电脑上打开目录页点右上角「编排」', { kind: 'warn' }); return false; }
   setArranging(true);
   return true;

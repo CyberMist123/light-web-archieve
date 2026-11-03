@@ -191,7 +191,7 @@ ${LB.siteHeaderCss()}
 .lbw .lbw-crumb button.lbw-kick{font:700 10px/1.3 var(--lb-font-title);letter-spacing:.26em;}
 .lbw .lbw-crumb button:hover{color:var(--lb-ink);}
 .lbw-crumb .lbw-sep{color:var(--lb-faint);}
-.lbw .lbw-ptitle{display:block;width:100%;height:auto;margin:12px 0 0;padding:0 0 4px;border:0;border-bottom:1px solid transparent;border-radius:0;background:transparent;box-shadow:none;font:700 36px/1.25 var(--lbw-serif);letter-spacing:.02em;color:var(--lb-ink);}
+.lbw .lbw-ptitle{display:block;width:100%;height:auto;min-height:0;resize:none;overflow:hidden;white-space:pre-wrap;overflow-wrap:anywhere;field-sizing:content;margin:12px 0 0;padding:0 0 4px;border:0;border-bottom:1px solid transparent;border-radius:0;background:transparent;box-shadow:none;font:700 36px/1.25 var(--lbw-serif);letter-spacing:.02em;color:var(--lb-ink);}
 .lbw .lbw-ptitle:hover{border-bottom-color:var(--lb-line);}
 .lbw .lbw-ptitle:focus,.lbw .lbw-ptitle:focus-visible{outline:none;box-shadow:none;border-bottom-color:var(--lb-ink);}
 .lbw .lbw-ptitle[readonly]{border-bottom-color:transparent;}
@@ -398,7 +398,7 @@ ${LB.siteHeaderCss()}
 .lbw-map .lbw-corner.is-mark{right:18px;bottom:14px;font:700 9px/1 var(--lb-font-title);letter-spacing:.24em;}
 .lbw-fhead{display:flex;align-items:flex-end;gap:22px;margin-top:10px;}
 .lbw-fhead .lbw-big{flex:none;font:italic 500 128px/.78 var(--lb-font-num);font-variant-numeric:lining-nums;letter-spacing:-.02em;color:var(--lb-ink);}
-.lbw .lbw-fhead .lbw-ptitle{margin:0;font-size:42px;line-height:1.1;padding-bottom:6px;}
+.lbw .lbw-fhead .lbw-ptitle{flex:1 1 auto;min-width:0;margin:0;font-size:42px;line-height:1.1;padding-bottom:6px;}
 /* 右侧历史栏（设计稿放在 Obsidian 右栏；这里放在本页里，见文件头） */
 .lbw-side{position:sticky;top:20px;align-self:start;max-height:calc(100vh - 40px);overflow:auto;margin-top:44px;padding:0 0 40px 24px;border-left:1px solid var(--lb-line);}
 .lbw-rbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 18px;font:400 13.5px/1.4 var(--lbw-sans);color:var(--lb-muted);}
@@ -510,6 +510,11 @@ ${LB.brandCss('.lbw .lbw-brand', '.lbw .lbw-engr')}
 .lbw.is-mid.has-rail .lbw-main{grid-template-columns:200px minmax(0,1fr);column-gap:40px;}
 .lbw.is-mid.has-rail .lbw-rail{grid-column:2;position:static;margin-top:48px;}
 .lbw.has-side .lbw-rail{display:none;}
+/* 1103「…→正文加宽」：正文栏不封顶，铺满左右栏之间（中窄屏本来就铺满） */
+.lbw.is-wide:not(.is-mid):not(.is-narrow) .lbw-main{grid-template-columns:248px minmax(0,1fr);}
+.lbw.is-wide.has-rail:not(.is-mid):not(.is-narrow) .lbw-main{grid-template-columns:236px minmax(0,1fr) 236px;}
+.lbw.is-wide.is-tocoff:not(.is-narrow) .lbw-main{grid-template-columns:minmax(0,1fr);justify-content:stretch;}
+.lbw.is-wide.has-rail.is-tocoff:not(.is-mid):not(.is-narrow) .lbw-main{grid-template-columns:minmax(0,1fr) 236px;justify-content:stretch;}
 .lbw-rail{position:sticky;top:20px;align-self:start;display:flex;flex-direction:column;gap:32px;min-width:0;}
 .lbw-rail[hidden]{display:none;}
 .lbw.is-narrow .lbw-rail{position:static;margin-top:40px;}
@@ -871,7 +876,7 @@ function loadPrefs() {
   try { v = typeof app.loadLocalStorage === 'function' ? app.loadLocalStorage('lb-wiki-prefs') : null; } catch (e) { v = null; }
   if (typeof v === 'string') { try { v = JSON.parse(v); } catch (e) { v = null; } }
   const base = v && typeof v === 'object' ? v : (saved0.prefs || {});
-  return { open: { ...(base.open || {}) }, mapPin: !!base.mapPin, tocOff: !!base.tocOff };
+  return { open: { ...(base.open || {}) }, mapPin: !!base.mapPin, tocOff: !!base.tocOff, wide: !!base.wide };
 }
 const PREFS = loadPrefs();
 function saveUi() {
@@ -920,6 +925,7 @@ R.side = h('aside', { cls: 'lbw-side' }); R.side.hidden = true;
 add(body, [main, R.side]);
 R.fab = btn({ cls: 'lbw-fab', on: { click: () => { if (wrap.classList.contains('is-narrow')) setDrawer(!UI.drawer); else setTocOff(false); } } }, icon('list'), '目录');
 wrap.classList.toggle('is-tocoff', !!PREFS.tocOff);
+wrap.classList.toggle('is-wide', !!PREFS.wide);
 R.layer = h('div', { cls: 'lbw-layer' });
 add(wrap, [body, R.fab, R.layer]);
 
@@ -1331,6 +1337,13 @@ function setTocOff(off) {
   wrap.classList.toggle('is-tocoff', off);
   if (!off) { renderToc(); fitToc(); }
   if (UI.view === 'home' && !ED) renderCenter();
+}
+// 1103 作者「Wiki 区域左右滑动不方便，能不能加宽」：正文栏标准 ≤680–760px / 加宽 = 铺满左右栏之间（记住）
+function setWide(on) {
+  on = !!on;
+  if (!!PREFS.wide === on) return;
+  PREFS.wide = on; saveUi();
+  wrap.classList.toggle('is-wide', on);
 }
 function scrollToHead(line) {
   const el = R.center.querySelector(`[data-hline="${line}"]`);
@@ -1777,9 +1790,13 @@ function prow(p, i) {
 }
 function titleInput(p, label) {
   const tid = nextId('title');
-  const ti = h('input', { cls: 'lbw-ptitle', attr: { id: tid, type: 'text' } });
+  // 1103 作者「文件夹页大标题被截断（01 使用步骤不超过三步，上手使…）」：单行 input 放不下就切掉——换成会换行的一行框（回车 = 确定，不插换行），高度跟着字数长
+  const ti = h('textarea', { cls: 'lbw-ptitle', attr: { id: tid, rows: '1', spellcheck: 'false' } });
   ti.value = p.title;
   R.title = ti;
+  const fit = () => { try { ti.style.height = 'auto'; if (ti.scrollHeight) ti.style.height = ti.scrollHeight + 'px'; } catch {} };
+  ti.addEventListener('input', () => { if (/[\r\n]/.test(ti.value)) ti.value = ti.value.replace(/[\r\n]+/g, ' '); fit(); });
+  rafFn(fit);
   if (readOnly) ti.setAttribute('readonly', '');
   else {
     // 事件总是绑上（10-29 四审：忙的时候画出来的框，存完由 paintLock 解冻、不重画，没绑事件就改了也存不上）；忙不忙在处理时判
@@ -2272,7 +2289,7 @@ function openCite(id) {
   const fail = e => LB.say('打不开原文：' + errText(e), { kind: 'error' });
   try {
     if (p && typeof p.openArchiveSource === 'function') return Promise.resolve(p.openArchiveSource(it.note, LB.container, false, [])).catch(fail);
-    return Promise.resolve(app.workspace.openLinkText(LB.path(it.note), '', false)).catch(fail);
+    return Promise.resolve(LB.openNote(it.note, false, it.id)).catch(fail);
   } catch (e) { fail(e); return null; }
 }
 
@@ -3046,6 +3063,7 @@ function showMoreMenu(evt, anchor) {
     { title: '全部展开', onClick: () => { PREFS.open = Object.fromEntries([...topics().map(t => [t.id, true]), [looseId, true]]); saveUi(); renderToc(); } },
     { title: '全部收起', onClick: () => { PREFS.open = Object.fromEntries([...topics().map(t => [t.id, false]), [looseId, false]]); saveUi(); renderToc(); } },
     { title: PREFS.tocOff ? '打开左边目录' : '收起左边目录', onClick: () => { if (wrap.classList.contains('is-narrow')) setDrawer(!UI.drawer); else setTocOff(!PREFS.tocOff); } },
+    { title: PREFS.wide ? '正文恢复标准宽度' : '正文加宽', sub: PREFS.wide ? '' : '铺满左右两栏之间', onClick: () => setWide(!PREFS.wide) },
   ];
   const items = readOnly ? [...nav, { separator: true }, { title: '重新读入', sub: '在 Obsidian 里直接改过 PersonalWiki 时', onClick: () => refresh(true) }] : [
     { title: UI.src ? '回到正文' : '整页 Markdown', disabled: !p, onClick: () => { commitEditor(false); flushSrc(); if (UI.src && liveSrc(p)) liveSrc(p)._lbDead = true; UI.src = !UI.src; renderKeepScroll(); } },

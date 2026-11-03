@@ -24,7 +24,7 @@ const { tick, item, openCatalog, ev } = require('./_fake_l1.cjs');
   // 长按 / 右键：不拦（不设 oncontextmenu）
   assert.equal(P.card('a').oncontextmenu, undefined, '不拦截 contextmenu');
   // 卡片照常能点开
-  P.card('b').onclick({}); assert.equal(P.app.workspace.opened.at(-1)[0], 'Web/b.md');
+  P.card('b').onclick({}); await tick(5); assert.deepEqual(P.noteOpened(), ['Web/b.md', false]);   // 1103：按路径打开
   assert.equal(A.alerts.length, 0);
   // 手机：问题入口点了只说一句
   const Q = await openCatalog({ items, isMobile: true, files: { '_archive/problems-summary.json': JSON.stringify({ needs_human: 1, auto: 0, gave_up: 0 }) } });

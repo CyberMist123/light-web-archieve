@@ -26,7 +26,7 @@ async function open({ files, plugin, isMobile = false } = {}) {
   let calls = [];
   let pending = null;
   const plugin = { trashAction: (kind, ids) => { calls.push([kind, ids]); return new Promise((res, rej) => { pending = { res, rej }; }) }, refreshCatalog: async () => {} };
-  let { A, dom, V, app } = await open({ plugin });
+  let { A, dom, V, app } = await open({ plugin, files: { 'Web/悉尼咖啡地图.md': '# 悉尼咖啡地图' } });
   assert.equal(A.container.children.length, 0, '页面挂在 host 上');
   assert.ok(A.container.nextSibling.classList.contains('lb-page-host'));
   assert.ok(dom.document.getElementById('lb-trash-style'), '样式挂 head');
@@ -58,7 +58,7 @@ async function open({ files, plugin, isMobile = false } = {}) {
   assert.ok(n.message.includes('已恢复《悉尼咖啡地图》'), n.message);
   assert.equal(n.buttons[0].label, '打开');
   n.buttons[0].click(); await tick(5);
-  assert.equal(app.workspace.opened.at(-1)[0], 'Web/悉尼咖啡地图.md');
+  assert.equal(app.workspace.leaves.filter(l => l.opened.length).at(-1).opened.at(-1).path, 'Web/悉尼咖啡地图.md', '1103：按路径打开（LB.openNote）');
   assert.equal(A.alerts.length, 0);
 
   // 彻底删除：先页内确认（拒绝就不动）；失败 → 按钮恢复、Notice 说原因

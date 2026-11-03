@@ -125,7 +125,7 @@ async function act(kind, item, btn, row) {
       row?.remove();
       items = items.filter(x => x !== item); sel.delete(item.item_id); paintClear(); paintList();
       const note = (r?.results || []).find(x => x.item_id === item.item_id)?.visible_note || '';
-      LB.say(`已恢复${name}，回到目录了`, { kind: 'ok', actions: note ? [{ label: '打开', run: () => app.workspace.openLinkText(LB.path(note), '', false) }] : [] });
+      LB.say(`已恢复${name}，回到目录了`, { kind: 'ok', actions: note ? [{ label: '打开', run: () => LB.openNote(note, false) }] : [] });
     } else if (kind === 'purge') {
       row?.classList.remove('is-busy');
       item.has_files = false; item.restorable = false;

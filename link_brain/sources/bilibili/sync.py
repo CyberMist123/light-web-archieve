@@ -42,6 +42,7 @@ PENDING_SCRIPT = "bili-pending-page.js"
 LAST_SYNC = "last-sync.json"
 FOLDER_LIST = "folder-list.json"   # 1031：上次列到的全部收藏夹（含被关掉的），挑选页不连网就靠它列收藏夹
 MULTI_P_AUTO = 5         # 1031 作者：多 P 不超过这么多 P 的自动拆开、一个 P 一条下；更多的进挑选页，用户勾了才下
+CATALOG_CATCH_UP_S = 60.0   # 1103：同步途中至少隔这么久让目录跟上一次（新下好的进收藏页）
 WORKERS_MAX = 8          # 1031 作者：同时下几路放到 8（撞 412/429 照旧自动退回一路）
 # 1031：停下来时给用户的下一步（设置页直接显示 message；码是 CONVENTIONS §2 的细分码，裸写，和原来的 NOT_LOGGED_IN 一样）
 HINTS = {
@@ -573,6 +574,7 @@ def run_sync(*, dry_run: bool = False, limit: int | None = None, max_duration_s:
         ytdlp.prefetch_start(workers if parallel else 1)
         if parallel:
             say(f"并行下载 {workers} 路（入库仍一条一条）")
+        catalog_at, catalog_n = time.monotonic(), 0   # 1103：同步途中目录多久跟上一次（见 CATALOG_CATCH_UP_S）
         for i, r in enumerate(queue, start=1):
             if parallel:
                 for nxt in queue[i - 1:i - 1 + workers + 1]:
@@ -632,6 +634,10 @@ def run_sync(*, dry_run: bool = False, limit: int | None = None, max_duration_s:
                         say("    限流 / 断网：退回一条一条下")
                 say(f"    失败：{r['reason']}")
             _progress(out, b, done=i, total=len(queue))
+            if len(b["downloaded"]) > catalog_n and time.monotonic() - catalog_at >= CATALOG_CATCH_UP_S:
+                # 1103 作者「B 站收藏也要以卡片放进收藏页」：一趟下几百条要几个小时，目录以前只在最后重建——中途收藏页一张 B 站卡片都没有
+                catalog_at, catalog_n = time.monotonic(), len(b["downloaded"])
+                _catalog_catch_up()
             if gap_s and i < len(queue):
                 sleep(gap_s)
         ytdlp.prefetch_stop()
@@ -998,6 +1004,15 @@ def _stop_before_start(started: str, dry_run: bool, code: str, reason: str) -> d
         except OSError as exc:
             print(f"[bilibili sync] last-sync.json 没写上：{errtext(exc)}", file=sys.stderr)
     return out
+
+
+def _catalog_catch_up() -> None:
+    """同步途中让目录跟上（不等锁：别人正在建就算了，收尾的 _persist 还会再建一次）。"""
+    try:
+        from ...catalog import ensure_fresh
+        ensure_fresh(wait_s=0)
+    except Exception as exc:  # noqa: BLE001 - 目录没跟上不挡同步
+        print(f"[bilibili sync] 目录没跟上：{errtext(exc)}", file=sys.stderr)
 
 
 def _persist(out: dict[str, Any]) -> None:

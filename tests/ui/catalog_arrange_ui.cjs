@@ -12,6 +12,9 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
 const shell = require('../_obsidian_shell.cjs');
+// 1103 起「编排」收起来了（catalog-view.js ARRANGE_ON = false）：这里打开它接着测编排本身
+const ARRANGE_CODE = shell.pageAssets('catalog').replace('const ARRANGE_ON = false;', 'const ARRANGE_ON = true;');
+const ARRANGE_CODE_STARRED = shell.pageAssets('starred').replace('const ARRANGE_ON = false;', 'const ARRANGE_ON = true;');
 
 function fixture() {
   const data = shell.makeCatalogData({ n: 40 });
@@ -49,7 +52,7 @@ const center = r => ({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
   try {
     for (const theme of ['light', 'dark']) {
       const page = await browser.newPage({ viewport: { width: 1400, height: 1500 } });
-      const S = await shell.page(page, { host: 'page-reading', kind: 'catalog', theme, data, resources, plugin: plugin(), files });
+      const S = await shell.page(page, { host: 'page-reading', kind: 'catalog', code: ARRANGE_CODE, theme, data, resources, plugin: plugin(), files });
       await page.evaluate(() => document.fonts.ready); await S.settle(80);
       // ① 胶囊位置；平时没有操作条 / 托盘；默认比例
       const pos = await page.evaluate(() => { const a = document.querySelector('.lbc-tools .lb-arrange').getBoundingClientRect(), m = document.querySelector('.lbc-tools .lb-manage').getBoundingClientRect(); return { a: a.right, m: m.left, h: a.height, bars: document.querySelectorAll('.lbc-mod-bar').length, tray: getComputedStyle(document.querySelector('.lbc-arrange-tray')).display }; });
@@ -154,7 +157,7 @@ const center = r => ({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
       await page.close();
       // 新开一页按存的摆
       const page2 = await browser.newPage({ viewport: { width: 1400, height: 1100 } });
-      const S2 = await shell.page(page2, { host: 'page-live', kind: 'catalog', theme: 'light', data, resources, files, plugin: plugin({ catalogLayout: L }) });
+      const S2 = await shell.page(page2, { host: 'page-live', kind: 'catalog', code: ARRANGE_CODE, theme: 'light', data, resources, files, plugin: plugin({ catalogLayout: L }) });
       await S2.settle(80);
       assert.ok(await page2.evaluate(() => !!document.querySelector('.lbc-side > .lbc-m-title') && !!document.querySelector('.lbc-top .lbc-m-recent')), '新开一页：标题在边栏、最近导入在吸顶区');
       await page2.click('.lbc-m-recent .lbc-fold-sum'); await S2.settle(30);   // 新的一页：最近导入照默认折着
@@ -166,14 +169,14 @@ const center = r => ({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
     // ⑦ 手机 / 插件没开 / 星标页：没有「编排」
     {
       const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
-      const S = await shell.page(page, { host: 'page-reading', kind: 'catalog', theme: 'light', data, resources, files, mobile: true });
+      const S = await shell.page(page, { host: 'page-reading', kind: 'catalog', code: ARRANGE_CODE, theme: 'light', data, resources, files, mobile: true });
       await S.settle(60);
       assert.equal(await page.$('.lb-arrange'), null, '手机没有编排');
       await page.close();
     }
     {
       const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
-      const S = await shell.page(page, { host: 'page-reading', kind: 'catalog', theme: 'light', data, resources, files, plugin: null });
+      const S = await shell.page(page, { host: 'page-reading', kind: 'catalog', code: ARRANGE_CODE, theme: 'light', data, resources, files, plugin: null });
       await S.settle(60);
       assert.equal(await page.$('.lb-arrange'), null, '插件没开：只读，没有编排');
       assert.ok(await page.$('.lbc-m-token'), '边栏照默认摆');
@@ -182,7 +185,7 @@ const center = r => ({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
     }
     {
       const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
-      const S = await shell.page(page, { host: 'page-reading', kind: 'starred', theme: 'light', data: { ...data, items: data.items.map(x => ({ ...x, starred: true })) }, resources, files, plugin: plugin() });
+      const S = await shell.page(page, { host: 'page-reading', kind: 'starred', code: ARRANGE_CODE_STARRED, theme: 'light', data: { ...data, items: data.items.map(x => ({ ...x, starred: true })) }, resources, files, plugin: plugin() });
       await S.settle(60);
       assert.equal(await page.$('.lb-arrange'), null, '星标页没有编排');
       await page.close();
