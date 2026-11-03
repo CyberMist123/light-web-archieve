@@ -58,6 +58,9 @@ def _content_region(text: str) -> str | None:
     return text[s:e] if s != -1 and e > s else None
 
 
+_ANY_FENCE_RE = re.compile(r"```[^\n`]*\r?\n.*?```", re.S)   # 1103：任何写法的代码块
+
+
 def diagnose(text: str | None) -> list[str]:
     """按固定顺序返回问题码；空列表 = 没坏。块外有手写不算坏（F1-c 处理）。"""
     text = text or ""
@@ -82,7 +85,8 @@ def diagnose(text: str | None) -> list[str]:
     s, e = text.find(COMMENTS_START), text.find(COMMENTS_END)
     if s == -1 or e == -1 or e < s:
         out.append("COMMENTS_MARKERS_MISSING")
-    if not any("annotate-view.js" in m.group(0) for m in render_mod._DVJS_RE.finditer(text)):
+    # 1103：认的是「有一个代码块载入 annotate-view.js」，不管块是哪种写法——新后端换了块类型（插件还不认识）不是笔记坏了
+    if not any("annotate-view.js" in m.group(0) for m in _ANY_FENCE_RE.finditer(text)):
         out.append("ANNOTATE_BLOCK_MISSING")
     return out
 

@@ -254,6 +254,9 @@ function dataviewState(app) {
 // 旧格式页面（md 里还是 ```dataviewjs）且没有可用的 Dataview：提示一次刷新目录，换成插件自己显示的 ```lb-page 块
 const LEGACY_PAGE_HINT = "这一页还是旧格式（要 Dataview 才显示）。点「刷新目录」换成新格式就能看，不用装 Dataview。";
 // 只看同一块里（不跨过 ```）：用户自己的 dataviewjs + 我们的新 lb-page 批注块（里面有 _archive/ 路径）不算
+// 1103：这个插件会画的页面块写法，写进 data.json（pageFormats）告诉后端——后端只写这里列着的（catalog.page_block_mode）。
+// 以后加新写法：先让插件能画、再加进这里，后端才开始写（11-02 作者本机：后端先换了写法、插件还是旧的，每篇都报「批注块没了」）
+const PAGE_FORMATS = ["lb-page", "dataviewjs"];
 const hasLegacyPageBlock = text => /```dataviewjs\r?\n(?:(?!```)[\s\S])*?(?:_archive\/|annotate-view\.js)/.test(String(text || ""));
 
 // AI 接口配置的默认值。**必须和 link_brain/ai_config.py 的 DEFAULTS 对齐**（改一处改两处）。
@@ -887,6 +890,7 @@ class LinkBrainActions extends Plugin {
     // 1008 Owner：「开始」页选了轻量版 = 不跑 AI 概要 / 识图、也不报它们的失败（后端 providers 按 setup.selected 门禁）。
     // 老用户以前 selected 可能停在轻量版、却早已配好 key 在用——第一次升级时把已配好的 AI 组件勾回去，之后以「开始」页的选择为准。
     try { if (await this.syncSetupSelectionWithAI()) await this.saveSettings(); } catch (e) { console.error('[lb] 功能选择没对齐', e); }
+    try { if (this.declarePageFormats()) await this.saveSettings(); } catch (e) { console.error('[lb] 页面块写法没告诉后端', e); }
     // 收藏库位置 + 后端（第 5 批 B2）：收藏库可能被 junction 挂进别的库的子目录——先找库里哪层带 _archive（或首次引导选的子文件夹），
     // 再解 junction 拿真路径；它的上一级是 LWA 仓库就照旧 python -m link_brain（作者本机），否则用设置里的后端命令。
     await this.locateCollection();
@@ -1445,8 +1449,28 @@ class LinkBrainActions extends Plugin {
   }
   dataviewState() { return dataviewState(this.app); }
   // 1102：打开的页面 / 笔记里还是旧的 dataviewjs 块、Dataview 又不可用 → 这次打开 Obsidian 只提示一次（带「刷新目录」）。返回是否提示了
+  // 1103：告诉后端这个插件会画哪几种页面块（data.json 的 pageFormats）；变了返回 true（调用方存盘）
+  declarePageFormats() {
+    if (JSON.stringify(this.settings.pageFormats) === JSON.stringify(PAGE_FORMATS)) return false;
+    this.settings.pageFormats = [...PAGE_FORMATS];
+    return true;
+  }
+  // 1103：后端比插件新（页面 / 笔记里有这个插件不认识的块）——一次只提示一次「插件需要更新」并给入口；不报坏、不给恢复
+  pluginOutdatedHint() {
+    if (this._outdatedHinted) return false;
+    this._outdatedHinted = true;
+    this.notify(require("./note-tools.js").PLUGIN_OUTDATED_TEXT, { kind: 'warn', ms: 20000,
+      actions: [{ label: '去更新插件', run: () => this.openPluginSettings('community-plugins') }] });
+    return true;
+  }
   async legacyPageHint(file) {
-    if (this._legacyPageHinted || !file) return false;
+    if (!file) return false;
+    if (!this._outdatedHinted) {
+      let t = '';
+      try { t = await this.app.vault.cachedRead(file); } catch {}
+      if (require("./note-tools.js").unknownPageBlocks(t).length) return this.pluginOutdatedHint();
+    }
+    if (this._legacyPageHinted) return false;
     const dv = this.dataviewState();
     if (!dv || dv === 'ok') return false;
     let text = '';

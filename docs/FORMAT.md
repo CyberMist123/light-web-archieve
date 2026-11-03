@@ -1525,3 +1525,11 @@ vault/
 - 回收站页的脚本挪到 `_archive/trash-page.js`（lb-page-lib + trash-view），md 里不再烤整段。
 - `vault/_archive/page-blocks.json`：`{"notes": "lb-page"|"dataviewjs", "at": "<iso>", "changed": <这次改了几篇>}`——`catalog.build` 把可见笔记里的批注块换成当前写法（只换那一块）后写；
   `notes` 和当前写法一样就不再扫笔记。删掉它 = 下次重建再扫一遍（没有别的副作用）。
+
+## 2026-11-03 插件声明认得的页面块写法：data.json 的 `pageFormats`
+
+- 插件 onload 把自己会画的页面块写法写进 data.json：`"pageFormats": ["lb-page", "dataviewjs"]`（`main.src.js` 的 `PAGE_FORMATS`）。
+- 后端 `catalog.page_block_mode()` 只写插件认得的：环境变量 `LINK_BRAIN_PAGE_BLOCK` 显式指定照办 > `pageBlock` 设置（在认得的里面）> 认得的第一种（lb-page 优先）。
+  没有 data.json（纯命令行）= 不限，默认 lb-page；有 data.json 却没有 `pageFormats` = 11-03 之前的插件，只写 dataviewjs。
+- 以后加新写法：先让插件能画、加进 `PAGE_FORMATS`，后端才开始写。插件遇到 LWA 页面块里不认识的写法（后端比插件新）只提示「插件需要更新」，
+  笔记损坏检查（`noteDamage` / `restore.diagnose`）认「有一个代码块载入 annotate-view.js」，不看块是哪种写法。

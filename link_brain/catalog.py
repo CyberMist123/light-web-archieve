@@ -626,15 +626,36 @@ PAGE_BLOCK_MODES = ("lb-page", "dataviewjs")
 PAGE_BLOCK_ENV = "LINK_BRAIN_PAGE_BLOCK"
 
 
+def plugin_page_formats() -> tuple[str, ...] | None:
+    """1103（作者本机：后端 0.2.0 写了 ```lb-page，vault 里的插件还是 11-01 的、只认 dataviewjs → 每篇都报「批注块没了」、
+    目录页只剩一行 catalog-page.js）：插件在 data.json 里声明自己会画哪几种页面块（pageFormats），后端只写它认得的。
+    None = 没有插件设置文件（纯命令行），不限；有设置文件却没声明 = 11-03 之前的插件，只当它认 dataviewjs。"""
+    try:
+        from . import ai_config
+        raw = json.loads(ai_config.data_json_path().read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError, ImportError):
+        return None
+    if not isinstance(raw, dict):
+        return None
+    got = raw.get("pageFormats")
+    if isinstance(got, list):
+        return tuple(str(x).strip().lower() for x in got)
+    return ("dataviewjs",)
+
+
 def page_block_mode() -> str:
+    """环境变量（显式指定，照办）> 插件设置 pageBlock（在插件认得的里面）> 插件认得的第一种（lb-page 优先）。"""
     raw = os.environ.get(PAGE_BLOCK_ENV, "").strip().lower()
-    if not raw:
-        try:
-            from . import ai_config
-            raw = str(ai_config.load().get("pageBlock") or "").strip().lower()
-        except Exception:  # noqa: BLE001 — 设置读不到就用默认，页面照样生成
-            raw = ""
-    return raw if raw in PAGE_BLOCK_MODES else PAGE_BLOCK_MODES[0]
+    if raw in PAGE_BLOCK_MODES:
+        return raw
+    formats = plugin_page_formats()
+    known = [m for m in PAGE_BLOCK_MODES if formats is None or m in formats] or ["dataviewjs"]
+    try:
+        from . import ai_config
+        raw = str(ai_config.load().get("pageBlock") or "").strip().lower()
+    except Exception:  # noqa: BLE001 — 设置读不到就用默认，页面照样生成
+        raw = ""
+    return raw if raw in known else known[0]
 
 
 def _page_bootstrap(script_name: str, params: dict[str, Any] | None = None, mode: str | None = None) -> str:

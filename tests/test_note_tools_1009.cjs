@@ -172,6 +172,22 @@ function setup({ runPy, files = {}, root = '' } = {}) {
     S.events['layout-change'](); lf.view.getMode = () => 'preview'; S.events['layout-change'](); await tick();
     assert.ok(S.notices.at(-1).msg.includes('底部的批注块没了'));
   }
+  // ── 1103：后端比插件新（批注块是这个插件不认识的写法）→ 只提示「插件需要更新」给入口，不报坏、不给「恢复」──
+  {
+    const data = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'note_damage_cases.json'), 'utf8'));
+    const swap = data.cases.find(c => /不认识的写法/.test(c.name)).patch[0];
+    const newer = data.base.replace(swap[1], swap[2]);
+    assert.deepEqual(factory.noteDamage(newer), [], '不认识的块类型不算 ANNOTATE_BLOCK_MISSING');
+    assert.deepEqual(factory.unknownPageBlocks(newer), ['lb-page9']);
+    assert.deepEqual(factory.unknownPageBlocks(data.base), [], '认识的写法不算');
+    assert.deepEqual(factory.unknownPageBlocks(['```python', 'print(1)', '```'].join(String.fromCharCode(10))), [], '用户自己的代码块不算');
+    const S = setup({ files: { note: newer } });
+    let hinted = 0;
+    S.plugin.pluginOutdatedHint = () => { hinted++; S.plugin.notify('插件需要更新', { actions: [{ label: '去更新插件' }] }); };
+    S.events['file-open'](S.note); await tick();
+    assert.equal(hinted, 1, '提示一次插件需要更新');
+    assert.ok(!S.notices.some(n => /被改坏了/.test(n.msg) || (n.opts && (n.opts.actions || []).some(x => x.label === '恢复'))), '不报坏、不给恢复');
+  }
   // ── 1010：顶栏那一行 =「← 目录　原文　机读版」（post-processor 注入「← 目录」、去掉「·」；幂等；只对归档笔记；不再有「导出 ▾」）──
   {
     const opened = [];

@@ -45,6 +45,21 @@ function fmCssclasses(fm) {
   return out;
 }
 
+const ANY_FENCE_RE = /```[^\n`]*\r?\n[\s\S]*?```/g;
+// 1103：这个插件会画的页面块写法（和 main.src.js 声明给后端的 PAGE_FORMATS 同一份）
+const KNOWN_PAGE_BLOCKS = ['lb-page', 'dataviewjs'];
+// LWA 自己的页面块（载入 annotate-view.js 或 _archive/ 下的页面脚本）里这个插件不认识的写法：有 = 后端比插件新，该更新插件，不是笔记坏了
+function unknownPageBlocks(text) {
+  const out = [];
+  for (const b of String(text || '').match(ANY_FENCE_RE) || []) {
+    const lang = b.slice(3, b.search(/\r?\n/)).trim().split(/\s+/)[0].toLowerCase();
+    if (!lang || KNOWN_PAGE_BLOCKS.includes(lang)) continue;
+    if (/annotate-view\.js|_archive\/|\b[\w-]+-page\.js\b/.test(b) && !out.includes(lang)) out.push(lang);
+  }
+  return out;
+}
+const PLUGIN_OUTDATED_TEXT = 'Link Brain 插件比后台程序旧，有些页面块它还不认识——不是笔记坏了，别点恢复。更新插件后就能正常显示。';
+
 // 与 restore.diagnose 同顺序、同口径；空数组 = 没坏。块外手写不算坏（F1-c 处理）。
 function noteDamage(text) {
   text = String(text || '');
@@ -65,7 +80,8 @@ function noteDamage(text) {
   else if (count(lines[0], '<div') !== count(lines[0], '</div>')) out.push('NOTE_BLOCK_SPLIT');
   const cs = text.indexOf(COMMENTS_START), ce = text.indexOf(COMMENTS_END);
   if (cs === -1 || ce === -1 || ce < cs) out.push('COMMENTS_MARKERS_MISSING');
-  const blocks = text.match(/```(?:dataviewjs|lb-page)\r?\n[\s\S]*?```/g) || [];
+  // 1103：认的是「有一个代码块载入 annotate-view.js」，不管是哪种写法——新后端换了块类型（这个插件还不认识）不算笔记坏了（restore.diagnose 同口径）
+  const blocks = text.match(ANY_FENCE_RE) || [];
   if (!blocks.some(b => b.includes('annotate-view.js'))) out.push('ANNOTATE_BLOCK_MISSING');
   return out;
 }
@@ -224,6 +240,11 @@ module.exports = (obsidian, plugin, deps = {}) => {
     if (!info) return [];
     let text = '';
     try { text = await app().vault.cachedRead(file); } catch { return []; }
+    // 1103：后端比插件新（写了这个插件不认识的块）→ 只说「插件需要更新」，不报坏、不给「恢复」
+    if (unknownPageBlocks(text).length) {
+      if (!warned.has(file.path)) { warned.add(file.path); plugin.pluginOutdatedHint?.(); }
+      return [];
+    }
     const issues = noteDamage(text);
     if (!issues.length) { warned.delete(file.path); return issues; }
     if (warned.has(file.path)) return issues;
@@ -492,3 +513,5 @@ module.exports = (obsidian, plugin, deps = {}) => {
   return inst;
 };
 module.exports.noteDamage = noteDamage;
+module.exports.unknownPageBlocks = unknownPageBlocks;
+module.exports.PLUGIN_OUTDATED_TEXT = PLUGIN_OUTDATED_TEXT;

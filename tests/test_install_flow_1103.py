@@ -169,3 +169,28 @@ def test_albums_read_on_first_run_after_favorites_cool_down(monkeypatch):
                        account_check=lambda: ("NOT_LOGGED_IN", ""), bili_check=lambda: False, albums_wait=lambda: 600, sleep=slept.append)
     assert "albums" not in order and slept == []
     assert {s["id"]: s["state"] for s in out["stages"]}["albums"] == "skipped"
+
+
+# ---------------------------------------------------------------- 1103：后端只写插件认得的页面块写法（作者本机：后端换了写法、插件还是旧的）
+def test_page_block_mode_follows_what_the_plugin_declares(monkeypatch):
+    monkeypatch.delenv(catalog.PAGE_BLOCK_ENV, raising=False)
+    p = ai_config.data_json_path()
+    if p.exists():
+        p.unlink()
+    assert catalog.page_block_mode() == "lb-page", "没有插件设置（纯命令行）：默认新写法"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    storage.write_json(p, {"setup": {}})
+    assert catalog.page_block_mode() == "dataviewjs", "有设置却没声明 = 旧插件：只写它认得的旧写法"
+    storage.write_json(p, {"pageFormats": ["lb-page", "dataviewjs"]})
+    assert catalog.page_block_mode() == "lb-page"
+    storage.write_json(p, {"pageFormats": ["dataviewjs", "lb-page"], "pageBlock": "dataviewjs"})
+    assert catalog.page_block_mode() == "dataviewjs", "设置里选了旧写法、插件也认：照办"
+    storage.write_json(p, {"pageFormats": ["dataviewjs"], "pageBlock": "lb-page"})
+    assert catalog.page_block_mode() == "dataviewjs", "设置要新写法、插件却不认：不写"
+    monkeypatch.setenv(catalog.PAGE_BLOCK_ENV, "lb-page")
+    assert catalog.page_block_mode() == "lb-page", "环境变量显式指定：照办"
+    # 批注块跟着走：旧插件那份 data.json 下渲染出的就是 dataviewjs
+    monkeypatch.delenv(catalog.PAGE_BLOCK_ENV)
+    storage.write_json(p, {"setup": {}})
+    from link_brain import render
+    assert render.annotate_block("xhs-x", "_archive/xiaohongshu/x/notes.json").startswith("```dataviewjs")

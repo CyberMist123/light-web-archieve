@@ -63,6 +63,9 @@ def test_regen_fixture(obj):
 
 EXPECT = {
     "完好": [],
+    # 1103：批注块的写法不管是哪种（含插件还不认识的新写法）都不算「批注块没了」
+    "1103 批注块换成插件还不认识的写法（后端比插件新）：不算坏": [],
+    "1103 批注块是 lb-page 写法": [],
     "删了 CONTENT 开始标记": ["CONTENT_MARKERS_MISSING"],
     "整个 CONTENT 层删了": ["CONTENT_MARKERS_MISSING", "NOTE_BLOCK_MISSING"],
     "删了 item_id": ["ITEM_ID_MISSING"],
