@@ -10480,10 +10480,10 @@ var require_backend_install = __commonJS({
     var BACKEND_RELEASE = {
       version: "0.2.1",
       wheelUrl: "https://github.com/CyberMist123/light-web-archieve/releases/download/v0.2.1/link_brain-0.2.1-py3-none-any.whl",
-      wheelSha256: "",
-      // TODO 发 v0.2.1 后回填（Release 的 SHA256SUMS）
+      wheelSha256: "0115546209b31072320ca4fa017c67dad20c0268bdbe5e7abc2e4903a8b7d449",
+      // Release v0.2.1 的 SHA256SUMS（1103：lock 带 ocr/bilibili/docs；本机 Windows 下载、--require-hashes 装过）
       lockUrl: "https://github.com/CyberMist123/light-web-archieve/releases/download/v0.2.1/requirements.lock",
-      lockSha256: ""
+      lockSha256: "a3849dfaa0db50a5ee7ce03257b1642ba3400cab71840abeabb7efe42d6ff370"
     };
     var BACKEND_EXTRAS = ["ocr", "bilibili", "docs"];
     var STAGES = [["uv", "准备安装工具 uv"], ["python", "准备 Python " + PYTHON_VERSION], ["venv", "建后端环境"], ["install", "安装 link-brain"], ["check", "自检"]];
