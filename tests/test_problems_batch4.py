@@ -133,7 +133,7 @@ def test_stuck_resolves_only_when_no_item_is_still_failing(pushes):
 def test_push_body_says_what_to_do(pushes):
     problems.report("login", "NOT_LOGGED_IN", "登录检查：未登录")
     kind, title, body, extra = pushes[0]
-    assert kind == "problem" and title == "需要登录：小红书账号"
+    assert kind == "problem" and title == "未登录：小红书账号"
     assert body.startswith("小红书账号掉登录了") and "登录检查：未登录" in body and extra["code"] == "NEEDS_HUMAN.NOT_LOGGED_IN"
 
 

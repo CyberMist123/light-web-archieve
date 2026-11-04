@@ -131,7 +131,7 @@ ACCOUNT_CODES = ("NOT_LOGGED_IN", "CAPTCHA_REQUIRED", "ACCOUNT_RISK", "RISK_HOLD
 # group：needs_you（等你处理）· auto（正在自动处理）· gave_up（已放弃）· off（未开启）
 STATE_REGISTRY: dict[str, dict[str, str]] = {
     # —— 要人处理 ——
-    "NEEDS_HUMAN.NOT_LOGGED_IN": dict(where="top+card", label="需要登录", hover="小红书账号掉登录了：点目录页顶部的问题入口扫码登录", group="needs_you"),
+    "NEEDS_HUMAN.NOT_LOGGED_IN": dict(where="top+card", label="未登录", hover="小红书账号掉登录了：点目录页顶部的问题入口扫码登录", group="needs_you"),
     "NEEDS_HUMAN.CAPTCHA_REQUIRED": dict(where="top+card", label="需要验证", hover="小红书弹了验证（不是掉登录）：点「打开验证」，窗口打开后点一下「收藏」页签（上次是读收藏时被拦的）；出现滑块就拖完再关窗，没出现就直接关窗", group="needs_you"),
     # 1011：没人看着时撞的验证码先不叫用户（night_captcha）：冷却后自查一次，干净就自动恢复；连着两晚没好才升级成上面那条
     "TRANSIENT.NIGHT_CAPTCHA": dict(where="list", label="夜里弹了验证（不是掉登录）", hover="{reason}", group="auto"),

@@ -128,12 +128,12 @@ function makePlugin() {
   const text = () => card.textContent;
   // 1031 作者「和小红书对齐、给一个（扫码）就行」：一行「昵称 / 号 · ✓ 已登录（大会员）」+ ⋯；电视端没登只给一句，不另放按钮
   assert.ok(card.querySelector('.lb-acct-row .lb-acct-who') && card.querySelector('.lb-bili-more'), '和小红书同一套账号行 + ⋯');
-  assert.match(card.querySelector('.lb-acct-row').textContent, /12\*\*\*34 · ✓ 已登录（大会员）/);
+  assert.match(card.querySelector('.lb-acct-row').textContent, /12\*\*\*34 · 已登录（大会员）/);
   assert.match(text(), /重新扫码登录」扫一次能拿无水印片源/);
   assert.equal(card.querySelectorAll('.lb-acct-row button').filter(b => !b.hidden).length, 0, '网页端登着：没有大按钮');
   assert.match(text(), /上次：上次同步没跑完：下到第 349 条/, '被打断的那次：停在第几条、为什么');
   const btn = t => card.querySelectorAll('button').find(b => b.textContent === t);
-  assert.equal(tab.stops.length, 1, '任务监听在设置页关掉时注销');
+  assert.equal(tab.stops.length, 2, '任务监听在设置页关掉时注销（1104：登录卡跟着同步换「同步中」也注册了一个）');
   // 1101：不再开 Markdown 待选清单，开「挑要下的视频」页（页还没有就先让后端写一份）
   await btn('挑要下的视频').onclick(); await settle();
   assert.ok(plugin.calls.includes('bilibili pending --json --max-duration 3600'), '打开前先让后端重写页面和数据');

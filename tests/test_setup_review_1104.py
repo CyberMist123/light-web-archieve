@@ -229,3 +229,17 @@ def test_ever_logged_in_reads_saved_account(monkeypatch):
     assert real() is False
     accounts.save({"nickname": "某人", "user_id": "u1"})
     assert real() is True
+
+
+def test_status_report_never_logged_in_answers_without_reader(monkeypatch):
+    """1104 作者：从没扫码登录过——账号状态（浅查、「检查」深查都一样）直接答未登录，不问、不拉起读取组件。"""
+    from link_brain.sources.xiaohongshu import accounts
+    monkeypatch.setattr(accounts, "ever_logged_in", lambda: False)
+    touched = []
+    monkeypatch.setattr(accounts, "ensure_reader", lambda **k: touched.append("ensure") or {})
+    monkeypatch.setattr(accounts, "api", lambda *a, **k: touched.append("api") or {})
+    for kw in ({"deep": False, "launch": False}, {"deep": True}):
+        row, st = accounts.status_report(**kw)
+        assert row["state"] == "not_logged_in" and row["action"] == "login" and st == "guest"
+    assert touched == []
+    assert problems.STATE_REGISTRY["NEEDS_HUMAN.NOT_LOGGED_IN"]["label"] == "未登录"

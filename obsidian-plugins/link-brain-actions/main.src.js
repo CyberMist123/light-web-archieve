@@ -590,6 +590,20 @@ function parseLastJson(out) {
 function stderrTail(err, n = 3) {
   return String(err || "").trim().split("\n").map(s => s.trimEnd()).filter(Boolean).slice(-n).join("\n");
 }
+// 1104 作者：小红书（和 B 站）账号的状态字只有三种——同步中 / 已登录 / 未登录。原因和要做的事（要验证、读取服务没在跑、
+// 查不清…）一律放到下面那行说明里，按钮照旧。r = 后端账号行（state / code / action）；knownIn = 之前确认过是登着的（缓存）。
+// 后端对「这台电脑从没扫码登录过」直接答 not_logged_in（不拉起读取组件），所以其余查不清的情况都是登过的号，按「已登录」说。
+function accountTriState(r, { knownIn = false, prev = '' } = {}) {
+  const s = r && r.state;
+  if (s === 'syncing') return { label: '同步中', cls: 'syncing' };
+  if (s === 'ready') return { label: '已登录', cls: 'ready' };
+  if (s === 'checking') return { label: prev || '', cls: 'checking' };
+  if (s === 'busy') return { label: prev || '', cls: 'busy' };
+  if (['not_logged_in', 'expired'].includes(s) || r.code === 'NOT_LOGGED_IN' || r.action === 'login') return { label: '未登录', cls: 'not_logged_in' };
+  // 插件这头就没问成（后端没装好 / 超时）：之前确认过登着就说已登录，否则未登录
+  if (s === 'error' && !r.code && r.action !== 'verify' && !knownIn) return { label: '未登录', cls: 'not_logged_in' };
+  return { label: '已登录', cls: 'ready' };
+}
 // 1104（虚拟机实测）：超时不满 1 分钟按秒说——以前 20 秒的账号检查报「超过 0 分钟没有结果」，runPy 里又一律说成「1 分钟」
 function waitText(ms) {
   return ms < 60000 ? `${Math.max(1, Math.round(ms / 1000))} 秒` : `${Math.round(ms / 60000)} 分钟`;
@@ -1707,6 +1721,7 @@ class LinkBrainActions extends Plugin {
     row.addExtraButton(b => { more = b; b.setIcon('more-horizontal').setTooltip('更多'); });
     // 每种状态：状态字 · 下一步一句话 · 主按钮。第 4 批：带故障码的几种（掉登录 / 验证 / 服务没起 / 未安装）状态字取 Python 登记表
     // （state_registry，按行里的 code），下一步取后端给的 next_step（accounts.SOLUTIONS）；这里只留没有故障码的状态字和按钮名。
+    // 1104 作者：状态字只用 accountTriState 的三种；这里的第一列只当说明行的兜底
     const VIEW = {
       ready: ['✓ 已登录', '', ''],   // 1027b 作者：登着的时候不另放「换个账号」大按钮（和 ⋯ 里的重复）；切换 / 退出在 ⋯ 里
       expired: ['', '', '重新登录'],
@@ -1722,13 +1737,14 @@ class LinkBrainActions extends Plugin {
       idle: ['未确认', '', '检查'],
     };
     let registry = {};
+    let shownLabel = '';
     const paint = (r, running = false) => {
       // 1031 作者：同步正在跑（读取服务中途重启那一下会查成「没在运行」）就说「同步中」，不报失败样子
       // 1103 作者（虚拟机）：刚登录就开始同步，卡片却是「进行中 · 号正被另一个任务使用（同步收藏…）」——号被同步占着（ACCOUNT_BUSY）
       // 说明它登着；判断只看 xhsSyncing() 这一处（同步记录没收尾 / 懒人安装正在同步 / 插件正在同步），不报存疑、不报占用
       if ((['disconnected', 'unknown', 'error'].includes(r.state) || r.code === 'ACCOUNT_BUSY') && this.xhsSyncing()) {
         const name = r.account || (this.accountCache?.row?.state === 'ready' ? this.accountCache.row.account : '') || '';
-        r = { ...r, state: 'syncing', code: '', message: '已登录 · 同步中', next_step: '', account: name };
+        r = { ...r, state: 'syncing', code: '', message: '同步中', next_step: '', account: name };
       }
       current = r;
       // 第 7 批：「开始」页第 ③ 步 / 总览看这个号登没登上（只记卡片此刻显示的状态，不另起进程查）
@@ -1736,12 +1752,17 @@ class LinkBrainActions extends Plugin {
       try { this.setupNotify?.(); } catch (e) { console.error('[lb] 开始页没刷新', e); }
       const [plain, tip, button] = VIEW[r.state] || VIEW.unknown;
       const replyCooling = !!r.sub_comments_until && !r.code;
-      const label = replyCooling ? r.message : ((r.code && registryEntry(registry, r.code)?.label) || plain || r.message || VIEW.unknown[0]);
+      const tri = accountTriState(r, { knownIn: this.accountCache?.row?.state === 'ready', prev: shownLabel });
+      shownLabel = tri.label || shownLabel;
+      // 故障码在登记表里的名字（需要验证 / 风控暂停…）不再当状态字，放进说明行开头
+      const why = r.code ? (registryEntry(registry, r.code)?.label || '') : '';
+      const detail = replyCooling ? r.message : (r.next_step || tip || (plain && plain !== tri.label ? plain : '') || (r.state !== 'ready' ? r.message : '') || '');
       who.setText(r.account ? (inCard ? r.account : ` · ${r.account}`) : '');
       // S4：缓存画出来的那一行带上「N 分钟前确认」
-      state.setText((inCard && !r.account ? '' : ' · ') + label + (r._at && r.state === 'ready' ? `（${confirmedAgo(r._at)}）` : ''));
-      state.className = 'lb-acct-state is-' + r.state;
-      guide.setText(r.state === 'ready' ? '' : (r.next_step || tip || (plain ? r.message : '') || ''));
+      state.setText(tri.label ? (inCard && !r.account ? '' : ' · ') + tri.label + (r._at && r.state === 'ready' ? `（${confirmedAgo(r._at)}）` : '') : '');
+      state.className = 'lb-acct-state is-' + tri.cls;
+      const line = r.state === 'ready' || r.state === 'syncing' ? (replyCooling ? r.message : '') : [why && why !== tri.label ? why : '', detail].filter(Boolean).join('：');
+      guide.setText(line || (r.state === 'checking' ? '加载中，请稍候' : ''));
       guide.toggleClass('lb-loading', r.state === 'checking' || r.state === 'busy');
       if (running) bar.addClass('is-running'); else bar.removeClass('is-running');
       const btnText = replyCooling ? '' : (r.state === 'error' && r.action === 'login' ? '登录' : button);
@@ -1817,6 +1838,16 @@ class LinkBrainActions extends Plugin {
       menu.showAtPosition({x: rect.left, y: rect.bottom});
     });
     refresh();
+    // 1104 作者：同步一开始 / 一结束，状态字跟着在「同步中」和登录状态之间换（以前只在查的时候才重画）
+    let wasSyncing = this.xhsSyncing();
+    const onTask = () => {
+      if (box.isConnected === false) { this.taskListeners = (this.taskListeners || []).filter(f => f !== onTask); return; }
+      const now = this.xhsSyncing();
+      if (now === wasSyncing) return;
+      wasSyncing = now;
+      if (now && current) paint(current); else refresh();
+    };
+    (this.taskListeners || (this.taskListeners = [])).push(onTask);
     return refresh;
   }
 
@@ -3693,7 +3724,8 @@ module.exports.noteCssText = noteCssText;
 // 1102 单文件：main.js 由 esbuild 打包后顶层名字不再是 vm 上下文的全局，node 单测要用的一律从导出取
 Object.assign(module.exports, { mergeSettings, selectKillPids, LinkBrainSettingTab, externalSyncText, ConfirmModal, cleanLinks, parseCatsText, serializeCats });
 module.exports.LB_MODULES = LB_MODULES;
-module.exports.rewriteInbox = rewriteInbox;   // 给 node 单测（第 3 批投喂回写）
+module.exports.rewriteInbox = rewriteInbox;
+module.exports.accountTriState = accountTriState;   // 1104：账号状态三种（node 单测）   // 给 node 单测（第 3 批投喂回写）
 module.exports.mergeSyncStatus = mergeSyncStatus;   // 给 node 单测（第 4 批）
 module.exports.registryEntry = registryEntry;
 module.exports.syncSummaryLine = syncSummaryLine;   // 给 node 单测（设置页收纳）

@@ -498,16 +498,29 @@ module.exports = function (obsidian, plugin) {
       const bits = [];
       if (j && j.vip) bits.push('大会员');
       if (tvOk(j)) bits.push('无水印片源');
-      state.setText(!j ? '无法确认' : (webOk(j) ? ' · ✓ 已登录' : any ? '还差一步' : j.state === 'unknown' ? '无法确认' : '没登录') + (webOk(j) && bits.length ? `（${bits.join(' · ')}）` : ''));
-      state.className = 'lb-acct-state is-' + (webOk(j) ? 'ready' : 'not_logged_in');
+      // 1104 作者：状态字只有三种（同步中 / 已登录 / 未登录），和小红书卡一样。unknown = 本机有登录态、只是这会儿查不到（网络），按已登录说
+      const syncing = plugin.biliRunning === BILI_RUN_LABEL;
+      const inNow = webOk(j) || !!(j && j.state === 'unknown');
+      state.setText((syncing ? '同步中' : inNow ? (webOk(j) ? ' · 已登录' : '已登录') : '未登录') + (webOk(j) && bits.length ? `（${bits.join(' · ')}）` : ''));
+      state.className = 'lb-acct-state is-' + (syncing ? 'syncing' : inNow ? 'ready' : 'not_logged_in');
       const next = nextScan(j);
-      guide.setText(!j ? '' : !next ? '' : next === 'web' ? '网页端还没登上：点「扫码登录」再扫一次（读收藏夹要用）'
+      guide.setText(!j ? '' : j.state === 'unknown' && !webOk(j) ? (j.detail || '这会儿查不到登录状态（网络不通？），稍后会再查') : !next ? '' : next === 'web' ? '网页端还没登上：点「扫码登录」再扫一次（读收藏夹要用）'
         : webOk(j) ? '电视端没登：点 ⋯ →「重新扫码登录」扫一次能拿无水印片源（不扫也能下）' : '用手机 B 站 App 扫一次码就行，之后自动复用');
-      if (next && !(webOk(j) && next === 'tv')) { primary.setButtonText('扫码登录'); primary.buttonEl.show(); } else primary.buttonEl.hide();
+      if (next && !(webOk(j) && next === 'tv') && !(j && j.state === 'unknown')) { primary.setButtonText('扫码登录'); primary.buttonEl.show(); } else primary.buttonEl.hide();
       // 1103：登着就在后台把收藏夹列表读好（这一次打开 Obsidian 只读一次），懒人安装卡片上直接勾
       if (webOk(j)) { if (!plugin.biliFolders) loadBiliFolders().catch(() => {}); }
       else for (const f of [...biliFolderPainters]) { try { f(); } catch {} }
     };
+    // 1104 作者：B 站同步一开始 / 一结束，状态字跟着在「同步中」和登录状态之间换
+    let biliWas = plugin.biliRunning === BILI_RUN_LABEL;
+    const onBiliTask = () => {
+      const now = plugin.biliRunning === BILI_RUN_LABEL;
+      if (now === biliWas) return;
+      biliWas = now;
+      if (now) paintLogin(biliStatus); else loadStatus();
+    };
+    (plugin.taskListeners || (plugin.taskListeners = [])).push(onBiliTask);
+    tab.stops.push(() => { plugin.taskListeners = (plugin.taskListeners || []).filter(f => f !== onBiliTask); });
     const loadStatus = async () => {
       try { const r = await plugin.runPy(['-m', 'link_brain', 'bilibili', 'status', '--json'], { label: 'B 站登录状态', timeoutMs: 60000, okCodes: [0, 1, 5] }); paintLogin(r.json); }
       catch (e) {

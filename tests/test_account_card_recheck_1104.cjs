@@ -68,3 +68,31 @@ const flush = async (n = 6) => { for (let i = 0; i < n; i++) await new Promise(r
   assert.equal(painters.size, 0, '只重查一次');
   console.log('PASS account card 1104: stuck on 「正在安装后端程序」 rechecks once (shallow) when the backend becomes available');
 })().catch(e => { console.error(e); process.exitCode = 1; });
+
+// 1104 作者：小红书 / B 站账号的状态字只有三种——同步中 / 已登录 / 未登录；原因放说明行
+{
+  const assert3 = require('node:assert/strict');
+  const ctx = { module: { exports: {} }, process, setTimeout, clearTimeout, console, URL, Buffer,
+    require: n => n === 'obsidian' ? { Plugin: class {}, PluginSettingTab: class {}, Modal: class {}, Notice: class {}, Menu: class {} } : n === 'child_process' ? {} : require(n) };
+  vm.createContext(ctx);
+  vm.runInContext(fs.readFileSync('obsidian-plugins/link-brain-actions/main.js', 'utf8'), ctx);
+  const tri = ctx.module.exports.accountTriState;
+  const L = (r, o) => tri(r, o).label;
+  assert3.equal(L({ state: 'ready' }), '已登录');
+  assert3.equal(L({ state: 'syncing' }), '同步中');
+  assert3.equal(L({ state: 'not_logged_in', code: 'NOT_LOGGED_IN' }), '未登录');
+  assert3.equal(L({ state: 'expired' }), '未登录');
+  assert3.equal(L({ state: 'error', code: 'NOT_LOGGED_IN' }), '未登录', '掉登录');
+  assert3.equal(L({ state: 'error', action: 'login' }), '未登录', '登录没完成');
+  assert3.equal(L({ state: 'captcha', code: 'CAPTCHA_REQUIRED', action: 'verify' }), '已登录', '要验证：号是登着的，原因进说明行');
+  assert3.equal(L({ state: 'idle' }), '已登录', '读取服务没在跑：后端对从没登录过的电脑已经答了未登录，这里是登过的号');
+  assert3.equal(L({ state: 'disconnected', code: 'DISCONNECTED' }), '已登录');
+  assert3.equal(L({ state: 'unknown' }), '已登录');
+  assert3.equal(L({ state: 'error' }), '未登录', '插件这头没问成、之前也没确认过');
+  assert3.equal(L({ state: 'error' }, { knownIn: true }), '已登录', '之前确认过登着');
+  assert3.equal(L({ state: 'checking' }, { prev: '已登录' }), '已登录', '检查中不另起一个状态字');
+  assert3.equal(L({ state: 'checking' }), '');
+  for (const s of ['ready', 'syncing', 'not_logged_in', 'expired', 'captcha', 'idle', 'disconnected', 'unknown', 'error', 'unconfigured'])
+    assert3.ok(['已登录', '同步中', '未登录'].includes(L({ state: s })), s);
+  console.log('PASS account states 1104: only 同步中 / 已登录 / 未登录 (reasons go to the hint line)');
+}

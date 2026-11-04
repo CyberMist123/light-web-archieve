@@ -345,14 +345,14 @@ async function syncingAccountTest() {
   const box = dom.document.body.createDiv();
   p.renderAccountRow(box, plat, { inCard: true });
   await tick(5);
-  assert.ok(box.textContent.includes('已登录 · 同步中'), box.textContent);
+  assert.ok(box.textContent.includes('同步中') && !box.textContent.includes('已登录 · 同步中'), box.textContent);   // 1104：状态字只有三种
   assert.ok(!/进行中|正被另一个任务/.test(box.textContent), '不报占用：' + box.textContent);
   // 插件自己点的「立即同步」也一样
   p.homeState = null; p.running = '同步收藏';
   const box2 = dom.document.body.createDiv();
   p.renderAccountRow(box2, plat, { inCard: true });
   await tick(5);
-  assert.ok(box2.textContent.includes('已登录 · 同步中'), box2.textContent);
+  assert.ok(box2.textContent.includes('同步中'), box2.textContent);
   // 没在同步时号被别的任务（附件补查）占着：照旧如实说
   p.running = null;
   const box3 = dom.document.body.createDiv();

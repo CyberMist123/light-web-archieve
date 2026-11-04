@@ -7153,11 +7153,13 @@ var require_settings_v6 = __commonJS({
           const bits = [];
           if (j && j.vip) bits.push("大会员");
           if (tvOk(j)) bits.push("无水印片源");
-          state.setText(!j ? "无法确认" : (webOk(j) ? " · ✓ 已登录" : any ? "还差一步" : j.state === "unknown" ? "无法确认" : "没登录") + (webOk(j) && bits.length ? `（${bits.join(" · ")}）` : ""));
-          state.className = "lb-acct-state is-" + (webOk(j) ? "ready" : "not_logged_in");
+          const syncing = plugin.biliRunning === BILI_RUN_LABEL;
+          const inNow = webOk(j) || !!(j && j.state === "unknown");
+          state.setText((syncing ? "同步中" : inNow ? webOk(j) ? " · 已登录" : "已登录" : "未登录") + (webOk(j) && bits.length ? `（${bits.join(" · ")}）` : ""));
+          state.className = "lb-acct-state is-" + (syncing ? "syncing" : inNow ? "ready" : "not_logged_in");
           const next = nextScan(j);
-          guide.setText(!j ? "" : !next ? "" : next === "web" ? "网页端还没登上：点「扫码登录」再扫一次（读收藏夹要用）" : webOk(j) ? "电视端没登：点 ⋯ →「重新扫码登录」扫一次能拿无水印片源（不扫也能下）" : "用手机 B 站 App 扫一次码就行，之后自动复用");
-          if (next && !(webOk(j) && next === "tv")) {
+          guide.setText(!j ? "" : j.state === "unknown" && !webOk(j) ? j.detail || "这会儿查不到登录状态（网络不通？），稍后会再查" : !next ? "" : next === "web" ? "网页端还没登上：点「扫码登录」再扫一次（读收藏夹要用）" : webOk(j) ? "电视端没登：点 ⋯ →「重新扫码登录」扫一次能拿无水印片源（不扫也能下）" : "用手机 B 站 App 扫一次码就行，之后自动复用");
+          if (next && !(webOk(j) && next === "tv") && !(j && j.state === "unknown")) {
             primary.setButtonText("扫码登录");
             primary.buttonEl.show();
           } else primary.buttonEl.hide();
@@ -7171,6 +7173,18 @@ var require_settings_v6 = __commonJS({
             }
           }
         };
+        let biliWas = plugin.biliRunning === BILI_RUN_LABEL;
+        const onBiliTask = () => {
+          const now = plugin.biliRunning === BILI_RUN_LABEL;
+          if (now === biliWas) return;
+          biliWas = now;
+          if (now) paintLogin(biliStatus);
+          else loadStatus();
+        };
+        (plugin.taskListeners || (plugin.taskListeners = [])).push(onBiliTask);
+        tab.stops.push(() => {
+          plugin.taskListeners = (plugin.taskListeners || []).filter((f) => f !== onBiliTask);
+        });
         const loadStatus = async () => {
           try {
             const r = await plugin.runPy(["-m", "link_brain", "bilibili", "status", "--json"], { label: "B 站登录状态", timeoutMs: 6e4, okCodes: [0, 1, 5] });
@@ -13047,6 +13061,16 @@ function parseLastJson(out) {
 function stderrTail(err, n = 3) {
   return String(err || "").trim().split("\n").map((s) => s.trimEnd()).filter(Boolean).slice(-n).join("\n");
 }
+function accountTriState(r, { knownIn = false, prev = "" } = {}) {
+  const s = r && r.state;
+  if (s === "syncing") return { label: "同步中", cls: "syncing" };
+  if (s === "ready") return { label: "已登录", cls: "ready" };
+  if (s === "checking") return { label: prev || "", cls: "checking" };
+  if (s === "busy") return { label: prev || "", cls: "busy" };
+  if (["not_logged_in", "expired"].includes(s) || r.code === "NOT_LOGGED_IN" || r.action === "login") return { label: "未登录", cls: "not_logged_in" };
+  if (s === "error" && !r.code && r.action !== "verify" && !knownIn) return { label: "未登录", cls: "not_logged_in" };
+  return { label: "已登录", cls: "ready" };
+}
 function waitText(ms) {
   return ms < 6e4 ? `${Math.max(1, Math.round(ms / 1e3))} 秒` : `${Math.round(ms / 6e4)} 分钟`;
 }
@@ -14628,10 +14652,11 @@ var LinkBrainActions = class extends Plugin {
       idle: ["未确认", "", "检查"]
     };
     let registry = {};
+    let shownLabel = "";
     const paint = (r, running = false) => {
       if ((["disconnected", "unknown", "error"].includes(r.state) || r.code === "ACCOUNT_BUSY") && this.xhsSyncing()) {
         const name = r.account || (this.accountCache?.row?.state === "ready" ? this.accountCache.row.account : "") || "";
-        r = { ...r, state: "syncing", code: "", message: "已登录 · 同步中", next_step: "", account: name };
+        r = { ...r, state: "syncing", code: "", message: "同步中", next_step: "", account: name };
       }
       current = r;
       (this.accountState || (this.accountState = {}))[platform.id] = r.state;
@@ -14642,11 +14667,15 @@ var LinkBrainActions = class extends Plugin {
       }
       const [plain, tip, button] = VIEW[r.state] || VIEW.unknown;
       const replyCooling = !!r.sub_comments_until && !r.code;
-      const label = replyCooling ? r.message : r.code && registryEntry(registry, r.code)?.label || plain || r.message || VIEW.unknown[0];
+      const tri = accountTriState(r, { knownIn: this.accountCache?.row?.state === "ready", prev: shownLabel });
+      shownLabel = tri.label || shownLabel;
+      const why = r.code ? registryEntry(registry, r.code)?.label || "" : "";
+      const detail = replyCooling ? r.message : r.next_step || tip || (plain && plain !== tri.label ? plain : "") || (r.state !== "ready" ? r.message : "") || "";
       who.setText(r.account ? inCard ? r.account : ` · ${r.account}` : "");
-      state.setText((inCard && !r.account ? "" : " · ") + label + (r._at && r.state === "ready" ? `（${confirmedAgo(r._at)}）` : ""));
-      state.className = "lb-acct-state is-" + r.state;
-      guide.setText(r.state === "ready" ? "" : r.next_step || tip || (plain ? r.message : "") || "");
+      state.setText(tri.label ? (inCard && !r.account ? "" : " · ") + tri.label + (r._at && r.state === "ready" ? `（${confirmedAgo(r._at)}）` : "") : "");
+      state.className = "lb-acct-state is-" + tri.cls;
+      const line = r.state === "ready" || r.state === "syncing" ? replyCooling ? r.message : "" : [why && why !== tri.label ? why : "", detail].filter(Boolean).join("：");
+      guide.setText(line || (r.state === "checking" ? "加载中，请稍候" : ""));
       guide.toggleClass("lb-loading", r.state === "checking" || r.state === "busy");
       if (running) bar.addClass("is-running");
       else bar.removeClass("is-running");
@@ -14765,6 +14794,19 @@ var LinkBrainActions = class extends Plugin {
       menu.showAtPosition({ x: rect.left, y: rect.bottom });
     });
     refresh();
+    let wasSyncing = this.xhsSyncing();
+    const onTask = () => {
+      if (box.isConnected === false) {
+        this.taskListeners = (this.taskListeners || []).filter((f) => f !== onTask);
+        return;
+      }
+      const now = this.xhsSyncing();
+      if (now === wasSyncing) return;
+      wasSyncing = now;
+      if (now && current) paint(current);
+      else refresh();
+    };
+    (this.taskListeners || (this.taskListeners = [])).push(onTask);
     return refresh;
   }
   // 登录成功后：提示一次网页版限制；第一次登录且从没同步过 → 按设置自动开始同步收藏。
@@ -17499,6 +17541,7 @@ module.exports.noteCssText = noteCssText;
 Object.assign(module.exports, { mergeSettings, selectKillPids, LinkBrainSettingTab, externalSyncText, ConfirmModal, cleanLinks, parseCatsText, serializeCats });
 module.exports.LB_MODULES = LB_MODULES;
 module.exports.rewriteInbox = rewriteInbox;
+module.exports.accountTriState = accountTriState;
 module.exports.mergeSyncStatus = mergeSyncStatus;
 module.exports.registryEntry = registryEntry;
 module.exports.syncSummaryLine = syncSummaryLine;
