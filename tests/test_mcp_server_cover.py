@@ -6,7 +6,7 @@ import json
 import sys
 from types import SimpleNamespace as NS
 
-from link_brain import mcp_server, mcp_tools
+from link_brain import __version__, mcp_server, mcp_tools
 from link_brain.remote.policy import Denied
 
 
@@ -26,7 +26,7 @@ def test_initialize_handshake(monkeypatch):
     resp = resp[0]
     assert resp["id"] == 1 and resp["jsonrpc"] == "2.0"
     assert resp["result"] == {"protocolVersion": "2024-11-05", "capabilities": {"tools": {}},
-                              "serverInfo": {"name": "light-web-archieve", "version": "0.2.0"}}
+                              "serverInfo": {"name": "light-web-archieve", "version": __version__}}
     assert "\n" in raw and raw.count("\n") == 1          # stdout 只有协议消息，一行一条
 
 

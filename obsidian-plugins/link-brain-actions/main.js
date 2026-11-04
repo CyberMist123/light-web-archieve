@@ -10940,12 +10940,12 @@ var require_backend_install = __commonJS({
     };
     var PYTHON_VERSION = "3.12";
     var BACKEND_RELEASE = {
-      version: "0.2.1",
-      wheelUrl: "https://github.com/CyberMist123/light-web-archieve/releases/download/v0.2.1/link_brain-0.2.1-py3-none-any.whl",
-      wheelSha256: "0115546209b31072320ca4fa017c67dad20c0268bdbe5e7abc2e4903a8b7d449",
-      // Release v0.2.1 的 SHA256SUMS（1103：lock 带 ocr/bilibili/docs；本机 Windows 下载、--require-hashes 装过）
-      lockUrl: "https://github.com/CyberMist123/light-web-archieve/releases/download/v0.2.1/requirements.lock",
-      lockSha256: "a3849dfaa0db50a5ee7ce03257b1642ba3400cab71840abeabb7efe42d6ff370"
+      version: "0.2.2",
+      wheelUrl: "https://github.com/CyberMist123/light-web-archieve/releases/download/v0.2.2/link_brain-0.2.2-py3-none-any.whl",
+      wheelSha256: "a1538aa31eec52ee03161ca3b64217177691be88bfb36a284979f89ce08ce8f1",
+      // Release v0.2.2 的 SHA256SUMS（1103：本机下载核对过；lock 带 ocr/bilibili/docs）
+      lockUrl: "https://github.com/CyberMist123/light-web-archieve/releases/download/v0.2.2/requirements.lock",
+      lockSha256: "fcc55028caabd2c77e1990370c8d03144625fb20630a91b3f533803cb0f83605"
     };
     var BACKEND_EXTRAS = ["ocr", "bilibili", "docs"];
     var STAGES = [["uv", "准备安装工具 uv"], ["python", "准备 Python " + PYTHON_VERSION], ["venv", "建后端环境"], ["install", "安装 link-brain"], ["check", "自检"]];
@@ -12900,6 +12900,9 @@ function parseLastJson(out) {
 function stderrTail(err, n = 3) {
   return String(err || "").trim().split("\n").map((s) => s.trimEnd()).filter(Boolean).slice(-n).join("\n");
 }
+function waitText(ms) {
+  return ms < 6e4 ? `${Math.max(1, Math.round(ms / 1e3))} 秒` : `${Math.round(ms / 6e4)} 分钟`;
+}
 function mergeSyncStatus(raw, sum) {
   const s = sum && sum.sync && typeof sum.sync === "object" ? sum.sync : null;
   if (!s) return raw || null;
@@ -13911,8 +13914,7 @@ var LinkBrainActions = class extends Plugin {
   async runPy(args, { input = null, timeoutMs = 0, label = "", fallback = "", okCodes = [0], timeoutMessage = "", env = null, onLine = null, onChild = null } = {}) {
     const r = await this.spawnPy(args, { input, timeoutMs, label, env, onLine, onChild });
     if (r.timedOut) {
-      const mins = Math.max(1, Math.round(timeoutMs / 6e4));
-      throw Object.assign(new Error(timeoutMessage || `${label || "后台命令"}超过 ${mins} 分钟没有结果，已停止。`), { timedOut: true, result: r });
+      throw Object.assign(new Error(timeoutMessage || `${label || "后台命令"}超过 ${waitText(timeoutMs)}没有结果，已停止。`), { timedOut: true, result: r });
     }
     if (r.code === -1 && r.json == null && this.currentBackend().mode !== "repo") throw Object.assign(new Error(this.backendMissingText()), { result: r, backendMissing: true });
     if (r.code === -1 && r.json == null) throw Object.assign(new Error(PYTHON_MISSING_TEXT + "\n" + r.err), { result: r, pythonMissing: true });
@@ -14821,7 +14823,7 @@ var LinkBrainActions = class extends Plugin {
     const r = await this.runPy(args, {
       timeoutMs,
       fallback,
-      timeoutMessage: `超过 ${Math.round(timeoutMs / 6e4)} 分钟没有结果：读取服务可能卡住了，点「重试」；仍不行请查看 ~/.link-brain/reader.log。`
+      timeoutMessage: `超过 ${waitText(timeoutMs)}没有结果：电脑正忙（比如正在安装）或读取服务卡住了，点「重试」；仍不行请查看 ~/.link-brain/reader.log。`
     });
     if (r.json == null) throw new Error(stderrTail(r.err) || fallback);
     return r.json;

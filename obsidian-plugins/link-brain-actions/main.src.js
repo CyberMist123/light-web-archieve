@@ -589,6 +589,10 @@ function parseLastJson(out) {
 function stderrTail(err, n = 3) {
   return String(err || "").trim().split("\n").map(s => s.trimEnd()).filter(Boolean).slice(-n).join("\n");
 }
+// 1104（虚拟机实测）：超时不满 1 分钟按秒说——以前 20 秒的账号检查报「超过 0 分钟没有结果」，runPy 里又一律说成「1 分钟」
+function waitText(ms) {
+  return ms < 60000 ? `${Math.max(1, Math.round(ms / 1000))} 秒` : `${Math.round(ms / 60000)} 分钟`;
+}
 // 第 4 批：同步状态 = problems-summary.json 的 sync 段（Python 已改判死掉的 running）与 sync-status.json 取较新的那份（目录页同一规则）
 function mergeSyncStatus(raw, sum) {
   const s = sum && sum.sync && typeof sum.sync === "object" ? sum.sync : null;
@@ -1355,8 +1359,7 @@ class LinkBrainActions extends Plugin {
   async runPy(args, { input = null, timeoutMs = 0, label = '', fallback = '', okCodes = [0], timeoutMessage = '', env = null, onLine = null, onChild = null } = {}) {
     const r = await this.spawnPy(args, { input, timeoutMs, label, env, onLine, onChild });
     if (r.timedOut) {
-      const mins = Math.max(1, Math.round(timeoutMs / 60000));
-      throw Object.assign(new Error(timeoutMessage || `${label || '后台命令'}超过 ${mins} 分钟没有结果，已停止。`), { timedOut: true, result: r });
+      throw Object.assign(new Error(timeoutMessage || `${label || '后台命令'}超过 ${waitText(timeoutMs)}没有结果，已停止。`), { timedOut: true, result: r });
     }
     // 后端命令模式起不来：如实说「没找到后端程序 + 怎么装」（设置页 / 引导里有复制按钮）；仓库模式照旧指向 Python
     if (r.code === -1 && r.json == null && this.currentBackend().mode !== 'repo') throw Object.assign(new Error(this.backendMissingText()), { result: r, backendMissing: true });
@@ -1959,7 +1962,7 @@ class LinkBrainActions extends Plugin {
   // 账号 / 环境检查这类「只认 JSON」的调用：runPy + 没 JSON 就抛（stderr 尾三行或 fallback）。
   async runJSON(args, fallback, timeoutMs = 0) {
     const r = await this.runPy(args, { timeoutMs, fallback,
-      timeoutMessage: `超过 ${Math.round(timeoutMs / 60000)} 分钟没有结果：读取服务可能卡住了，点「重试」；仍不行请查看 ~/.link-brain/reader.log。` });
+      timeoutMessage: `超过 ${waitText(timeoutMs)}没有结果：电脑正忙（比如正在安装）或读取服务卡住了，点「重试」；仍不行请查看 ~/.link-brain/reader.log。` });
     if (r.json == null) throw new Error(stderrTail(r.err) || fallback);
     return r.json;
   }

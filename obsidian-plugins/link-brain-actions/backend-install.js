@@ -34,11 +34,11 @@ const PYTHON_VERSION = '3.12';
 // —— LWA 自己的后端发布件（发布工作流由另一个会话在做，按 reader-v0.2.0 的约定：标签 v<版本>，资产 = wheel + 带哈希的 requirements.lock + SHA256SUMS）。
 //    TODO：Release v0.2.0 发出来后回填 wheelSha256 / lockSha256（SHA256SUMS 里的值）。两个哈希为空时 ensureBackend 如实说「后端发布包还没发布」，不装。
 const BACKEND_RELEASE = {
-  version: '0.2.1',
-  wheelUrl: 'https://github.com/CyberMist123/light-web-archieve/releases/download/v0.2.1/link_brain-0.2.1-py3-none-any.whl',
-  wheelSha256: '0115546209b31072320ca4fa017c67dad20c0268bdbe5e7abc2e4903a8b7d449',   // Release v0.2.1 的 SHA256SUMS（1103：lock 带 ocr/bilibili/docs；本机 Windows 下载、--require-hashes 装过）
-  lockUrl: 'https://github.com/CyberMist123/light-web-archieve/releases/download/v0.2.1/requirements.lock',
-  lockSha256: 'a3849dfaa0db50a5ee7ce03257b1642ba3400cab71840abeabb7efe42d6ff370',
+  version: '0.2.2',
+  wheelUrl: 'https://github.com/CyberMist123/light-web-archieve/releases/download/v0.2.2/link_brain-0.2.2-py3-none-any.whl',
+  wheelSha256: 'a1538aa31eec52ee03161ca3b64217177691be88bfb36a284979f89ce08ce8f1',   // Release v0.2.2 的 SHA256SUMS（1103：本机下载核对过；lock 带 ocr/bilibili/docs）
+  lockUrl: 'https://github.com/CyberMist123/light-web-archieve/releases/download/v0.2.2/requirements.lock',
+  lockSha256: 'fcc55028caabd2c77e1990370c8d03144625fb20630a91b3f533803cb0f83605',
 };
 // 1103 作者：OCR / B 站 / 附件转文字默认一起装（Release 的 lock 带这三个 extra，见 python-release.yml），用户不开的功能只是不显示
 const BACKEND_EXTRAS = ['ocr', 'bilibili', 'docs'];

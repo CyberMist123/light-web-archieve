@@ -67,6 +67,9 @@ const Plugin = context.module.exports;
   const before = spawned.length;
   await assert.rejects(p.runPy(['slow'], { timeoutMs: 20, timeoutMessage: '太慢了' }), e => e.message === '太慢了' && e.timedOut);
   assert.deepEqual(killed, [spawned[before].child.pid]);
+  // 1104：不满 1 分钟的超时按秒说（以前 20 秒的账号检查报「超过 0 分钟」，runPy 一律说「1 分钟」）
+  await assert.rejects(p.runPy(['slow'], { timeoutMs: 20, label: '账号检查' }), e => e.message === '账号检查超过 1 秒没有结果，已停止。');
+  await assert.rejects(p.runJSON(['slow'], 'x', 20), e => /^超过 1 秒没有结果：/.test(e.message));
   delete p.killTree;
 
   // exclusive：占 this.running，互斥；结束后释放
