@@ -94,8 +94,8 @@ const rd = p => fs.readFileSync(path.join(ROOT, p), 'utf8');
   const g = await page.evaluate(() => { const b = document.querySelector('.lb-dm-ovbtn'), v = document.querySelector('video'); const br = b.getBoundingClientRect(), vr = v.getBoundingClientRect();
     return { op: getComputedStyle(b).opacity, left: br.left - vr.left, right: vr.right - br.right, below: vr.bottom - br.bottom, w: br.width, pressed: b.getAttribute('aria-pressed') }; });
   assert.equal(g.op, '1', '全屏 + 暂停时动鼠标，「弹」看得见：' + JSON.stringify(g));
-  // 11-01（6f29eb2）起「弹」在左下角、原生控制条那一排最左边；10-31 起工具行浮在视频上（全屏也在），不再断言它藏起来
-  assert.ok(g.left >= 0 && g.left <= 60 && g.below >= 0 && g.below <= 60 && g.w > 0, '在左下角、控制条那一排：' + JSON.stringify(g));
+  // 1104 作者「弹的位置有点奇怪」：在左下角、原生控制条（约 40–48px 高）正上方，不压播放键；10-31 起工具行浮在视频上（全屏也在），不再断言它藏起来
+  assert.ok(g.left >= 0 && g.left <= 60 && g.below >= 48 && g.below <= 110 && g.w > 0, '在左下角、原生控制条正上方：' + JSON.stringify(g));
   await page.screenshot({ path: path.join(QA, 'danmaku-fullscreen-on.png') });
   await page.locator('.lb-dm-ovbtn').click();
   await page.waitForTimeout(250);
@@ -114,5 +114,5 @@ const rd = p => fs.readFileSync(path.join(ROOT, p), 'utf8');
   await page.evaluate(() => document.exitFullscreen());
   assert.deepEqual(errors, []);
   await browser.close();
-  console.log('PASS danmaku+annot (Edge): 批注框写的批注带 video_t（一律带当前时间）、列表有时间标、画面立刻飘（细框）；高级弹幕静态显示；全屏「弹」字开关在左下角控制条那一排、动鼠标出现、静止 2 秒淡出、点了开关不暂停。截图：' + QA);
+  console.log('PASS danmaku+annot (Edge): 批注框写的批注带 video_t（一律带当前时间）、列表有时间标、画面立刻飘（细框）；高级弹幕静态显示；全屏「弹」字开关在左下角、原生控制条正上方、动鼠标出现、静止 2 秒淡出、点了开关不暂停。截图：' + QA);
 })().catch(e => { console.error(e); process.exit(1); });

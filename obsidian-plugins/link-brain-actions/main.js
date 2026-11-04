@@ -1492,12 +1492,12 @@ var require_danmaku = __commonJS({
       ".lb-dm-item.is-adv{line-height:1.15;}",
       // 画面上的「弹」字开关：鼠标在画面上动才出现（is-awake），静止 2 秒淡出；关着时字上一道斜杠
       // 1031 作者：从右下角挪到原生控制条那一排的最左边（音量键左边那块空位），和控制条的图标同一条线
-      ".xhs-note .lb-dm-ovbtn{position:absolute;left:10px;bottom:7px;z-index:6;width:34px;height:34px;min-width:0;padding:0;display:flex;align-items:center;justify-content:center;border:1px solid rgb(255 255 255 / .35)!important;border-radius:var(--lb-radius-pill);background:rgb(0 0 0 / .5)!important;box-shadow:none!important;color:#fff!important;font-family:var(--lb-font-body);font-size:15px;font-weight:700;line-height:1;cursor:pointer;opacity:0;pointer-events:none;transition:opacity .3s;}",
+      ".xhs-note .lb-dm-ovbtn{position:absolute;left:10px;bottom:52px;z-index:6;width:34px;height:34px;min-width:0;padding:0;display:flex;align-items:center;justify-content:center;border:1px solid rgb(255 255 255 / .35)!important;border-radius:var(--lb-radius-pill);background:rgb(0 0 0 / .5)!important;box-shadow:none!important;color:#fff!important;font-family:var(--lb-font-body);font-size:15px;font-weight:700;line-height:1;cursor:pointer;opacity:0;pointer-events:none;transition:opacity .3s;}",
       ".xhs-note .lb-dm-ovbtn.is-awake,.xhs-note .lb-dm-ovbtn.is-awake:hover,.xhs-note .lb-dm-ovbtn:focus-visible{opacity:1;pointer-events:auto;}",
       ".xhs-note .lb-dm-ovbtn:hover{background:rgb(0 0 0 / .7)!important;}",
       '.xhs-note .lb-dm-ovbtn[aria-pressed="false"]{color:rgb(255 255 255 / .6)!important;}',
       '.xhs-note .lb-dm-ovbtn[aria-pressed="false"]::after{content:"";position:absolute;left:7px;right:7px;top:50%;height:2px;margin-top:-1px;background:currentColor;transform:rotate(-40deg);border-radius:1px;}',
-      ".xhs-note .lb-media.is-lb-fullscreen .lb-dm-ovbtn{left:16px;bottom:10px;width:40px;height:40px;font-size:18px;}",
+      ".xhs-note .lb-media.is-lb-fullscreen .lb-dm-ovbtn{left:16px;bottom:58px;width:40px;height:40px;font-size:18px;}",
       ".xhs-note .lb-media.is-lb-fullscreen .lb-dm-panel{bottom:auto!important;top:12px!important;}",
       "@media print{.lb-dm-layer,.lb-dm-panel,.lb-dm-flash,.lb-dm-ovbtn{display:none!important;}}"
     ].join("\n");
