@@ -11014,12 +11014,12 @@ var require_backend_install = __commonJS({
     };
     var PYTHON_VERSION = "3.12";
     var BACKEND_RELEASE = {
-      version: "0.2.4",
-      wheelUrl: "https://github.com/CyberMist123/light-web-archieve/releases/download/v0.2.4/link_brain-0.2.4-py3-none-any.whl",
-      wheelSha256: "1256abd39fbd1d791dd76dd09e880d4ab175aed78ad5e49f98ace1970d369867",
-      // Release v0.2.4 的 SHA256SUMS（1103：本机下载核对过；lock 带 ocr/bilibili/docs）
-      lockUrl: "https://github.com/CyberMist123/light-web-archieve/releases/download/v0.2.4/requirements.lock",
-      lockSha256: "6dd45eca52c4c7741ca1d0262270367519f67143cd613408026ab25207576125"
+      version: "0.2.5",
+      wheelUrl: "https://github.com/CyberMist123/light-web-archieve/releases/download/v0.2.5/link_brain-0.2.5-py3-none-any.whl",
+      wheelSha256: "62e3814db979f7552f6bd38cc473d5e4d52f8be725238a520829c74090266a2e",
+      // Release v0.2.5 的 SHA256SUMS（1103：本机下载核对过；lock 带 ocr/bilibili/docs）
+      lockUrl: "https://github.com/CyberMist123/light-web-archieve/releases/download/v0.2.5/requirements.lock",
+      lockSha256: "0be8924441148d58d82a2bf764b5e2967f50d26c00c70a7bd4d5cc005d8504cc"
     };
     var BACKEND_EXTRAS = ["ocr", "bilibili", "docs"];
     var STAGES = [["uv", "准备安装工具 uv"], ["python", "准备 Python " + PYTHON_VERSION], ["venv", "建后端环境"], ["install", "安装 link-brain"], ["check", "自检"]];
