@@ -229,6 +229,9 @@ function backendMissingText(backend) {
   const cmd = (backend && backend.command) || BACKEND_DEFAULT;
   return `没找到后端程序（${cmd}）：到 Link Brain 设置页顶部点「一键装好」自动安装（没有 Python 也行）；或在终端运行 \`${BACKEND_INSTALL}\` 后重启 Obsidian。`;
 }
+// 1104（虚拟机实测）：第一次点登录要等 1–2 分钟才出窗口——读取组件先下载内置浏览器（约 150 MB，只一次），再用新的浏览器配置打开登录页。
+// 说清楚在等什么，别让人以为卡住了
+const LOGIN_OPENING_TEXT = '正在打开小红书登录窗口：第一次要先下载内置浏览器（约 150 MB，只一次）再启动，可能要 1–2 分钟；窗口出来后用手机 App 扫码，扫完窗口自动关。';
 const BACKEND_INSTALLING_TEXT = '正在安装后端程序，装好就能用（进度在设置页「懒人安装」和底部状态栏）。';
 // 仓库模式找不到 Python（PATH 里没有、或只有 Windows 商店的别名桩）的那一句（runPy 起不来也是它）
 const PYTHON_MISSING_TEXT = '找不到 Python。到 Link Brain 设置页顶部点「一键装好」自动安装后端（没有 Python 也行），或按 README 安装 Python 3.11+ 与 link_brain，再重启 Obsidian。';
@@ -1800,8 +1803,8 @@ class LinkBrainActions extends Plugin {
       });
     };
     const login = async (force = false) => {
-      new Notice('将自动弹出浏览器，扫码后会自动关闭窗口。', 8000);
-      paint({state: 'busy', next_step: '已打开登录窗口，用手机 App 扫码并确认。'}, true);
+      new Notice(LOGIN_OPENING_TEXT, 15000);
+      paint({state: 'busy', next_step: LOGIN_OPENING_TEXT}, true);
       try {
         const r = await platform.login(this, force);
         this.accountCache = { row: r, at: Date.now(), deep: true };
@@ -2162,7 +2165,7 @@ class LinkBrainActions extends Plugin {
       kind = st && st.state === 'blocked' && (code === 'NOT_LOGGED_IN' || (!code && st.account)) ? 'login' : code === 'CAPTCHA_REQUIRED' ? 'verify' : '';
     }
     if (kind === 'login') {
-      new Notice('将自动弹出浏览器，扫码后会自动关闭窗口。', 8000);
+      new Notice(LOGIN_OPENING_TEXT, 15000);
       try {
         const r = await this.loginAccount();
         if (r.state === 'ready') { new Notice(PLATFORMS[0].afterLoginNotice, 12000); this.syncNow(); return; }

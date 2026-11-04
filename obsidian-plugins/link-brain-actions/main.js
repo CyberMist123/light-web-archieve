@@ -5838,7 +5838,7 @@ var require_schedule_ui = __commonJS({
             cur = { error: e.message || String(e) };
           }
           if (!alive) return cur;
-          const draft = preserveDraft && plugin.scheduleDraft;
+          const draft = preserveDraft && Array.isArray(plugin.scheduleDraft) && plugin.scheduleDraft.length ? plugin.scheduleDraft : null;
           rows = draft ? plugin.scheduleDraft : rowsFromState(cur);
           paintStatus();
           paint();
@@ -5931,7 +5931,17 @@ var require_schedule_ui = __commonJS({
           }
         }
         async function setEnabled(on) {
-          if (on) return saveNow({ force: true });
+          if (on) {
+            try {
+              await ready;
+            } catch {
+            }
+            if (!rulesFromRows(rows).rules) {
+              rows = rowsFromState(null);
+              paint();
+            }
+            return saveNow({ force: true });
+          }
           clearTimeout(timer);
           timer = null;
           msg.setText("正在关…");
@@ -12679,6 +12689,7 @@ function backendMissingText(backend) {
   const cmd = backend && backend.command || BACKEND_DEFAULT;
   return `没找到后端程序（${cmd}）：到 Link Brain 设置页顶部点「一键装好」自动安装（没有 Python 也行）；或在终端运行 \`${BACKEND_INSTALL}\` 后重启 Obsidian。`;
 }
+var LOGIN_OPENING_TEXT = "正在打开小红书登录窗口：第一次要先下载内置浏览器（约 150 MB，只一次）再启动，可能要 1–2 分钟；窗口出来后用手机 App 扫码，扫完窗口自动关。";
 var BACKEND_INSTALLING_TEXT = "正在安装后端程序，装好就能用（进度在设置页「懒人安装」和底部状态栏）。";
 var PYTHON_MISSING_TEXT = "找不到 Python。到 Link Brain 设置页顶部点「一键装好」自动安装后端（没有 Python 也行），或按 README 安装 Python 3.11+ 与 link_brain，再重启 Obsidian。";
 function pickSyncTask(nightly, legacy) {
@@ -14723,8 +14734,8 @@ var LinkBrainActions = class extends Plugin {
       });
     };
     const login = async (force = false) => {
-      new Notice2("将自动弹出浏览器，扫码后会自动关闭窗口。", 8e3);
-      paint({ state: "busy", next_step: "已打开登录窗口，用手机 App 扫码并确认。" }, true);
+      new Notice2(LOGIN_OPENING_TEXT, 15e3);
+      paint({ state: "busy", next_step: LOGIN_OPENING_TEXT }, true);
       try {
         const r = await platform.login(this, force);
         this.accountCache = { row: r, at: Date.now(), deep: true };
@@ -15215,7 +15226,7 @@ var LinkBrainActions = class extends Plugin {
       kind = st && st.state === "blocked" && (code === "NOT_LOGGED_IN" || !code && st.account) ? "login" : code === "CAPTCHA_REQUIRED" ? "verify" : "";
     }
     if (kind === "login") {
-      new Notice2("将自动弹出浏览器，扫码后会自动关闭窗口。", 8e3);
+      new Notice2(LOGIN_OPENING_TEXT, 15e3);
       try {
         const r = await this.loginAccount();
         if (r.state === "ready") {
