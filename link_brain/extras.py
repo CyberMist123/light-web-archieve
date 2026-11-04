@@ -41,6 +41,7 @@ PURPOSES = {
     "numpy": "语义检索", "websockets": "本机语音识别",
     "rapidocr": "本地认字", "onnxruntime": "本地认字",
     "yt-dlp": "B 站下载",
+    "imageio-ffmpeg": "B 站合并 / 校验视频（随带 ffmpeg）",
     "pypdfium2": "PDF 附件", "python-docx": "Word 附件",
 }
 # 每个 extra 是给哪个功能的（缺了时「要用 X」里的 X）
