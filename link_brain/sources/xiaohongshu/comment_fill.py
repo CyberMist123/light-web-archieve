@@ -1136,6 +1136,9 @@ def account_wait_reason() -> tuple[str, str]:
     """号现在能不能用（只问读取服务内存里的状态，不开页）：('', '') 能用；否则 (码, 一句原因)。
     1028（A3 兜底）：唯一会开页的分支——session 说 logged_in=false 又没有熔断，15 分钟深查一次，别干等。"""
     from . import accounts
+    if not accounts.ever_logged_in():
+        # 1104 作者：这台电脑上从没扫码登录过——不拉起读取组件、不以游客身份开小红书去查（答案已知：没登录）
+        return "NOT_LOGGED_IN", "还没登录小红书：在设置里扫码登录，登好自动接着跑"
     try:
         session = accounts.ensure_reader()
     except accounts.ReaderError as exc:

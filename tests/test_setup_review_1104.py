@@ -197,3 +197,35 @@ def test_pip_install_times_out_while_reading_output(monkeypatch, tmp_path):
         assert exc.code == "TRANSIENT.TIMEOUT"
     assert time.monotonic() - t0 < 20
     assert any("Resolved" in (e.get("text") or "") for e in events)
+
+
+def test_never_logged_in_machine_does_not_start_reader_or_visit(monkeypatch):
+    """1104 作者：从没扫码登录过的电脑——setup run 的登录检查不拉起读取组件、不以游客身份开小红书；直接记「等扫码」。"""
+    from link_brain.sources.xiaohongshu import accounts, comment_fill as cf
+    monkeypatch.setattr(accounts, "ever_logged_in", lambda: False)
+    monkeypatch.setattr(accounts, "reader_exe", lambda: "C:/fake/link-brain-reader.exe")
+    touched = []
+    monkeypatch.setattr(accounts, "ensure_reader", lambda **k: touched.append("ensure") or {})
+    monkeypatch.setattr(accounts, "api", lambda *a, **k: touched.append("api") or {})
+    assert pipeline._account_state() == ("NOT_LOGGED_IN", pipeline.LOGIN_WAIT_TEXT)
+    assert cf.account_wait_reason()[0] == "NOT_LOGGED_IN"
+    assert touched == []
+    _settings(["core", "reader", "ocr"])
+    monkeypatch.setattr(components, "check", _ready)
+    monkeypatch.setattr(comment_fill, "spawn_worker", lambda: touched.append("worker") or {"ok": True})
+    out = pipeline.run(lambda e: None, child=lambda args, **k: (0, False), bili_check=lambda: False)
+    st = {s["id"]: s["state"] for s in out["stages"]}
+    assert st["login"] == "waiting" and st["sync"] == "skipped" and st["comments"] == "skipped"
+    assert out["ok"] is True and touched == []
+    # 没装读取组件：照旧说没装
+    monkeypatch.setattr(accounts, "reader_exe", lambda: None)
+    assert pipeline._account_state()[0] == "NOT_INSTALLED"
+
+
+def test_ever_logged_in_reads_saved_account(monkeypatch):
+    from link_brain.sources.xiaohongshu import accounts
+    real = accounts._ever_logged_in_real   # conftest 默认把它换成「登录过」，原函数留在这里（家目录仍是 tmp）
+    assert "lbhome" in str(accounts.home())
+    assert real() is False
+    accounts.save({"nickname": "某人", "user_id": "u1"})
+    assert real() is True

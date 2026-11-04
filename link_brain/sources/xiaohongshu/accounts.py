@@ -121,6 +121,16 @@ def config() -> dict:
     return data
 
 
+def ever_logged_in() -> bool:
+    """这台电脑上扫码登录成功过没有（登录成功时 save 记下 nickname / user_id）。1104 作者：从没登录过就不去拉起读取组件、
+    不以游客身份开小红书查「登没登录」——答案已经知道。账号配置读不动时按「登录过」算（照旧去查，不误判老用户）。"""
+    try:
+        c = config()
+    except Exception:  # noqa: BLE001
+        return True
+    return bool(c.get('user_id') or c.get('nickname'))
+
+
 def save(values: dict) -> None:
     data = config()
     data.update(values)

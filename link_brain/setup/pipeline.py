@@ -556,6 +556,13 @@ def _bili_logged_in() -> bool:
 def _account_state() -> tuple[str, str]:
     """('', '') = 号能用；否则 (码, 一句该做什么)。没装读取组件也在这里说。"""
     from .. import comment_fill
+    from ..sources.xiaohongshu import accounts
+    # 1104 作者：这台电脑上从没扫码登录过 → 直接当「还没登录」，不拉起读取组件、不以游客身份开小红书去查
+    #（新用户首轮一定走这里；扫码登录成功后 accounts 记下账号，下一轮起照常查）。没装读取组件照旧报 NOT_INSTALLED。
+    if not accounts.ever_logged_in():
+        if not accounts.reader_exe():
+            return "NOT_INSTALLED", "没装读取组件：点「重试」会再装一次（或按 README 手动装）"
+        return "NOT_LOGGED_IN", LOGIN_WAIT_TEXT
     try:
         code, why = comment_fill.account_wait_reason()
     except Exception as exc:  # noqa: BLE001 - DEV_COPY_BLOCKED 等
