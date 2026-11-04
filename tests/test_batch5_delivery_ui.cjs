@@ -214,7 +214,9 @@ function makePlugin(base, { saved = {}, files = new Set(), manifestDir = '.obsid
   assert.ok(rowNamesOf().includes('后端命令'));
   env.p.settingsView.tab = 'sync'; tab.display(); openAll();
   assert.ok(tab.containerEl.querySelector('.lb-setup-hint'), '换一栏，提示照样在页顶');
-  assert.equal(rowNamesOf().filter(n => n === '收藏放在哪').length, 1, '收藏放在哪只在「收藏与同步」一处');
+  // 1103 作者：懒人安装卡片上方也放「收藏放在哪」（边装边选）——页里两处：懒人安装选项 + 「收藏与同步」，不再多
+  assert.equal(rowNamesOf().filter(n => n === '收藏放在哪').length, 2, '收藏放在哪：懒人安装选项 + 「收藏与同步」');
+  assert.ok(tab.containerEl.querySelector('[data-section="lazy-choices"]'), '懒人安装上方有选项区');
   tab.hide(); env.p.settingsView = null;
   // 启动检查（1102）：缺后端 → 先自己装；发布包还没发（BACKEND_RELEASE 哈希为空）→ 如实提示「没找到后端程序 + 自动安装没做成：…还没发布」，不弹引导
   notices.length = 0; spawned.length = 0;
@@ -250,6 +252,9 @@ function makePlugin(base, { saved = {}, files = new Set(), manifestDir = '.obsid
       env.p.settings.onboarding = {};
       assert.equal(await env.p.startupChecks(), 'onboarding', '装好了接着走首次自动跑');
       assert.equal(firstRuns.length, 1);
+      // 1104 作者：首轮全自动，自动打开的设置页直接是懒人安装卡片，不先出「开始使用 LWA」引导
+      assert.equal(env.p.settings.onboarding.guideDone, true, '装后端那一刻就把引导记成走过');
+      assert.equal(await env.p.settingsV6().needsGuide(), false, '设置页不出首次设置引导');
       assert.equal(progress.length, 1); assert.equal(progress[0].ok, true);
       const mb = env.p.currentBackend();
       assert.equal(mb.mode, 'managed', '托管目录里的 link-brain 排在 PATH 之前'); assert.equal(mb.exe, mp.exe); assert.equal(mb.python, mp.python);
@@ -302,7 +307,13 @@ function makePlugin(base, { saved = {}, files = new Set(), manifestDir = '.obsid
   assert.equal(firstRuns.length, 1, '按轻量版自动跑一次');
   assert.equal(env.p.app.setting.opened.length, opened, '不弹设置页 / 向导');
   assert.equal(env.p.settings.onboarding.done, true, '跑过一次就算走过');
+  assert.equal(env.p.settings.onboarding.guideDone, true, '1104：后端已在的新库首轮自动跑，设置页也直接是懒人安装卡片');
   assert.equal(await env.p.onboardingUI().needsOnboarding(), false);
+  // 1103：装后端那几分钟里用户已经在设置页走完了教程——首次自动跑记「走过」时不能把 guideDone 冲掉（否则又被带回教程第 2 步）
+  env.p.settings.onboarding = { guideDone: true, step: 0 };
+  assert.equal(await env.p.startupChecks(), 'onboarding');
+  assert.equal(env.p.settings.onboarding.guideDone, true, '走完的教程记号还在');
+  assert.equal(env.p.settings.onboarding.done, true);
   // 命令面板「打开设置（概览 · 一键装好 / 跑完）」：打开设置页的「概览」（旧落点名 'features' 照认）；设置页已经停在本插件时补一次重画
   env.p.app.setting.activeTab = env.p.settingTab;
   env.p.openSetupPage('features');

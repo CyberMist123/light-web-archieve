@@ -320,9 +320,52 @@ async function foldedRowTest() {
   console.log('PASS problems 1017: folded row lists each note with 查看 / 打开验证; fixed → gone');
 }
 
+// 1103 作者（虚拟机）：小红书刚登录就开始同步，账号卡片却是「进行中 · 号正被另一个任务使用（同步收藏…）」。
+// 判断只看 plugin.xhsSyncing()：同步在跑 → 「已登录 · 同步中」，不报占用、不留「下一步」那句长话
+async function syncingAccountTest() {
+  const dom = makeDom();
+  const El = dom.document.createElement('div').constructor;
+  El.prototype.hide = El.prototype.hide || function () { this.hidden = true; };
+  El.prototype.show = El.prototype.show || function () { this.hidden = false; };
+  const obs = makeObsidian(dom.document, { notices: [] });
+  const context = { module: { exports: {} }, process, setTimeout, clearTimeout, console, window: { confirm: () => false },
+    require: n => n === 'obsidian' ? { ...obs, Notice: class {} } : n === 'child_process' ? { spawn() { throw new Error('测试里不许 spawn 真进程'); } } : require(n) };
+  vm.createContext(context);
+  vm.runInContext(fs.readFileSync(path.join(ROOT, PLUGIN_DIR, 'main.js'), 'utf8'), context);
+  const p = new context.module.exports();
+  p.app = { vault: { adapter: { getBasePath: () => ROOT, read: async () => { throw new Error('ENOENT'); } } }, workspace: makeWorkspace() };
+  p.manifest = { id: 'link-brain-actions', version: '0.4.2', dir: PLUGIN_DIR };
+  p.lbPath = x => x; p.settings = { sync: {} };
+  p.stateRegistry = async () => ({});
+  p.syncRunOpen = () => null;
+  const busy = { state: 'busy', code: 'ACCOUNT_BUSY', message: '正在同步收藏', next_step: '号正被另一个任务使用（同步收藏 / 附件 / 导入），它做完再试。' };
+  const plat = { id: 'xhs', name: '小红书', status: async () => busy };
+  // 懒人安装正停在「同步收藏」
+  p.homeState = { run: { state: 'running', current: 'sync', stages: {} } };
+  const box = dom.document.body.createDiv();
+  p.renderAccountRow(box, plat, { inCard: true });
+  await tick(5);
+  assert.ok(box.textContent.includes('同步中') && !box.textContent.includes('已登录 · 同步中'), box.textContent);   // 1104：状态字只有三种
+  assert.ok(!/进行中|正被另一个任务/.test(box.textContent), '不报占用：' + box.textContent);
+  // 插件自己点的「立即同步」也一样
+  p.homeState = null; p.running = '同步收藏';
+  const box2 = dom.document.body.createDiv();
+  p.renderAccountRow(box2, plat, { inCard: true });
+  await tick(5);
+  assert.ok(box2.textContent.includes('同步中'), box2.textContent);
+  // 没在同步时号被别的任务（附件补查）占着：照旧如实说
+  p.running = null;
+  const box3 = dom.document.body.createDiv();
+  p.renderAccountRow(box3, plat, { inCard: true });
+  await tick(5);
+  assert.ok(!box3.textContent.includes('同步中') && box3.textContent.includes('号正被另一个任务使用'), box3.textContent);
+  console.log('PASS account 1103: ACCOUNT_BUSY while syncing → 「已登录 · 同步中」 (one source: xhsSyncing), else honest busy');
+}
+
 (async () => {
   await panelTests();
   await staleRowsTest();
   await foldedRowTest();
   await pluginTests();
+  await syncingAccountTest();
 })().catch(e => { console.error(e); process.exitCode = 1; });

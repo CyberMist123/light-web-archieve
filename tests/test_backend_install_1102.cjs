@@ -52,7 +52,7 @@ const listen = () => new Promise(r => server.listen(0, '127.0.0.1', () => r(`htt
   for (const a of Object.values(B.UV_RELEASE.assets)) assert.match(a.sha256, /^[0-9a-f]{64}$/, '每个资产都有 sha256');
   assert.ok(B.uvAsset('win32', 'x64').url.startsWith('https://github.com/astral-sh/uv/releases/download/' + B.UV_RELEASE.version + '/'));
   assert.equal(typeof B.BACKEND_RELEASE.wheelUrl, 'string');
-  assert.ok(/\/releases\/download\/v0\.2\.0\//.test(B.BACKEND_RELEASE.wheelUrl) && /requirements\.lock$/.test(B.BACKEND_RELEASE.lockUrl), '按 v0.2.0 的命名约定');
+  assert.ok(B.BACKEND_RELEASE.wheelUrl.includes(`/releases/download/v${B.BACKEND_RELEASE.version}/link_brain-${B.BACKEND_RELEASE.version}-py3-none-any.whl`) && /requirements\.lock$/.test(B.BACKEND_RELEASE.lockUrl), '按 v<版本> 的命名约定');
 
   // —— 2. download ——
   const dl = path.join(tmp, 'dl');
@@ -110,7 +110,7 @@ const listen = () => new Promise(r => server.listen(0, '127.0.0.1', () => r(`htt
         assert.equal(args[1], 'install'); assert.equal(args[2], '--python'); assert.ok(args.includes('--require-hashes'), '必带 --require-hashes');
         const lock = args[args.indexOf('-r') + 1], wheelReq = args[args.lastIndexOf('-r') + 1];
         assert.ok(fs.readFileSync(lock, 'utf8').includes('--hash=sha256:'), 'lock 真下到了本地');
-        assert.match(fs.readFileSync(wheelReq, 'utf8'), /^link-brain @ file:\/\/.*\.whl --hash=sha256:[0-9a-f]{64}\n$/, 'wheel 也带哈希');
+        assert.match(fs.readFileSync(wheelReq, 'utf8'), /^link-brain\[ocr,bilibili,docs\] @ file:\/\/.*\.whl --hash=sha256:[0-9a-f]{64}\n$/, 'wheel 也带哈希（1103：OCR / B 站 / 附件默认一起装）');
         if (failAt === 'pip') return { code: 1, out: '', err: 'error: No solution found when resolving dependencies\n' };
         const dir = path.dirname(path.dirname(args[3]));
         touch(B.venvBackend(dir, P), '#!/bin/sh\n');
@@ -144,7 +144,7 @@ const listen = () => new Promise(r => server.listen(0, '127.0.0.1', () => r(`htt
   const last = st => prog.filter(e => e.stage === st).at(-1);
   for (const st of order) assert.equal(last(st).state, 'ok', st + ' 最后一条是 ok');
   assert.ok(prog.some(e => e.stage === 'install' && e.total === files['link_brain-0.2.0-py3-none-any.whl'].length), '下载 wheel 的进度带 total');
-  assert.ok(prog.some(e => e.stage === 'python' && /Installed Python/.test(e.text)), 'uv 的输出逐行成为进度文字');
+  assert.ok(prog.some(e => e.stage === 'python' && /^Python \S+ 装好了$/.test(e.text)), 'uv 的输出逐行成为进度文字（1103：认得的行换成人话）');
   assert.ok(fs.existsSync(B.uvExe(home, P)), 'uv 解到 ~/.link-brain/bin');
   assert.ok(!fs.existsSync(path.join(home, 'downloads', 'uv-fake.tar.gz')), 'uv 压缩包用完删掉');
   assert.deepEqual(B.readConfig(home), { backend_dir: path.join(home, 'py') }, 'config.json 记下后端目录');
@@ -160,7 +160,51 @@ const listen = () => new Promise(r => server.listen(0, '127.0.0.1', () => r(`htt
   out = await B.ensureBackend(plugin, { ...opts, onProgress: e => prog.push(e) });
   assert.equal(out.ok, true); assert.match(out.message, /已经装好/);
   assert.deepEqual([...new Set(prog.filter(e => e.state === 'skipped').map(e => e.stage))], ['uv', 'python', 'venv', 'install']);
-  assert.deepEqual(calls.map(c => c[0]), [P === 'win32' ? 'link-brain.exe' : 'link-brain'], '只跑了自检');
+  assert.deepEqual(calls.map(c => c.slice(0, 2).join(' ')), ['version', 'setup'].map(a => (P === 'win32' ? 'link-brain.exe ' : 'link-brain ') + a), '只跑了自检（版本 + 核心检查）');
+  // 1104（审查 11）：自检 = version + 不联网的核心检查；版本 JSON 只取版本号；核心检查不过 → 如实说「核心功能跑不起来」
+  assert.equal(B.versionText('{"ok": true, "version": "0.2.2", "python": "3.12"}\n'), '0.2.2');
+  assert.equal(B.versionText('link-brain 0.2.0\n'), 'link-brain 0.2.0');
+  {
+    const ck = await B.selfCheck(path.join(home, 'py'), { platform: P, runImpl: async (exe, args) => (args[0] === 'version'
+      ? { code: 0, out: '{"ok": true, "version": "0.2.2"}\n', err: '' }
+      : { code: 1, out: '{"ok": false, "message": "core 缺依赖：jieba"}\n', err: '' }) });
+    assert.equal(ck.ok, false); assert.equal(ck.code, 'PERMANENT.BAD_PACKAGE'); assert.match(ck.message, /核心功能跑不起来：core 缺依赖：jieba/);
+    const ok2 = await B.selfCheck(path.join(home, 'py'), { platform: P, runImpl: async (exe, args) => ({ code: 0, out: args[0] === 'version' ? '{"ok": true, "version": "0.2.2"}\n' : '{"ok": true}\n', err: '' }) });
+    assert.equal(ok2.version, '0.2.2');
+  }
+  // 1104（审查 4）：装后端的跨进程锁——别的活进程拿着 → 忙；持有者死了 / 太久 → 当过期重拿；放锁只放自己的
+  {
+    const lh = path.join(tmp, 'lockhome');
+    const a = B.takeInstallLock(lh, { pid: 111, alive: () => true });
+    assert.equal(a.ok, true);
+    const b = B.takeInstallLock(lh, { pid: 222, alive: () => true });
+    assert.equal(b.ok, false); assert.equal(b.holder.pid, 111);
+    const c = B.takeInstallLock(lh, { pid: 222, alive: pid => pid !== 111 });
+    assert.equal(c.ok, true, '持有者进程没了 = 过期');
+    a.release();
+    assert.ok(fs.existsSync(path.join(lh, 'locks', 'backend-install.lock')), '别人的锁不放');
+    c.release();
+    assert.ok(!fs.existsSync(path.join(lh, 'locks', 'backend-install.lock')));
+    const d = B.takeInstallLock(lh, { pid: 333, now: 0, alive: () => true }); d && null;
+    const e = B.takeInstallLock(lh, { pid: 444, now: 4 * 3600000, alive: () => true });
+    assert.equal(e.ok, true, '超过 3 小时 = 过期'); e.release();
+    // 另一个窗口正在装 → ensureBackend 不动手、说清楚
+    const busyHome = path.join(tmp, 'busyhome');
+    fs.mkdirSync(path.join(busyHome, 'locks'), { recursive: true });
+    fs.writeFileSync(path.join(busyHome, 'locks', 'backend-install.lock'), JSON.stringify({ pid: process.ppid, started: Date.now() }));
+    calls.length = 0;
+    const busy = await B.ensureBackend(plugin, { ...opts, home: busyHome, env: { ...process.env, LINK_BRAIN_HOME: busyHome } });
+    assert.equal(busy.ok, false); assert.equal(busy.code, 'TRANSIENT.BUSY'); assert.match(busy.message, /另一个 Obsidian 窗口正在装后端/);
+    assert.equal(calls.length, 0, '别的窗口在装就不下载、不起进程');
+  }
+  // 1104（审查 3）：超时整棵结束（Windows 用 taskkill /T），再收尾
+  {
+    const seen = [];
+    B.killTree({ pid: 42, kill: s => seen.push('kill ' + s) }, { platform: 'win32', spawnSyncImpl: (exe, args) => seen.push([exe, ...args].join(' ')) });
+    assert.deepEqual(seen, ['taskkill /PID 42 /T /F', 'kill SIGKILL']);
+    const r = await B.run(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { timeoutMs: 300 });
+    assert.equal(r.code, -2); assert.match(r.err, /已停止/);
+  }
 
   // 3d 每一步失败：不抛、码对、那一步 failed
   const fresh = async (at, home2) => {

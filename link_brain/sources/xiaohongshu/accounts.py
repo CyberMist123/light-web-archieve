@@ -121,6 +121,16 @@ def config() -> dict:
     return data
 
 
+def ever_logged_in() -> bool:
+    """这台电脑上扫码登录成功过没有（登录成功时 save 记下 nickname / user_id）。1104 作者：从没登录过就不去拉起读取组件、
+    不以游客身份开小红书查「登没登录」——答案已经知道。账号配置读不动时按「登录过」算（照旧去查，不误判老用户）。"""
+    try:
+        c = config()
+    except Exception:  # noqa: BLE001
+        return True
+    return bool(c.get('user_id') or c.get('nickname') or c.get('sync_account'))
+
+
 def save(values: dict) -> None:
     data = config()
     data.update(values)
@@ -807,6 +817,11 @@ def status_report(*, deep=True, launch=True) -> tuple[dict, str]:
     1008（S4）：launch=False（插件设置页的浅查）只问一次 /login/session，服务没起不拉起、还不知道登录状态不深查，
     都回 idle（login_state=unknown，退出码 4）；只有「重新检查」才深查（会开页）。
     """
+    # 1104 作者：这台电脑上从没扫码登录过——答案已知是「未登录」：不问、不拉起读取组件、不以游客身份开小红书（「检查」也一样）
+    if not ever_logged_in():
+        out = row('xhs', '小红书账号', 'not_logged_in', '未登录', '点「登录」，用收藏所在的账号扫码。', action='login')
+        out['code'] = 'NOT_LOGGED_IN'
+        return out, 'guest'
     if not launch:
         try:
             session = api('GET', '/api/v1/login/session', timeout=5)

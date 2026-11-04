@@ -34,12 +34,14 @@ const PYTHON_VERSION = '3.12';
 // —— LWA 自己的后端发布件（发布工作流由另一个会话在做，按 reader-v0.2.0 的约定：标签 v<版本>，资产 = wheel + 带哈希的 requirements.lock + SHA256SUMS）。
 //    TODO：Release v0.2.0 发出来后回填 wheelSha256 / lockSha256（SHA256SUMS 里的值）。两个哈希为空时 ensureBackend 如实说「后端发布包还没发布」，不装。
 const BACKEND_RELEASE = {
-  version: '0.2.0',
-  wheelUrl: 'https://github.com/CyberMist123/light-web-archieve/releases/download/v0.2.0/link_brain-0.2.0-py3-none-any.whl',
-  wheelSha256: '5f0e8ece16d9b556c8c74b450b6cbdae03d2e652e027782efcd53b1d61e48c9f',   // Release v0.2.0 的 SHA256SUMS（1102 第二次发布：lock 改 universal；本机 Windows 下载、--require-hashes 装过）
-  lockUrl: 'https://github.com/CyberMist123/light-web-archieve/releases/download/v0.2.0/requirements.lock',
-  lockSha256: '546dafc3bdf8daec89ab4799fbe5498dc2ecf88a819fad8db113b2e215bd8ad1',
+  version: '0.2.5',
+  wheelUrl: 'https://github.com/CyberMist123/light-web-archieve/releases/download/v0.2.5/link_brain-0.2.5-py3-none-any.whl',
+  wheelSha256: '62e3814db979f7552f6bd38cc473d5e4d52f8be725238a520829c74090266a2e',   // Release v0.2.5 的 SHA256SUMS（1103：本机下载核对过；lock 带 ocr/bilibili/docs）
+  lockUrl: 'https://github.com/CyberMist123/light-web-archieve/releases/download/v0.2.5/requirements.lock',
+  lockSha256: '0be8924441148d58d82a2bf764b5e2967f50d26c00c70a7bd4d5cc005d8504cc',
 };
+// 1103 作者：OCR / B 站 / 附件转文字默认一起装（Release 的 lock 带这三个 extra，见 python-release.yml），用户不开的功能只是不显示
+const BACKEND_EXTRAS = ['ocr', 'bilibili', 'docs'];
 const STAGES = [['uv', '准备安装工具 uv'], ['python', '准备 Python ' + PYTHON_VERSION], ['venv', '建后端环境'], ['install', '安装 link-brain'], ['check', '自检']];
 const STAGE_LABEL = Object.fromEntries(STAGES);
 const BACKEND_DIR_KEY = 'backend_dir', PREV_DIR_KEY = 'backend_prev_dir';
@@ -165,10 +167,48 @@ function run(exe, args, { env = process.env, cwd = undefined, onLine = null, tim
     child.stdout?.on('data', d => { const s = d.toString(); out += s; line(s); });
     child.stderr?.on('data', d => { const s = d.toString(); err += s; line(s); });
     const finish = (code, e) => { clearTimeout(timer); if (buf.trim() && onLine) { try { onLine(buf.trim()); } catch {} } buf = ''; resolve({ code, out, err: e ? (err + e) : err }); };
+    let timedOut = false;
     child.on('error', e => finish(-1, e.message));
-    child.on('close', code => finish(code == null ? -1 : code));
-    if (timeoutMs > 0) timer = setTimeout(() => { try { child.kill(); } catch {} finish(-2, `超过 ${Math.round(timeoutMs / 60000)} 分钟没有结果，已停止`); }, timeoutMs);
+    child.on('close', code => finish(timedOut ? -2 : code == null ? -1 : code, timedOut ? `超过 ${Math.round(timeoutMs / 60000)} 分钟没有结果，已停止` : undefined));
+    // 1104（审查 3）：超时整棵结束（uv 会起下载 / 编译子进程，只杀直接进程会留下后代攥着管道），等它真退了才报「已停止」；
+    // 5 秒还没退也照样收尾，免得这里一直挂着
+    if (timeoutMs > 0) timer = setTimeout(() => {
+      timedOut = true;
+      killTree(child);
+      setTimeout(() => finish(-2, `超过 ${Math.round(timeoutMs / 60000)} 分钟没有结果，已停止`), 5000);
+    }, timeoutMs);
   });
+}
+function killTree(child, { platform = process.platform, spawnSyncImpl = require('child_process').spawnSync } = {}) {
+  if (isWin(platform) && child && child.pid) {
+    try { spawnSyncImpl('taskkill', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true, timeout: 15000 }); } catch {}
+  }
+  try { child.kill('SIGKILL'); } catch {}
+}
+
+// —— 1104（审查 4）：装后端跨进程一把锁（两个 Obsidian 窗口 / 两个库共用 ~/.link-brain/py）——
+// 锁文件 ~/.link-brain/locks/backend-install.lock：{pid, started}。持有者进程没了、或超过 3 小时，算过期，删了重拿。
+const INSTALL_LOCK_STALE_MS = 3 * 3600000;
+function pidAlive(pid) { try { process.kill(pid, 0); return true; } catch (e) { return !!(e && e.code === 'EPERM'); } }
+function takeInstallLock(home, { now = Date.now(), alive = pidAlive, pid = process.pid } = {}) {
+  const file = path.join(home, 'locks', 'backend-install.lock');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  for (let i = 0; i < 2; i++) {
+    try {
+      const fd = fs.openSync(file, 'wx');
+      fs.writeSync(fd, JSON.stringify({ pid, started: now, owner: '装后端' }));
+      fs.closeSync(fd);
+      return { ok: true, release: () => { try { const cur = JSON.parse(fs.readFileSync(file, 'utf8')); if (cur.pid === pid) fs.unlinkSync(file); } catch {} } };
+    } catch (e) {
+      if (!e || e.code !== 'EEXIST') return { ok: true, release: () => {} };   // 锁文件建不了（只读盘等）：不因为锁挡住安装
+      let cur = null;
+      try { cur = JSON.parse(fs.readFileSync(file, 'utf8')); } catch {}
+      const stale = !cur || !Number.isFinite(cur.pid) || !alive(cur.pid) || now - (Number(cur.started) || 0) > INSTALL_LOCK_STALE_MS;
+      if (!stale) return { ok: false, holder: cur };
+      try { fs.unlinkSync(file); } catch {}
+    }
+  }
+  return { ok: false, holder: null };
 }
 const lastLine = r => String(r.err || r.out || '').trim().split('\n').filter(Boolean).pop() || `退出码 ${r.code}`;
 // uv 的环境：Python 和缓存都收进 ~/.link-brain，不往 ~/.local/bin 放 python 启动器、不写 Windows 注册表、只用自己管的 Python
@@ -202,10 +242,52 @@ async function extractUv(archive, binDir, { platform = process.platform, runImpl
 async function selfCheck(dir, { platform = process.platform, runImpl = run, env = process.env } = {}) {
   const exe = venvBackend(dir, platform), py = venvPython(dir, platform);
   const r = await runImpl(exe, ['version'], { env, timeoutMs: 120000 });
-  if (r.code === 0) return { ok: true, exe, python: py, version: String(r.out || '').trim().split('\n').pop() || '' };
-  const r2 = await runImpl(py, ['-m', 'link_brain', '--help'], { env, timeoutMs: 120000 });
-  if (r2.code === 0) return { ok: true, exe, python: py, version: '' };
-  return fail('PERMANENT.BAD_PACKAGE', '装好了但跑不起来：' + lastLine(r.code === -1 ? r2 : r), { exe, python: py });
+  if (r.code !== 0) {
+    const r2 = await runImpl(py, ['-m', 'link_brain', '--help'], { env, timeoutMs: 120000 });
+    if (r2.code !== 0) return fail('PERMANENT.BAD_PACKAGE', '装好了但跑不起来：' + lastLine(r.code === -1 ? r2 : r), { exe, python: py });
+  }
+  // 1104（审查 11）：version 特意不加载依赖，过了不等于后端能用——再做一次不联网、不加载认字模型的核心检查
+  //（`setup check --components core`：核心依赖都 import 得到）；版本只显示版本号，不把整行 JSON 摆给人看
+  const version = versionText(r.code === 0 ? r.out : '');
+  const k = await runImpl(exe, ['setup', 'check', '--components', 'core'], { env, timeoutMs: 180000 });
+  if (k.code !== 0) {
+    let why = '';
+    try { const j = JSON.parse(String(k.out || '').trim().split('\n').pop()); why = (j && (j.message || (j.results && j.results[0] && (j.results[0].detail || j.results[0].fix_hint)))) || ''; } catch {}
+    return fail('PERMANENT.BAD_PACKAGE', '装好了，但核心功能跑不起来：' + (why || lastLine(k)), { exe, python: py });
+  }
+  return { ok: true, exe, python: py, version };
+}
+function versionText(out) {
+  const last = String(out || '').trim().split('\n').pop() || '';
+  try { const j = JSON.parse(last); if (j && j.version) return String(j.version); } catch {}
+  return last.slice(0, 40);
+}
+
+// —— 1103：uv pip install 的输出 → 一句人话（uv 不给机读进度、也不报总字节数，所以只翻译它说了什么，不编百分比；
+//   界面上这一步画不定进度条）。下好了几个大文件计个数，让人知道在动。认不出的行返回 null（不改进度文字）。
+function uvInstallMeter() {
+  let pkgs = 0, big = 0, got = 0;
+  return line => {
+    const l = String(line || '').trim();
+    let m, text = null;
+    if ((m = /^Resolved (\d+) packages?/i.exec(l))) { pkgs = Number(m[1]); text = `要装 ${pkgs} 个依赖包，开始下载…`; }
+    else if ((m = /^Downloading (\S+) \(([^)]+)\)/i.exec(l))) { big++; text = `正在下载 ${m[1]}（${m[2].replace(/MiB/i, ' MB').replace(/KiB/i, ' KB').replace(/GiB/i, ' GB')}）`; }
+    else if ((m = /^Downloaded (\S+)/i.exec(l))) { got++; text = `下载好了 ${m[1]}（大文件 ${got}/${big}）`; }
+    else if (/^Prepared \d+ packages?/i.test(l)) text = '下载完了，正在安装…';
+    else if ((m = /^\+ (\S+?)==/.exec(l))) text = `已装 ${m[1]}`;
+    else if (/^Installed \d+ packages?/i.test(l)) text = '依赖都装好了';
+    else return null;
+    return { done: null, total: null, text };
+  };
+}
+
+// uv python install 的一行 → 给人看的一句（认不出的原样截短）
+function pythonLineText(line) {
+  const l = String(line || '').trim();
+  let m;
+  if ((m = /^Downloading cpython-(\d+\.\d+\.\d+)\S*.*?\(([\d.]+)\s*MiB\)/i.exec(l))) return `正在下载 Python ${m[1]}（${m[2]} MB）`;
+  if ((m = /^Installed Python (\S+)/i.exec(l))) return `Python ${m[1]} 装好了`;
+  return l.slice(0, 160);
 }
 
 // —— 主流程 ——
@@ -221,6 +303,7 @@ async function ensureBackend(plugin, { onProgress = null, upgrade = false, env =
     if (onProgress) { try { onProgress({ ...stages[stage] }); } catch (e) { console.error('[lb] 进度没画上', e); } }
   };
   const bad = (stage, r) => { progress(stage, { state: 'failed', text: r.message }); return { ...r, stages }; };
+  let lock = null;
   try {
     const uvEnvironment = uvEnv(home, env);
     const asset = uvRelease ? uvRelease.asset : uvAsset(platform, arch);
@@ -241,6 +324,11 @@ async function ensureBackend(plugin, { onProgress = null, upgrade = false, env =
     if (!release.wheelSha256 || !release.lockSha256) {
       progress('install', { state: 'failed', text: '后端发布包还没发布' });
       return { ...fail('SKIPPED.NOT_CONFIGURED', `后端发布包（v${release.version}）还没发布：等作者发出 Release 后更新插件再点一次`), stages };
+    }
+    lock = takeInstallLock(home);
+    if (!lock.ok) {
+      progress('uv', { state: 'failed', text: '另一个窗口正在装' });
+      return { ...fail('TRANSIENT.BUSY', '另一个 Obsidian 窗口正在装后端（共用同一份），等它装完这里会自己认到；过几分钟再点一次也行'), stages };
     }
 
     // ① uv
@@ -266,7 +354,7 @@ async function ensureBackend(plugin, { onProgress = null, upgrade = false, env =
 
     // ② Python
     progress('python', { text: `uv python install ${pythonVersion}（第一次要下载约 30 MB）` });
-    const py = await runImpl(uv, ['python', 'install', pythonVersion], { env: uvEnvironment, timeoutMs: 20 * 60000, onLine: l => progress('python', { text: l.slice(0, 160) }) });
+    const py = await runImpl(uv, ['python', 'install', pythonVersion], { env: uvEnvironment, timeoutMs: 20 * 60000, onLine: l => progress('python', { text: pythonLineText(l) }) });
     if (py.code !== 0) return bad('python', fail(/download|fetch|connect|timed out|dns/i.test(py.err + py.out) ? 'TRANSIENT.NETWORK' : 'PERMANENT.BAD_PACKAGE', `装 Python ${pythonVersion} 没成功：` + lastLine(py)));
     progress('python', { state: 'ok', text: `Python ${pythonVersion} 就绪` });
 
@@ -288,10 +376,11 @@ async function ensureBackend(plugin, { onProgress = null, upgrade = false, env =
     if (!wh.ok) return bad('install', wh);
     // wheel 也走 --require-hashes：写一行带 --hash 的直连需求（本地文件 URL）
     const wheelReq = path.join(dl, `link-brain-${release.version}.txt`);
-    fs.writeFileSync(wheelReq, `link-brain @ ${fileUrl(wheelFile)} --hash=sha256:${release.wheelSha256}\n`, 'utf8');
-    progress('install', { done: null, total: null, text: 'uv pip install --require-hashes …' });
+    fs.writeFileSync(wheelReq, `link-brain[${BACKEND_EXTRAS.join(',')}] @ ${fileUrl(wheelFile)} --hash=sha256:${release.wheelSha256}\n`, 'utf8');
+    const meter = uvInstallMeter();
+    progress('install', { done: null, total: null, text: '准备安装依赖（认字、B 站下载等，约几百 MB）…' });
     const inst = await runImpl(uv, ['pip', 'install', '--python', pyExe, '--require-hashes', '-r', lockFile, '-r', wheelReq],
-      { env: uvEnvironment, timeoutMs: 30 * 60000, onLine: l => progress('install', { text: l.slice(0, 160) }) });
+      { env: uvEnvironment, timeoutMs: 30 * 60000, onLine: l => { const p = meter(l); if (p) progress('install', p); } });
     if (inst.code !== 0) {
       const text = inst.err + inst.out;
       const code = /Failed building wheel|No matching distribution|requires a different Python|No solution found|hash/i.test(text) ? 'PERMANENT.BAD_PACKAGE'
@@ -315,9 +404,11 @@ async function ensureBackend(plugin, { onProgress = null, upgrade = false, env =
       writeConfig(home, { [BACKEND_DIR_KEY]: targetDir, [PREV_DIR_KEY]: haveBackend ? curDir : (prev || '') });
     } else if (!readConfig(home)[BACKEND_DIR_KEY]) writeConfig(home, { [BACKEND_DIR_KEY]: targetDir });
     if (plugin && typeof plugin.locateCollection === 'function') { try { await plugin.locateCollection(); } catch (e) { console.error('[lb] 后端位置没刷新', e); } }
-    return { ok: true, code: '', message: (upgrade ? '后端已更新到 ' : '后端装好了：') + `link-brain ${release.version}` + (c.version ? `（${c.version}）` : ''), dir: targetDir, python: c.python, exe: c.exe, stages };
+    return { ok: true, code: '', message: (upgrade ? '后端已更新到 ' : '后端装好了：') + `link-brain ${release.version}` + (c.version && c.version !== release.version ? `（实际 ${c.version}）` : ''), dir: targetDir, python: c.python, exe: c.exe, stages };
   } catch (e) {
     return { ...fail(e && e.code === 'ENOSPC' ? 'PERMANENT.DISK_FULL' : 'PERMANENT.BAD_PACKAGE', '安装后端时出错：' + (e && e.message || e)), stages };
+  } finally {
+    if (lock && lock.release) lock.release();
   }
 }
 function fileUrl(p) { let s = path.resolve(p).replace(/\\/g, '/'); if (!s.startsWith('/')) s = '/' + s; return 'file://' + encodeURI(s); }
@@ -345,5 +436,5 @@ function managedInfo({ env = process.env, platform = process.platform, home = ho
     installed: fs.existsSync(venvBackend(dir, platform)), prev: typeof cfg[PREV_DIR_KEY] === 'string' && cfg[PREV_DIR_KEY] ? cfg[PREV_DIR_KEY] : '' };
 }
 
-module.exports = { ensureBackend, rollbackBackend, managedInfo, download, extractUv, selfCheck, run, uvAsset, uvEnv, homeDir, managedDir, uvExe, venvPython, venvBackend,
-  readConfig, writeConfig, fileUrl, UV_RELEASE, BACKEND_RELEASE, PYTHON_VERSION, STAGES };
+module.exports = { takeInstallLock, killTree, versionText, ensureBackend, rollbackBackend, managedInfo, download, extractUv, selfCheck, run, uvAsset, uvEnv, homeDir, managedDir, uvExe, venvPython, venvBackend,
+  readConfig, writeConfig, fileUrl, uvInstallMeter, pythonLineText, UV_RELEASE, BACKEND_RELEASE, BACKEND_EXTRAS, PYTHON_VERSION, STAGES };

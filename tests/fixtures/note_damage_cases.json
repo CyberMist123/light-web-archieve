@@ -111,6 +111,28 @@
     "FRONTMATTER_BROKEN",
     "CSSCLASSES_MISSING"
    ]
+  },
+  {
+   "name": "1103 批注块换成插件还不认识的写法（后端比插件新）：不算坏",
+   "patch": [
+    [
+     "replace",
+     "```dataviewjs\nconst itemId",
+     "```lb-page9\nconst itemId"
+    ]
+   ],
+   "expect": []
+  },
+  {
+   "name": "1103 批注块是 lb-page 写法",
+   "patch": [
+    [
+     "replace",
+     "```dataviewjs\nconst itemId",
+     "```lb-page\nconst itemId"
+    ]
+   ],
+   "expect": []
   }
  ]
 }

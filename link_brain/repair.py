@@ -558,6 +558,15 @@ def run(*, key: str | None = None, since: str | None = None, auto: bool = False,
     left = len(results) - fixed
     if not results:
         msg = "没有要当场修的问题" if not key else "这条现在不用修"
+        if not key:
+            # 1103 作者（虚拟机）：修复区写「⚠ 1 件要你处理」，点了却回「没有要当场修的问题」——两边说的不是一回事：
+            # 要你处理的（扫码 / 验证这类）本来就不归自动修。和「当前状态」同一个计数（problems.summary），照实说出来
+            try:
+                waiting = int(problems.summary().get("needs_human") or 0)
+            except Exception:  # noqa: BLE001 - 计数读不到就只说没修的
+                waiting = 0
+            if waiting:
+                msg = f"能自动修的没有；还有 {waiting} 件要你自己处理（扫码 / 验证这类，系统不替你点）：到「问题记录」里看是哪件"
     else:
         msg = f"自愈：修好 {fixed} 条" + (f"，还剩 {left} 条（每条都写了试过什么、为什么没好、下一步）" if left else "")
     return {"ok": left == 0, "ran": True, "fixed": fixed, "left": left, "message": msg, "results": results}

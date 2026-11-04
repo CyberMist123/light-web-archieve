@@ -13,8 +13,9 @@
 'use strict';
 
 const LIGHT = ['core', 'reader', 'ocr'];
+const REQUIRED_FALLBACK = ['core', 'reader'];   // 功能清单没读回时的必选项（components.py required）
 const STATUS_TEXT = { ready: '已装好', missing: '还没装', partial: '没装全', failed: '没装上', unknown: '没查出来', needs_key: '要填密钥' };
-const STAGE_MARK = { running: '⟳', ok: '✓', skipped: '–', failed: '✗' };
+const STAGE_MARK = { running: '⟳', ok: '✓', skipped: '–', failed: '✗', waiting: '…', partial: '◐' };   // 1104：partial = 做了一部分   // waiting：小红书等扫码（1103，不算失败）
 const AI_CAP = { ai_text: 'textAI', ai_vision: 'visionAI' };
 // 1010：给新手看的名字（后端 setup plan 的名字是给命令行 / 日志的，这里只换说法）。price：'free' = 本机跑；数组 = setup estimate 的哪几项
 const FEATURE_TEXT = {
@@ -56,8 +57,8 @@ function runFromState(state, alive) {
     message: stopped ? `上次没跑完，停在「${stopped}」` : '上次没跑完' };
   return run;
 }
-const STAGE_LABEL = { install: '装好要用的组件', login: '确认小红书登录', sync: '同步收藏（含 OCR / 识图 / 概要）', enrich: '补识图 / 概要',
-  catalog: '整理目录', embed: '建语义索引', comments: '评论补齐（读不完的后台接着补）' };
+const STAGE_LABEL = { catalog_first: '生成目录页', install: '装好要用的组件', login: '确认小红书登录', sync: '同步收藏（含 OCR / 识图 / 概要）', enrich: '补识图 / 概要',
+  albums: '读小红书专辑', catalog: '整理目录', embed: '建语义索引', comments: '评论补齐（读不完的后台接着补）' };
 
 const num = v => (v === null || v === undefined || v === '' || typeof v === 'boolean' || !Number.isFinite(Number(v)) ? null : Number(v));
 // 1028：后台补评论多久没刷新算停了——状态文件里 Python 写的 stale_min 优先（comment_fill.STALE_MIN），旧文件按 15 分钟
@@ -134,8 +135,16 @@ function applyRunEvent(run, ev) {
   if (!ev || typeof ev !== 'object') return run;
   if (ev.type === 'result') { run.result = ev; run.state = 'done'; return run; }
   if (ev.type !== 'progress') return run;
-  if (ev.component && ev.stage === 'install') { run.install = ev; return run; }
+  if (ev.component && ev.stage === 'install') {
+    // 1103：后端每装完一项报一条结果（state ok / failed + status）：记下来、清掉「正在装 X」；其余是下载进度
+    if (ev.state === 'ok' || ev.state === 'failed') {
+      run.installed = { ...(run.installed || {}), [ev.component]: ev.status || (ev.state === 'ok' ? 'ready' : 'failed') };
+      run.install = null;
+    } else run.install = ev;
+    return run;
+  }
   if (!ev.stage) return run;
+  if (ev.stage !== 'install' || ev.state !== 'running') run.install = null;   // 装组件那一步过去了：别再挂着「正在装」
   const cur = run.stages[ev.stage] || {};
   run.stages[ev.stage] = { ...cur, label: ev.label || cur.label, index: ev.index || cur.index, count: ev.count || cur.count,
     state: ev.state || cur.state || 'running', text: ev.text != null && ev.text !== '' ? ev.text : (ev.state !== 'running' ? '' : cur.text || '') };
@@ -143,6 +152,20 @@ function applyRunEvent(run, ev) {
   return run;
 }
 // 评论补齐那一行（状态文件 + fill-status 的统计）
+// 1103：懒人安装卡片上那一句结果（完整的在「06 修复」）：做成了 = 原话（太长只留第一句）；没成 = 一句是哪类事
+function briefResult(r) {
+  if (!r) return '';
+  const msg = String(r.message || '');
+  if (r.ok) return msg.length <= 48 ? msg : msg.split('；')[0];
+  const failed = (r.stages || []).filter(x => x && x.state === 'failed').length;
+  const code = String(r.code || '');
+  if (r.noResult) return '这一轮没正常收尾';
+  if (code === 'TRANSIENT.DISCONNECTED') return '读取组件没起来';
+  if (code === 'NEEDS_HUMAN.NOT_INSTALLED') return '读取组件没装上';
+  if (code.startsWith('NEEDS_HUMAN')) return '小红书要你处理（登录 / 验证）';
+  return failed ? `跑完了，有 ${failed} 步没成` : (msg.split('；')[0] || '没跑完');
+}
+
 function fillLine(st, info, now = Date.now()) {
   const live = st && ['running', 'waiting', 'paused'].includes(st.state) && now - Date.parse(st.updated_at || '') < fillStaleMs(st);
   if (live) return st.message || '后台在补评论';
@@ -161,8 +184,11 @@ module.exports = function homeUI(obsidian, plugin) {
     if (!s.setup || typeof s.setup !== 'object') s.setup = {};
     return s.setup;
   };
-  const save = () => Promise.resolve(plugin.saveSettings()).catch(e => new Notice('没保存上：' + e.message, 8000));
+  // 1104（审查 5）：返回存没存上——开跑前存不上就不开跑（后端会按磁盘上的旧选择跑）
+  const save = () => Promise.resolve(plugin.saveSettings()).then(() => true, e => { new Notice('没保存上：' + e.message, 8000); return false; });
   const comps = () => S().plan?.components || [];
+  // 1104（审查 1）：选择一律补齐必选项 / 依赖（读取组件是必选）——和后端 setup.selected() 同一口径；功能清单还没读回时按轻量版的必选两项补
+  const normSel = ids => comps().length ? withDeps(ids, comps()) : [...new Set([...REQUIRED_FALLBACK, ...(ids || [])])];
   const selected = () => initialSelection(setup().selected, S().plan);
   // 1010：本机那几样（认字 / 语音转文字 / CapsLock 说话）的开关显示「实际在用的」：选过，或者装好了而且设置里正开着——
   // 老用户的选择列表里可能没有，但其实一直在用（比如一直按 CapsLock 说话），开关要和实际对得上
@@ -191,10 +217,17 @@ module.exports = function homeUI(obsidian, plugin) {
     return after;
   }
 
+  // 功能清单（`setup plan`）是「装没装」的唯一来源。1103：强制刷新不复用进行中的旧查询（那份可能是装之前发的）；
+  // 读完通知所有显示点重画（概览「这台电脑」、设置④「现在」那几行、页顶提示——都挂在 painters 上），并让 AI 用量缓存失效。
   async function loadPlan(force = false) {
     const st = S();
     if (st.plan && !force) return st.plan;
-    if (st.planLoading) return st.planLoading;
+    if (st.planLoading) {
+      if (!force) return st.planLoading;
+      // 1104（审查 2）：强制刷新撞上进行中的查询——不各自再起一份：所有人合并成「等这份完了再查一次」，最多当前一份 + 后续一份
+      if (!st.planNext) st.planNext = st.planLoading.catch(() => {}).then(() => { st.planNext = null; return loadPlan(true); });
+      return st.planNext;
+    }
     st.planLoading = (async () => {
       try {
         const { json } = await plugin.runPy(['-m', 'link_brain', 'setup', 'plan'], { label: '读取功能清单', fallback: '读不到功能清单', timeoutMs: 60000, okCodes: [0, 1, 2] });
@@ -202,6 +235,10 @@ module.exports = function homeUI(obsidian, plugin) {
         st.plan = json; st.planError = null;
       } catch (e) { st.planError = e; }
       finally { st.planLoading = null; }
+      // 1104（审查 2）：用量缓存只在那份查询已经回来时作废——正在查的那份别删（删了设置页重画又起一份）
+      const u = plugin.v6Cache && plugin.v6Cache.usage;
+      if (u && u.done) delete plugin.v6Cache.usage;
+      repaint();
       return st.plan;
     })();
     return st.planLoading;
@@ -227,12 +264,16 @@ module.exports = function homeUI(obsidian, plugin) {
   async function runAll({ quiet = false } = {}) {
     const st = S();
     if (plugin.running) { plugin.notify(plugin.busyText(), { kind: 'warn' }); return null; }
+    // 1103：重启 Obsidian 后接上的那一轮还在后台跑（plugin.running 是空的）——不再起第二轮
+    if (resumedRunning()) { plugin.notify('上次启动的懒人安装还在后台跑，进度在设置页「懒人安装」；跑完再点', { kind: 'warn' }); return null; }
     // 1102：还没有后端（新电脑）→ 先自己装（uv → Python → link-brain），装不上就把原因留在这一块，不往下跑
     if (backendMissing()) {
       const got = await installBackend({ quiet });
       if (!got || !got.ok) return got;
     }
-    if (!Array.isArray(setup().selected)) { setup().selected = selected(); await save(); }
+    setup().selected = Array.isArray(setup().selected) ? normSel(setup().selected) : selected();
+    setup().runVault = plugin.vaultDir || '';   // 1103：这一轮写到哪（收藏位置本轮钉死；改了下一轮生效，续画按它读）
+    if (!(await save())) { plugin.notify('设置没存上，这一轮先不跑（后台会按旧设置跑）：存好再点一次', { kind: 'error' }); return null; }
     st.run = { state: 'running', stages: {}, current: null, install: null, result: null, startedAt: Date.now() };
     repaint();
     let lineFrame = null;
@@ -242,6 +283,10 @@ module.exports = function homeUI(obsidian, plugin) {
       onLine: line => {
         let ev; try { ev = JSON.parse(line); } catch { return; }
         applyRunEvent(st.run, ev);
+        // 1104（审查 5）：装好一项带回的设置补丁（如 OCR 模型目录）按字段合进内存再存，免得下次保存把后端写的盖掉
+        if (ev.settings_patch && ev.component) { mergeInto(plugin.settings, ev.settings_patch); save(); }
+        // 1103：装完一项 / 装组件那一步结束 → 马上重读功能清单（各处「装没装」跟着变），不等整轮几小时跑完
+        if (ev.stage === 'install' && (ev.state === 'ok' || ev.state === 'failed')) loadPlan(true).catch(() => {});
         const sg = ev.stage && st.run.stages[ev.stage];
         if (sg && sg.state === 'running') { plugin.runningProgress = sg.label || ''; plugin.taskChanged?.(); }
         if (lineFrame == null) lineFrame = setTimeout(() => { lineFrame = null; repaint(); }, 120);
@@ -270,27 +315,44 @@ module.exports = function homeUI(obsidian, plugin) {
         : res.noResult ? [{ label: '打开日志', run: () => plugin.openActionLog?.() }] : null;
       plugin.notify(res.message || (res.ok ? '都跑完了' : '没跑完'), { kind: res.ok ? 'ok' : kind ? 'warn' : 'error', ms: kind ? 0 : undefined, actions });
     }
-    loadPlan(true).then(repaint);
+    loadPlan(true).catch(() => {});
+    // 1103：这一轮跑的时候才扫了码（同步那步跳过了）→ 接着再跑一轮，这次会同步
+    if (st.syncAfterRun) { st.syncAfterRun = false; setTimeout(() => runAll({ quiet }).catch(e => console.error('[lb] 登录后接着同步没起来', e)), 1500); }
     return res;
   }
+  const resumedRunning = () => { const r = S().run; return !!(r && r.resumed && r.state === 'running'); };
   // —— 1102：Obsidian 关掉时安装没停（onunload 不杀子进程），进度在 _archive/setup-run.json ——
   // 打开设置页 / 启动时：文件说 running 且 pid 活着 → 续画（盯文件 + 每 3 秒再读一次，直到 result 出来或 pid 死了）；
   // 死了又没 result → 「上次没跑完，停在 X 步」+「再跑一次」。本会话自己在跑（st.run 已有）就不碰。
+  // 1103：上一轮写在哪个收藏位置就去哪读（用户中途改了位置是下一轮生效，上一轮的进度文件还在旧位置）
   async function readRunState() {
-    try { const v = JSON.parse(await plugin.app.vault.adapter.read(plugin.lbPath(RUN_STATE_FILE))); return v && typeof v === 'object' ? v : null; }
-    catch { return null; }
+    try {
+      const rv = setup().runVault;
+      let raw;
+      if (rv && plugin.vaultDir && rv !== plugin.vaultDir) raw = require('fs').readFileSync(require('path').join(rv, '_archive', 'setup-run.json'), 'utf8');
+      else raw = await plugin.app.vault.adapter.read(plugin.lbPath(RUN_STATE_FILE));
+      const v = JSON.parse(raw);
+      return v && typeof v === 'object' ? v : null;
+    } catch { return null; }
   }
   const alive = pid => (typeof plugin.pidAlive === 'function' ? !!plugin.pidAlive(pid) : false);
   async function resumeRun() {
     const st = S();
     if (st.run || plugin.running) return st.run || null;
     const state = await readRunState();
-    if (!state || (!state.running && !st.resumeWatching)) return null;   // 跑完了的旧结果不重放；只接「还在跑」或「没跑完」
+    if (!state) return null;
+    if (!state.running && !st.resumeWatching) {
+      // 1104（审查 9）：上一轮已经跑完（可能是 Obsidian 关着时在后台跑完的）——把结果接回来显示，不弹通知、不当成在跑
+      const done = state.result && typeof state.result === 'object' ? runFromState(state, false) : null;
+      if (done && done.result) { st.run = done; repaint(); }
+      return st.run || null;
+    }
     if (st.run) return st.run;
     const run = runFromState(state, alive(state.pid));
     if (!run) return null;
     st.run = run;
     repaint();
+    plugin.taskChanged?.();
     if (run.state === 'running') watchResumed();
     return run;
   }
@@ -310,12 +372,14 @@ module.exports = function homeUI(obsidian, plugin) {
       if (!next) return;
       next.resumed = true;
       st.run = next;
+      plugin.taskChanged?.();   // 1103：状态栏也显示接上的这一轮
       if (next.state === 'done') {
         stop();
+        if (st.syncAfterRun) { st.syncAfterRun = false; setTimeout(() => runAll().catch(e => console.error('[lb] 登录后接着同步没起来', e)), 1500); }
         const res = next.result;
         plugin.notify(res.message || (res.ok ? '都跑完了' : '没跑完'), { kind: res.ok ? 'ok' : res.interrupted ? 'warn' : 'error',
           actions: res.interrupted ? [{ label: '再跑一次', run: () => runAll() }] : null });
-        loadPlan(true).then(repaint);
+        loadPlan(true).catch(() => {});
       }
       repaint();
     };
@@ -352,7 +416,7 @@ module.exports = function homeUI(obsidian, plugin) {
     repaint();
     if (!quiet) plugin.notify(res.message || (res.ok ? '后端装好了' : '后端没装上'), { kind: res.ok ? 'ok' : 'error', ms: res.ok ? 6000 : 12000,
       actions: res.ok ? null : [{ label: '打开设置', run: () => plugin.openSetupPage?.() }] });
-    if (res.ok) { st.plan = null; st.planError = null; loadPlan(true).then(repaint).catch(() => {}); }
+    if (res.ok) { st.plan = null; st.planError = null; loadPlan(true).catch(() => {}); if (st.asrPending) installAsr(); }
     return res;
   }
   const backendMissing = () => { try { return plugin.currentBackend?.().mode === 'missing'; } catch { return false; } };
@@ -360,16 +424,24 @@ module.exports = function homeUI(obsidian, plugin) {
   // —— 首次（零配置）：新装、库里还没有收藏 → 按轻量版自动跑一次 ——
   async function firstRun() {
     const s = setup();
-    resumeRun().catch(e => console.error('[lb] 上次的安装进度没读到', e));   // 1102：启动时接上关 Obsidian 前没跑完的那一轮
+    // 1102：启动时接上关 Obsidian 前没跑完的那一轮。1103：先等它判定完——还在后台跑就不再起新的一轮
+    try { await resumeRun(); } catch (e) { console.error('[lb] 上次的安装进度没读到', e); }
+    if (resumedRunning()) return 'resumed';
     if (s.firstRunAt) return 'done-before';
     s.firstRunAt = new Date().toISOString();
     let fresh = true;
     try { fresh = !(await plugin.app.vault.adapter.exists(plugin.lbPath('_archive/catalog-data.json'))); } catch { fresh = true; }
     if (!fresh) { await save(); return 'existing-library'; }   // 老库（作者本机）：只记一笔，选择不动
+    // 1104（审查 10，作者定）：新库不预设内置的那套分类（是作者个人的），内容先进「未归类」；老库没有这个键，照旧
+    const ps = plugin.settings;
+    if (!(Array.isArray(ps.catalogCats) && ps.catalogCats.length) && !ps.catalogCatsPreset) ps.catalogCatsPreset = 'none';
     if (!Array.isArray(s.selected)) s.selected = [...LIGHT];
     await save();
-    plugin.notify('Link Brain 装好了：正在按轻量版（不要任何 key）自动装好并同步，进度在底部状态栏和设置页「概览」。', { ms: 12000,
-      actions: [{ label: '打开设置', run: () => plugin.openSetupPage?.() }] });
+    // 1103 作者：全自动、不要「开始」——直接把人带到「懒人安装」卡片（上面能边跑边改选项，下面是进度）；已经开着就不重画（别冲掉正在填的）
+    try { if (!(plugin.app?.setting?.activeTab && plugin.app.setting.activeTab === plugin.settingTab)) plugin.openSetupPage?.(); }
+    catch (e) { console.error('[lb] 设置页没打开', e); }
+    plugin.notify('Link Brain 正在自动安装并同步：进度在设置页「懒人安装」，上面的选项随时能改。', { ms: 12000,
+      actions: [{ label: '看进度', run: () => plugin.openSetupPage?.() }] });
     runAll().catch(e => console.error('[lb] 首次自动跑没跑完', e));
     return 'started';
   }
@@ -498,7 +570,8 @@ module.exports = function homeUI(obsidian, plugin) {
   }
 
   // —— 画：概览 · 一键装好 / 跑完（这一栏唯一的主按钮）+ 进度 ——
-  function renderRun(c, tab) {
+  // brief（设置页顶的懒人安装卡片）：结果只留一句 + 「详情在 06 修复」；完整的结果 / 没成的几步由 renderRunDetails 画在修复区
+  function renderRun(c, tab, { brief = false, onDetails = null } = {}) {
     const runBox = c.createDiv({ cls: 'lb-run', attr: { 'data-section': 'run' } });
     let alive = true;
     const paintRun = () => {
@@ -526,7 +599,8 @@ module.exports = function homeUI(obsidian, plugin) {
         go.disabled = !!why;
         go.onclick = () => runAll();
         acts.createEl('span', { cls: 'setting-item-description' + (why ? ' lb-why' : ''),
-          text: why || '装好打开的功能，再把同步小红书收藏、认图片里的字、概要、整理目录一口气跑完（没开 AI 就只跑免费的部分）。B 站视频占地方，不在这里下：到「收藏与同步 → B 站」手动同步。' });
+          text: why || (brief ? '装好上面勾的，再把同步、认字、整理目录一口气跑完。'
+            : '装好打开的功能，再把同步小红书收藏、认图片里的字、概要、整理目录一口气跑完（没开 AI 就只跑免费的部分）。B 站视频占地方，不在这里下：到「收藏与同步 → B 站」手动同步。') });
       }
       // 装后端的五步（uv → Python → 环境 → link-brain → 自检）：跑的时候逐步画 ✓ / ⟳ / ✗ + 下载进度条；完了只留一句结果
       if (br && (installing || (br.result && !run))) {
@@ -537,11 +611,13 @@ module.exports = function homeUI(obsidian, plugin) {
           rowEl.createSpan({ cls: 'lb-run-label', text: sg.label || sg.stage || '' });
           if (sg.text) rowEl.createSpan({ cls: 'lb-run-text', text: sg.text });
         }
-        const cur = installing ? Object.values(br.stages).find(sg => sg.state === 'running' && sg.total) : null;
+        // 1103：只有拿得到字节总数的下载（uv、link-brain wheel）画百分比；其余（装依赖、装 Python）画不定进度条，不编百分比
+        const cur = installing ? Object.values(br.stages).find(sg => sg.state === 'running') : null;
         if (cur) {
-          const pv = progressView(cur);
-          const bar = runBox.createDiv({ cls: 'lb-bar' });
-          bar.createDiv({ cls: 'lb-bar-fill' }).style.width = (pv && pv.pct != null ? pv.pct : 0) + '%';
+          const pv = cur.total ? progressView(cur) : null;
+          const bar = runBox.createDiv({ cls: 'lb-bar' + (pv && pv.pct != null ? '' : ' is-indeterminate') });
+          const fill = bar.createDiv({ cls: 'lb-bar-fill' });
+          if (pv && pv.pct != null) fill.style.width = pv.pct + '%';
         }
         if (br.result) runBox.createDiv({ cls: 'lb-run-result' + (br.result.ok ? ' is-done' : ' is-failed'), text: br.result.message || '' });
       }
@@ -554,8 +630,22 @@ module.exports = function homeUI(obsidian, plugin) {
         const row = steps.createDiv({ cls: 'lb-run-step is-' + (sg.state || 'running') });
         row.createSpan({ cls: 'lb-run-mark', text: STAGE_MARK[sg.state] || '○' });
         row.createSpan({ cls: 'lb-run-label', text: sg.label || '' });
-        if (sg.text) row.createSpan({ cls: 'lb-run-text', text: sg.text });
+        // 1103：同步那一步不显示子进程的日志尾巴，改用同步状态文件的篇数（和设置页同步那一行、状态栏同一份）
+        const text = sg === run.stages.sync && sg.state === 'running' && st.syncLine ? st.syncLine : sg.text;
+        if (text) row.createSpan({ cls: 'lb-run-text', text });
       }
+      }
+      // 1103：视频说话转文字（约 2 GB）勾上后单独在后台下载，进度也画在这一张卡片上
+      const ar = st.asrRun;
+      if (ar && (ar.state === 'running' || ar.result)) {
+        const line = runBox.createDiv({ cls: 'lb-run-asr setting-item-description' });
+        if (ar.state === 'running') {
+          const pv = ar.ev ? progressView(ar.ev) : null;
+          line.setText('视频说话转文字：' + (pv ? pv.text : '准备下载…'));
+          const bar = runBox.createDiv({ cls: 'lb-bar' + (pv && pv.pct != null ? '' : ' is-indeterminate') });
+          const fill = bar.createDiv({ cls: 'lb-bar-fill' });
+          if (pv && pv.pct != null) fill.style.width = pv.pct + '%';
+        } else line.setText('视频说话转文字：' + (ar.result.ok ? '装好了' : (ar.result.message || '没装上')));
       }
       if (busy && run.install) {
         const pv = progressView(run.install);
@@ -565,14 +655,48 @@ module.exports = function homeUI(obsidian, plugin) {
         const label = (FEATURE_TEXT[run.install.component] || {}).name || run.install.component || '';
         runBox.createDiv({ cls: 'setting-item-description', text: '正在装 ' + label + '：' + (pv ? pv.text : '') });
       }
-      if (run.result && run.result.noResult) failBox(runBox, '一键装好 / 跑完', { message: run.result.detail || '' }, () => runAll()).createEl('button', { cls: 'lb-link', text: '打开日志' }).onclick = () => plugin.openActionLog?.();
+      if (brief && run.result) {
+        // 1103 作者：卡片上只留一句结果；哪几步没成、要你做什么，在「06 修复」（和那里的「当前状态」同一份）
+        const line = runBox.createDiv({ cls: 'lb-run-result' + (run.result.ok ? ' is-done' : ' is-failed'), text: briefResult(run.result) });
+        if (!run.result.ok && onDetails) line.createEl('button', { cls: 'lb-link', text: '详情在「06 修复」' }).onclick = () => onDetails();
+      } else if (run.result && run.result.noResult) failBox(runBox, '一键装好 / 跑完', { message: run.result.detail || '' }, () => runAll()).createEl('button', { cls: 'lb-link', text: '打开日志' }).onclick = () => plugin.openActionLog?.();
       else if (run.result) runBox.createDiv({ cls: 'lb-run-result' + (run.result.ok ? ' is-done' : ' is-failed'), text: run.result.message || '' });
     };
     painters.add(paintRun);
     paintRun();
-    if (!S().plan && !backendMissing()) loadPlan().then(() => { if (alive) repaint(); });   // 没后端时 setup plan 起不来，不白跑一趟
+    if (!S().plan && !backendMissing()) loadPlan().catch(() => {});   // 没后端时 setup plan 起不来，不白跑一趟
     if (!S().run && !backendMissing()) resumeRun().catch(e => console.error('[lb] 上次的安装进度没读到', e));   // 1102：打开设置页时接上后台那一轮
-    return () => { alive = false; painters.delete(paintRun); };
+    // 1103：同步那一行跟着同步状态文件走（文件一变就重读、重画），说法和设置页同步那一行一致
+    const paintSync = async () => {
+      try {
+        const line = plugin.syncProgressText ? plugin.syncProgressText(await plugin.readSyncStatus()) : '';
+        if (line !== S().syncLine) { S().syncLine = line; if (alive) paintRun(); }
+      } catch {}
+    };
+    const vault = plugin.app.vault;
+    let refs = [];
+    if (vault && typeof vault.on === 'function' && typeof plugin.readSyncStatus === 'function') {
+      const watched = plugin.lbPath('_archive/sync-status.json');
+      refs = ['modify', 'create'].map(ev => vault.on(ev, f => { if (f?.path === watched) paintSync(); }));
+      paintSync();
+    }
+    return () => { alive = false; painters.delete(paintRun); for (const r of refs) { try { vault.offref(r); } catch {} } };
+  }
+
+  // 1103：修复区「上次一键装好 / 跑完」——完整结果 + 没成的几步（卡片上只有一句，详情只在这里，一处说清）
+  function renderRunDetails(c) {
+    const box = c.createDiv({ cls: 'lb-run-details', attr: { 'data-section': 'run-details' } });
+    const paint = () => {
+      box.empty();
+      const run = S().run, r = run && run.result;
+      if (!r) { box.createDiv({ cls: 'setting-item-description', text: run && run.state === 'running' ? '正在跑：进度在页顶「懒人安装」' : '还没跑过' }); return; }
+      box.createDiv({ cls: 'lb-run-result' + (r.ok ? ' is-done' : ' is-failed'), text: r.message || r.detail || briefResult(r) });
+      for (const sg of (r.stages || []).filter(x => x && x.state === 'failed')) box.createDiv({ cls: 'setting-item-description is-warn', text: `✗ ${sg.label || sg.id}：${sg.text || ''}` });
+      if (r.noResult) box.createEl('button', { cls: 'lb-link', text: '打开日志' }).onclick = () => plugin.openActionLog?.();
+    };
+    painters.add(paint);
+    paint();
+    return () => painters.delete(paint);
   }
 
   // 开关是唯一入口：顺手把实际起作用的那几个设置对上（OCR 方式、本机语音识别、CapsLock 客户端、AI 方式），别处不再各有一个开关
@@ -650,7 +774,67 @@ module.exports = function homeUI(obsidian, plugin) {
   }
   const isOn = id => new Set(effective()).has(id);
 
-  return { renderStatus, renderRun, featureToggle, setFeature, applyPreset, isOn, aiReady, runAll, stopRun, firstRun, resumeRun, loadPlan, loadEstimate, state: S, bindToggle, installBackend,
-    _internals: { repaint, withDeps, withoutDependents, toggleSelection, initialSelection, totals, fmtMB, yuan, priceText, progressView, applyRunEvent, fillLine, resultKind, runFromState } };
+  // —— 1103：懒人安装卡片上的选择 ——
+  // 没后端 / 功能清单还没读回时也能存（不走依赖 plan 的 featureToggle）；setup run 每一步开始时现读 setup.selected。
+  const choiceOn = id => { const sel = setup().selected; return Array.isArray(sel) ? sel.includes(id) : LIGHT.includes(id); };
+  const asrReady = () => { const c = comps().find(x => x.id === 'asr'); return !!(c && c.status === 'ready'); };
+  async function setChoice(id, on) {
+    const s = setup();
+    const before = Array.isArray(s.selected) ? [...s.selected] : null;
+    const cur = before || [...LIGHT];
+    // 关掉认字顺带关识图、关掉语音转文字顺带关 CapsLock（它们靠前者）
+    const deps = { ocr: ['ai_vision'], asr: ['capslock'] }[id] || [];
+    s.selected = normSel(on ? [...new Set([...cur, id])] : cur.filter(x => x !== id && !deps.includes(x)));
+    const snap = snapRuntime();
+    const ps = plugin.settings;
+    if (id === 'ocr' && ps.ocr) ps.ocr.mode = on ? (ps.ocr.mode && ps.ocr.mode !== 'off' ? ps.ocr.mode : 'local') : 'off';
+    if (id === 'asr' && ps.asrAI) { if (!on && ps.asrAI.mode === 'capswriter') ps.asrAI.mode = 'off'; if (on && asrReady()) ps.asrAI.mode = 'capswriter'; }
+    try { await plugin.saveSettings(); }
+    catch (e) { for (const k of RUNTIME_KEYS) ps[k] = snap[k]; if (before) s.selected = before; else delete s.selected; throw e; }
+    repaint();
+    // 视频说话转文字（约 2 GB）不进自动安装：勾上（存成功之后）且还没装 → 后台单独下载，不占「正在跑」、不挡别的
+    if (id === 'asr' && on && !asrReady()) installAsr();
+  }
+  // 后端还没装好时先记着，装好后再下（installBackend 成功时接上）
+  function installAsr() {
+    const st = S();
+    if (st.asrRun && st.asrRun.state === 'running') return st.asrRun.promise;
+    if (backendMissing()) { st.asrPending = true; repaint(); return Promise.resolve(null); }
+    st.asrPending = false;
+    st.asrRun = { state: 'running', ev: null, result: null };
+    repaint();
+    let frame = null;
+    st.asrRun.promise = plugin.spawnPy(['-m', 'link_brain', 'setup', 'install', '--component', 'asr'], {
+      label: '下载视频说话转文字', timeoutMs: 3 * 3600000,
+      onLine: line => {
+        let ev; try { ev = JSON.parse(line); } catch { return; }
+        if (ev.type === 'result') st.asrRun.result = ev;
+        else if (ev.type === 'progress') { st.asrRun.ev = ev; if (frame == null) frame = setTimeout(() => { frame = null; repaint(); }, 300); }
+      },
+    }).then(r => {
+      const res = st.asrRun.result || (r.json && r.json.type === 'result' ? r.json : { ok: false, message: '视频说话转文字没装上，详情见日志' });
+      st.asrRun.result = res; st.asrRun.state = 'done';
+      // Python 已经把补丁写进 data.json；插件内存里也合一份，免得下次保存把它盖掉
+      if (res.settings_patch) mergeInto(plugin.settings, res.settings_patch);
+      plugin.notify(res.ok ? '视频说话转文字装好了' : (res.message || '视频说话转文字没装上'), { kind: res.ok ? 'ok' : 'error' });
+      loadPlan(true).catch(() => {});
+      repaint();
+      return res;
+    });
+    return st.asrRun.promise;
+  }
+  function mergeInto(target, patch) {
+    for (const [k, v] of Object.entries(patch || {})) {
+      if (v && typeof v === 'object' && !Array.isArray(v) && target[k] && typeof target[k] === 'object') mergeInto(target[k], v);
+      else target[k] = v;
+    }
+    return target;
+  }
+  // 设置页其它模块（设置④「现在」那几行、页顶提示）挂到同一个重画上：功能清单一刷新它们就跟着变
+  function onRepaint(fn) { painters.add(fn); return () => painters.delete(fn); }
+
+  return { renderStatus, renderRun, renderRunDetails, featureToggle, setFeature, applyPreset, isOn, aiReady, runAll, stopRun, firstRun, resumeRun, loadPlan, loadEstimate, state: S, bindToggle, installBackend,
+    choiceOn, setChoice, installAsr, onRepaint, resumedRunning,
+    _internals: { repaint, withDeps, withoutDependents, toggleSelection, initialSelection, totals, fmtMB, yuan, priceText, progressView, applyRunEvent, fillLine, resultKind, runFromState, briefResult } };
 };
-module.exports._internals = { withDeps, withoutDependents, toggleSelection, initialSelection, totals, fmtMB, yuan, priceText, progressView, applyRunEvent, fillLine, resultKind, runFromState, LIGHT, FEATURE_TEXT, AI_ORDER, READER_CODES, NO_RESULT_TEXT, RUN_STATE_FILE };
+module.exports._internals = { briefResult, withDeps, withoutDependents, toggleSelection, initialSelection, totals, fmtMB, yuan, priceText, progressView, applyRunEvent, fillLine, resultKind, runFromState, LIGHT, FEATURE_TEXT, AI_ORDER, READER_CODES, NO_RESULT_TEXT, RUN_STATE_FILE };

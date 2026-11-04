@@ -47,7 +47,7 @@ WORKERS_MAX = 8          # 1031 作者：同时下几路放到 8（撞 412/429 �
 HINTS = {
     "NOT_LOGGED_IN": "在设置页「账号登录 → B 站」点「扫码登录」重新扫一次，再点「立即同步」（已经下好的不会重下）",
     # 1102：yt-dlp 在 `bilibili` 功能包里（link_brain/extras.py），装进 LWA 用的那个 Python
-    "MISSING_DEPENDENCY": ("功能包要装进 LWA 用的那个 Python（装法见上一句）；ffmpeg 要另装并加进 PATH。"
+    "MISSING_DEPENDENCY": ("功能包要装进 LWA 用的那个 Python（装法见上一句；它随带 ffmpeg，不用另装）。"
                            "装好再点「立即同步」，从没下的接着下"),
     "HTTP_429": "B 站限流 / 风控了：先停一停（建议过 1 小时），并行路数调成 1 再同步；已经下好的不会重下",
     "NETWORK": "网络不通或 B 站接口没响应，稍后再试",
@@ -810,6 +810,37 @@ def _write_folder_list(mid: Any, rows: list[dict[str, Any]]) -> None:
             for f in rows]})
     except OSError as exc:
         print(f"[bilibili sync] 收藏夹列表没写上：{errtext(exc)}", file=sys.stderr)
+
+
+def refresh_folder_list(*, client_state=None) -> dict[str, Any]:
+    """1103 作者：「登录 B 站后就在后台把收藏夹列表读好，让用户直接勾选」——只列自己的收藏夹（一次请求，不扫内容、不下载），
+    写 folder-list.json，回挑选页同一份数据（picker）。没登录 / 查不到 → ok=False + code + 一句人话，本地已有的照样回。"""
+    client, st = client_state or favorites.default_client()
+    out: dict[str, Any] = {"ok": False, "code": "", "message": ""}
+    if st.get("state") == "unknown":
+        out.update(code="NETWORK", message=f"查不到 B 站登录状态：{HINTS['NETWORK']}")
+    elif st.get("state") != "logged_in":
+        out.update(code="NOT_LOGGED_IN", message="B 站还没登录：扫码登录后自动读收藏夹")
+    else:
+        mid = login.my_mid(client)
+        res = favorites.list_folders(client, mid) if mid else {"status": "error", "error": {"reason": "unknown", "message": "查不到自己的 mid"}}
+        if res["status"] in ("ok", "empty"):
+            _write_folder_list(mid, res["folders"])
+            out.update(ok=True)
+        else:
+            kind = str((res.get("error") or {}).get("reason"))
+            out.update(code={"rate_limited": "HTTP_429", "not_logged_in": "NOT_LOGGED_IN", "network": "NETWORK", "timeout": "NETWORK"}.get(kind, "SYNC_FAILED"),
+                       message=f"收藏夹没读到：{(res.get('error') or {}).get('message') or res['status']}")
+    pick = picker(max_duration_s=0)
+    return {**pick, **out, "message": out["message"] or pick["message"]}
+
+
+def run_folders(args) -> int:
+    from ... import read as read_mod
+    from ...cli import EXIT_OK
+    out = refresh_folder_list()
+    read_mod.dump_json(read_mod.outcome(out, ok=out["ok"], message=out["message"], code=out["code"]))
+    return EXIT_OK
 
 
 def _local_snapshots() -> list[dict[str, Any]]:

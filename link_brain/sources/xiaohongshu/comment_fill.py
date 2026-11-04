@@ -1136,6 +1136,9 @@ def account_wait_reason() -> tuple[str, str]:
     """号现在能不能用（只问读取服务内存里的状态，不开页）：('', '') 能用；否则 (码, 一句原因)。
     1028（A3 兜底）：唯一会开页的分支——session 说 logged_in=false 又没有熔断，15 分钟深查一次，别干等。"""
     from . import accounts
+    if not accounts.ever_logged_in():
+        # 1104 作者：这台电脑上从没扫码登录过——不拉起读取组件、不以游客身份开小红书去查（答案已知：没登录）
+        return "NOT_LOGGED_IN", "还没登录小红书：在设置里扫码登录，登好自动接着跑"
     try:
         session = accounts.ensure_reader()
     except accounts.ReaderError as exc:
@@ -1171,6 +1174,15 @@ def account_wait_reason() -> tuple[str, str]:
         #（以前「不是 idle 就当忙」：登录成功后 state 一直是 success，补跑干等了 48 分钟）
         if session.get("verifying") or str(session.get("state") or "") == "waiting":
             return "BUSY", "正在扫码 / 验证，等它完了再接着补"
+        if session.get("logged_in") is None:
+            # 1103（虚拟机实测）：读取组件刚启动、还没实测过登录时 logged_in 是空的——以前落到下面的「能用」，
+            # 新装没登录的号被 setup run 当成已登录、直接去同步。没测过 = 不知道，深查一次（同上，15 分钟最多一次）
+            state = _deep_login_state()
+            if state == "logged_in":
+                return "", ""
+            if state == "unknown":
+                return "BUSY", "读取服务刚启动、还不知道登没登录，深查又没查清（忙 / 号被占），3 分钟后再看"
+            return "NOT_LOGGED_IN", "还没登录小红书：在设置里扫码登录，登好自动接着跑"
     return "", ""
 
 

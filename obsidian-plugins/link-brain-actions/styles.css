@@ -738,17 +738,21 @@ button.lb-sched-add { align-self: flex-start; font-size: 12px; }
    LWA 的黑白：线、字都用墨色，开关 / 选中也用墨色（不用原型的绿）。窄了（设置窗口内容区 < 640px）锚点变成顶上一条横排、两栏变一栏。 */
 /* 变量全用样式集（styles.css 顶部 lb-tokens 块，唯一源 link_brain/assets/lb-tokens.css）；设置页根带 .lb-scope，跟着「Aa 样式」的字号倍数缩放 */
 .lb-settings .lb-v6.is-v7 { max-width: 1040px; container-type: inline-size; }
-.lb-settings .lb-v7 { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: calc(var(--lb-space-6) * 1.5); align-items: start; padding: 0 var(--lb-space-5);
+/* 1103 作者（虚拟机）：分节导航放在页面最上面（横排吸顶），不再占左栏；懒人安装卡片在正文最上面 */
+.lb-settings .lb-v7 { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--lb-space-2); align-items: start; padding: 0 var(--lb-space-5);
   font-family: var(--lb-font-body); font-size: var(--lb-fs-body); color: var(--lb-ink); }
 .lb-settings .lb-v7 .is-hidden { display: none !important; }
 /* 左边锚点：跟着滚，当前那一组加粗 */
-.lb-settings .lb-v7 .lb-anchors { position: sticky; top: 0; display: flex; flex-direction: column; gap: 2px; padding-top: 118px; z-index: 2; }
+.lb-settings .lb-v7 .lb-anchors { position: sticky; display: flex; flex-direction: row; flex-wrap: wrap; justify-content: flex-start; column-gap: var(--lb-space-5); row-gap: 0;
+  margin-bottom: var(--lb-space-2); background: var(--background-primary); border-bottom: 1px solid var(--lb-line); z-index: 5;
+  /* 1028 作者：「应该整一块固定」——条往上伸到滚动区最顶（--lb-stick-pad = 页面离滚动区顶的高度，settings-v6 量），吸在最顶上，内边距里不再露字 */
+  top: calc(-1 * var(--lb-stick-pad, 0px)); margin-top: calc(-1 * var(--lb-stick-pad, 0px)); padding: calc(var(--lb-stick-pad, 0px) + var(--lb-space-3)) 0 var(--lb-space-3); }
 .lb-settings .lb-v7 .lb-anchor { display: flex; align-items: baseline; gap: 10px; padding: 6px 0; color: var(--lb-muted); text-decoration: none; font-size: var(--lb-fs-small); white-space: nowrap; }
 .lb-settings .lb-v7 .lb-anchor b { font: 400 var(--lb-fs-small)/1 var(--lb-font-body); font-variant-numeric: var(--lb-num-feat); color: var(--lb-faint); min-width: 1.6em; }
 .lb-settings .lb-v7 .lb-anchor:hover, .lb-settings .lb-v7 .lb-anchor.is-current { color: var(--lb-ink); }
 .lb-settings .lb-v7 .lb-anchor.is-current { font-weight: 600; }
 .lb-settings .lb-v7 .lb-anchor.is-current b { color: var(--lb-ink); }
-.lb-settings .lb-v7 .lb-anchor-foot { margin-top: var(--lb-space-5); padding-top: var(--lb-space-3); border-top: 1px solid var(--lb-line); color: var(--lb-faint); font-size: var(--lb-fs-micro); line-height: 1.6; }
+.lb-settings .lb-v7 .lb-anchor-foot { display: none; margin-top: var(--lb-space-5); padding-top: var(--lb-space-3); border-top: 1px solid var(--lb-line); color: var(--lb-faint); font-size: var(--lb-fs-micro); line-height: 1.6; }
 /* 页头 */
 .lb-settings .lb-v7 .lb-v7-head { padding: var(--lb-space-2) 0 var(--lb-space-4); }
 .lb-settings .lb-v7 .lb-eyebrow { font-size: var(--lb-fs-micro); letter-spacing: .14em; color: var(--lb-muted); }
@@ -756,7 +760,7 @@ button.lb-sched-add { align-self: flex-start; font-size: 12px; }
 .lb-settings .lb-v7 .lb-v7-lead { margin: 0; color: var(--lb-muted); font-size: var(--lb-fs-small); }
 .lb-settings .lb-v7 .lb-saved { color: var(--lb-faint); }
 /* 每一组：上面一条墨线 + 编号 + 组名；组里只有行间细线，不套框 */
-.lb-settings .lb-v7 .lb-group { margin-top: var(--lb-space-6); padding-top: var(--lb-space-5); border-top: 1px solid var(--lb-ink); scroll-margin-top: 12px; }
+.lb-settings .lb-v7 .lb-group { margin-top: var(--lb-space-5); padding-top: var(--lb-space-4); border-top: 1px solid var(--lb-ink); scroll-margin-top: 72px; }
 .lb-settings .lb-v7 .lb-group-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: var(--lb-space-4); }
 .lb-settings .lb-v7 .lb-num { font: italic 400 18px/1 var(--lb-font-num); color: var(--lb-muted); }
 .lb-settings .lb-v7 .lb-group-head h2 { margin: 0; font: 400 calc(var(--lb-fs-h2) * 1.15)/1.3 var(--lb-font-serif); color: var(--lb-ink); letter-spacing: .04em; }
@@ -886,24 +890,35 @@ button.lb-sched-add { align-self: flex-start; font-size: 12px; }
 .lb-settings .lb-v7 .lb-check-box { padding: 0 0 var(--lb-space-2); font-size: var(--lb-fs-small); color: var(--lb-muted); }
 .lb-settings .lb-v7 .lb-check-line.is-warn { color: var(--lb-warn); }
 .lb-settings .lb-v7 .lb-acct-who { font-weight: 600; }
+/* 1103 作者（虚拟机）：卡片窄时账号那一行的字被右边按钮挤成一列竖着排——字那一格至少留 10em，放不下按钮就换到下一行 */
+.lb-settings .lb-v7 .lb-twin-card .lb-acct-row { flex-wrap: wrap; }
+.lb-settings .lb-v7 .lb-twin-card .lb-acct-row > .setting-item-info { flex: 1 1 10em; min-width: 10em; }
+.lb-settings .lb-v7 .lb-twin-card .lb-acct-row > .setting-item-control { flex: 0 1 auto; }
 /* 1028 页顶「懒人安装」：一行标题 + 一键装好那块（home-ui renderRun）；⑤ 在 Telegram 里能做什么：只读说明行，名字 / 说明都露在外面 */
 .lb-settings .lb-v7 .lb-lazy { margin-top: var(--lb-space-4); padding: var(--lb-space-3) var(--lb-space-4); border: 1px solid var(--lb-line); border-radius: var(--lb-radius); }
 .lb-settings .lb-v7 .lb-lazy-title { display: block; margin-bottom: var(--lb-space-2); font-size: var(--lb-fs-body); color: var(--lb-ink); }
+/* 1103：卡片标题一行右边是「问题与状态 → 06 修复」；B 站收藏夹直接勾（登录后后台读好） */
+.lb-settings .lb-v7 .lb-lazy-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--lb-space-3); flex-wrap: wrap; }
+.lb-settings .lb-v7 .lb-lazy-repair { font-size: var(--lb-fs-small); }
+.lb-settings .lb-v7 .lb-lazy details.lb-more { margin-top: 0; }
+.lb-settings .lb-v7 .lb-bili-folder-list { display: flex; flex-wrap: wrap; gap: var(--lb-space-1) var(--lb-space-4); padding: 0 0 var(--lb-space-2); }
+.lb-settings .lb-v7 .lb-bili-folder { display: inline-flex; align-items: center; gap: 6px; font-size: var(--lb-fs-small); cursor: pointer; }
+.lb-settings .lb-v7 .lb-bili-next { display: flex; flex-wrap: wrap; align-items: center; gap: var(--lb-space-2); padding-bottom: var(--lb-space-2); }
+.lb-settings .lb-v7 .lb-run-details .is-warn { color: var(--lb-warn); }
 .lb-settings .lb-v7 .lb-lazy .lb-run-actions { display: flex; align-items: center; gap: var(--lb-space-3); flex-wrap: wrap; }
+/* 1103 懒人安装上方的选项：和下面的进度用一条细线隔开 */
+.lb-settings .lb-v7 .lb-lazy-choices { padding-bottom: var(--lb-space-2); margin-bottom: var(--lb-space-3); border-bottom: 1px solid var(--lb-line); }
+.lb-settings .lb-v7 .lb-lazy-choices .setting-item { padding: var(--lb-space-2) 0; }
 .lb-settings .lb-v7 .lb-tg .lb-tg-row .setting-item-description { white-space: normal; }
 .lb-settings .lb-v7 .lb-tg .lb-tg-tag { margin-left: 8px; padding: 1px 7px; border: 1px solid var(--background-modifier-border); border-radius: 999px; font-size: 11.5px; font-weight: 400; color: var(--text-muted); vertical-align: 2px; }
 /* 窄：锚点变横排吸在顶上，两栏变一栏 */
 @container (max-width: 640px) {
-  .lb-settings .lb-v7 { grid-template-columns: minmax(0, 1fr); gap: var(--lb-space-2); padding: 0; }
-  .lb-settings .lb-v7 .lb-anchors { flex-direction: row; overflow-x: auto; justify-content: space-between; gap: var(--lb-space-4); margin-bottom: var(--lb-space-4); background: var(--background-primary); border-bottom: 1px solid var(--lb-line); scrollbar-width: none; z-index: 5;
-    /* 1028 作者：「应该整一块固定」——条往上伸到滚动区最顶（--lb-stick-pad = 页面离滚动区顶的高度，settings-v6 量），吸在最顶上，内边距里不再露字 */
-    top: calc(-1 * var(--lb-stick-pad, 0px)); margin-top: calc(-1 * var(--lb-stick-pad, 0px)); padding: calc(var(--lb-stick-pad, 0px) + var(--lb-space-4)) 0 var(--lb-space-4); }
-  .lb-settings .lb-v7 .lb-anchor-foot { display: none; }
-  /* 1031：内容区再窄（420）一行放不下六个——以前横向滚、滚动条藏着，「05 CLI 与外接 MCP」「06 修复」看不见；放不下就折成两行 */
-  .lb-settings .lb-v7 .lb-anchors { flex-wrap: wrap; justify-content: flex-start; overflow-x: visible; column-gap: var(--lb-space-4); row-gap: 0; }
+  .lb-settings .lb-v7 { padding: 0; }
+  /* 1031：内容区再窄（420）一行放不下六个——放不下就折成两行（默认就是 wrap），间距收一点 */
+  .lb-settings .lb-v7 .lb-anchors { column-gap: var(--lb-space-4); }
   .lb-settings .lb-v7 .lb-twin, .lb-settings .lb-v7 .lb-pair, .lb-settings .lb-v7 .lb-console-grid { grid-template-columns: minmax(0, 1fr); }
   .lb-settings .lb-v7 .lb-v7-head h1 { font-size: calc(var(--lb-fs-h1) * 1.3); }
-  .lb-settings .lb-v7 .lb-group { scroll-margin-top: 112px; }   /* 1027b 作者：「标题离上面这个太近」——跳过去时组标题离锚点条留一段 */
+  .lb-settings .lb-v7 .lb-group { scroll-margin-top: 112px; }   /* 窄了导航折两行，留多一点 */   /* 1027b 作者：「标题离上面这个太近」——跳过去时组标题离锚点条留一段 */
 }
 
 /* 1027b 作者：设置页不要花哨，只用正文字——标题（衬线）、序号（Cormorant 斜体）、PREFERENCES（雕刻字）都改正文字、不斜体。

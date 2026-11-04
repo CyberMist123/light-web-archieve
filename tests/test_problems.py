@@ -55,7 +55,7 @@ def test_normalize_keeps_existing_codes_and_maps_http():
 
 
 def test_lookup_exact_then_class_wildcard():
-    assert problems.lookup("NOT_LOGGED_IN")["label"] == "需要登录"
+    assert problems.lookup("NOT_LOGGED_IN")["label"] == "未登录"   # 1104 作者：状态字只有 同步中 / 已登录 / 未登录
     assert problems.lookup("NOT_LOGGED_IN")["where"] == "top+card"
     assert problems.lookup("TRANSIENT.SOMETHING_ELSE")["label"] == "稍后自动重试"
     assert problems.lookup("SKIPPED.WHATEVER")["group"] == "off"
@@ -161,7 +161,7 @@ def test_needs_human_pushes_once_per_unresolved_key(pushes):
         problems.report("sync.favorites", "NOT_LOGGED_IN", "掉登录", _now_fn=at(d))
     assert len(pushes) == 1
     kind, title, body, extra = pushes[0]
-    assert kind == "problem" and title.startswith("需要登录") and extra["code"] == "NEEDS_HUMAN.NOT_LOGGED_IN"
+    assert kind == "problem" and title.startswith("未登录") and extra["code"] == "NEEDS_HUMAN.NOT_LOGGED_IN"
     # 别的 key（别的 step / 别的码）各推一次
     problems.report("login", "NOT_LOGGED_IN", "掉登录", _now_fn=at(3))
     problems.report("sync.favorites", "CAPTCHA_REQUIRED", "验证码", _now_fn=at(3))

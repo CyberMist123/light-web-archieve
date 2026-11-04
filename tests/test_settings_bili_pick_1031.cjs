@@ -91,6 +91,15 @@ function makePlugin() {
     p.running = null; p.taskChanged();
     return { code: 0, json: { ok: true, message: '同步完：新下 1 条', counts: {} } };
   };
+  // 1103：B 站占自己的一格
+  p.biliRunning = null;
+  p.runBili = async (args, label) => {
+    p.runs.push({ args, label });
+    p.biliRunning = label; p.taskChanged();
+    await new Promise(r => setTimeout(r, 5));
+    p.biliRunning = null; p.taskChanged();
+    return { code: 0, json: { ok: true, message: '同步完：新下 1 条', counts: {} } };
+  };
   return p;
 }
 
@@ -172,7 +181,8 @@ function makePlugin() {
   // —— 没扫过收藏夹：提示先预估 / 同步 ——
   plugin.pick = { ok: true, empty: true, folders: [], long: { items: [], total: 0 }, message: '还没扫过收藏夹' };
   const api = B.biliPicker({}); await api.ready; await settle();
-  assert.match(api.modal.contentEl.textContent, /还没扫过收藏夹：先关掉这里，点一次「预估」或「立即同步」/);
+  // 1103：没登录 B 站 → 说先去登录（登好自动读）；不再叫人先去点「预估」
+  assert.match(api.modal.contentEl.textContent, /先在「账号登录」扫码登录 B 站，登好会自动读出收藏夹/);
   api.modal.close();
 
   // —— 「挑要下的视频」页调的插件方法：下载 / 不下 = choose --allow / --undo（带当前门槛，后端顺手重写页面数据）；choose 失败照实抛 ——
@@ -190,9 +200,10 @@ function makePlugin() {
   await B.syncNow(); await settle(20);
   assert.equal(plugin.runs.length, n0 + 1); assert.equal(plugin.runs.at(-1).label, '下载 B 站收藏');
   assert.equal(plugin.runs.at(-1).args[plugin.runs.at(-1).args.indexOf('--max-duration') + 1], '7200');
-  plugin.running = '同步收藏';
+  // 1103：B 站那一格在跑才不起第二个（小红书在跑不挡）
+  plugin.biliRunning = '下载 B 站收藏';
   assert.equal(await B.syncNow(), null); assert.equal(plugin.runs.length, n0 + 1);
-  assert.match(plugin.notices.at(-1).m, /正在同步收藏/);
-  plugin.running = null;
+  assert.match(plugin.notices.at(-1).m, /正在下载 B 站收藏/);
+  plugin.biliRunning = null;
   console.log('PASS settings ② B 站（1101）：主按钮「挑要下的视频…」开那一页；「选同步哪些收藏夹…」弹窗只管收藏夹（含稍后再看）开关、存 skipFolders 并传 --skip-folder；存失败弹窗不关；页面调的 choose --allow/--undo 带门槛、现在开始下载走同一个互斥任务');
 })().catch(e => { console.error(e); process.exit(1); });

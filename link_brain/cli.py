@@ -135,6 +135,8 @@ def build_parser() -> argparse.ArgumentParser:
     pb = bsub.add_parser("pick", help="1031：挑选页的数据（只读本地快照，不连 B 站）：全部收藏夹（含稍后再看）+ 超过时长上限、还没入库的视频")
     pb.add_argument("--max-duration", dest="max_duration", type=int, default=3600, help="时长上限秒数（默认 3600；0 = 不限，不列长视频）")
     pb.add_argument("--json", action="store_true")
+    pb = bsub.add_parser("folders", help="1103：只列自己的收藏夹（一次请求，不扫内容、不下载），写本地清单，回挑选页数据（登录 B 站后插件在后台跑）")
+    pb.add_argument("--json", action="store_true")
     pb = bsub.add_parser("sync", help="同步自己全部收藏夹和稍后再看：收藏夹名当专辑（稍后再看 = 「稍后再看」专辑），逐条下视频 / 字幕 / 弹幕；超过时长上限和多 P 的只记清单")
     pb.add_argument("--dry-run", dest="dry_run", action="store_true", help="只扫描、列计划，不下载")
     pb.add_argument("--limit", type=int, default=None, help="本轮最多下载几条")
@@ -729,6 +731,9 @@ def _dispatch(args) -> int:
         if cmd == "choose":
             from .sources.bilibili import sync as bili_sync
             return bili_sync.run_choose(args)
+        if cmd == "folders":
+            from .sources.bilibili import sync as bili_sync
+            return bili_sync.run_folders(args)
         if cmd == "pick":
             from .sources.bilibili import sync as bili_sync
             return bili_sync.run_pick(args)
@@ -831,6 +836,13 @@ def _dispatch(args) -> int:
         finally:
             conn.close()
         print(f"回填 {len(done)} 个对象：" + (", ".join(done) if done else "(空)"))
+        failed = getattr(done, "failed", [])
+        # 1104：坏的那几篇逐条列出（不挡别的篇）；有失败就不退 0（CONVENTIONS §1.2）
+        for f in failed:
+            print(f"没回填：{f.get('item_id') or f.get('path')}：{f.get('error')}", file=sys.stderr)
+        if failed:
+            print(f"{len(failed)} 篇数据有问题没回填，其余已回填", file=sys.stderr)
+            return EXIT_ERROR
         return EXIT_OK
 
     if args.command == "attachments":

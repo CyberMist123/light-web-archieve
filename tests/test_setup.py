@@ -283,6 +283,16 @@ def test_install_asr_fresh_progress_and_result(capsys, fake_release):
     assert fake_release["calls"]["verify"] == [("127.0.0.1", 6123)]
 
 
+def test_install_asr_does_not_turn_it_back_on_if_unticked_meanwhile(capsys, fake_release):
+    """1103：2 GB 下载期间用户在插件里把「视频说话转文字」关了（setup.selected 去掉 asr）——装完不替他打开。"""
+    _plugin_data({"asrAI": {"mode": "off"}, "setup": {"selected": ["core", "reader", "ocr"]}})
+    code, lines = _run_cli(capsys, "install", "--component", "asr")
+    assert code == 0, lines[-1]
+    data = json.loads(_plugin_data().read_text(encoding="utf-8"))
+    assert data["asrAI"]["mode"] == "off" and data["asrAI"]["port"] == "6123"
+    assert data["setup"]["selected"] == ["core", "reader", "ocr"]
+
+
 def test_install_asr_interrupted_then_reinstall_clean(monkeypatch, fake_release):
     real_unzip = fetch.unzip
 

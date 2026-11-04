@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "link-brain"
-version = "0.2.0"
+version = "0.2.5"
 description = "light-web-archieve: 小红书链接归档基座（RAW 不可变 + Obsidian 可见笔记）"
 requires-python = ">=3.11"
 # 1102：核心只留「归档 · 同步 · 浏览 · 关键词搜索」要的；OCR / B 站 / PDF·Word / 远程 MCP 各是一个 extra，
@@ -43,7 +43,8 @@ ocr = [
     "onnxruntime>=1.24.1; python_version >= '3.14'",
 ]
 # B 站下载器（以 python -m yt_dlp 跑在同一个解释器里，见 sources/bilibili/ytdlp.py）；B 站接口常变，旧版会解析失败
-bilibili = ["yt-dlp>=2025.1"]
+# imageio-ffmpeg：wheel 里随带各平台的 ffmpeg 可执行文件（BSD-2；ffmpeg 本体 LGPL），PATH 上没有 ffmpeg 时合并 / 校验用它（1104）
+bilibili = ["yt-dlp>=2025.1", "imageio-ffmpeg>=0.5"]
 # 附件 PDF / Word 转 Markdown（随包自带，不依赖仓库外脚本）：pypdfium2 Apache-2.0/BSD-3，python-docx MIT
 docs = ["pypdfium2>=4.30", "python-docx>=1.1"]
 full = ["link-brain[ocr,bilibili,docs]"]

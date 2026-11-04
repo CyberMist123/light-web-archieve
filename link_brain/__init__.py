@@ -37,6 +37,23 @@ def _read_version() -> str:
 
 __version__ = _read_version()
 
+
+def _add_vc_runtime_dir() -> object | None:
+    """1103：干净 Windows 没装 VC++ 运行库（缺 msvcp140.dll），pyclipper 等 C++ 扩展导入报 DLL load failed。
+    `setup install --component ocr` 会装 PyPI 的 msvc-runtime，DLL 落在 sys.prefix（venv 根目录）；但 venv 的 python.exe
+    实际起的是基础 Python，Windows 不在 venv 根目录找依赖 DLL——这里把它加进 DLL 搜索路径。返回的句柄要留着（关了就失效）。"""
+    import os
+    import sys
+    if sys.platform != "win32" or not os.path.isfile(os.path.join(sys.prefix, "msvcp140.dll")):
+        return None
+    try:
+        return os.add_dll_directory(sys.prefix)
+    except OSError:
+        return None
+
+
+_VC_RUNTIME_DIR = _add_vc_runtime_dir()
+
 # vault 布局常量（唯一真相；其余模块从这里取）
 VAULT_DIRNAME = "vault"
 ARCHIVE_DIRNAME = "_archive"

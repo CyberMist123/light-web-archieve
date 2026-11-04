@@ -57,7 +57,9 @@ test('lb-page-core 和 page-bootstrap.js 逐字一致（唯一源；python tools
   const src = asset('page-bootstrap.js').match(rx);
   const copy = fs.readFileSync(HOST_FILE, 'utf8').match(rx);
   assert.ok(src && copy, '两边都要有 lb-page-core 标记');
-  assert.strictEqual(copy[0], src[0], 'page-host.js 里的 lb-page-core 和 page-bootstrap.js 不一致：跑 python tools/sync_tokens.py');
+  // 1103：插件目录检出固定 LF（.gitattributes），link_brain/assets 在 Windows autocrlf 下是 CRLF——比内容不比换行
+  const lf = s => s.replace(/\r\n/g, '\n');
+  assert.strictEqual(lf(copy[0]), lf(src[0]), 'page-host.js 里的 lb-page-core 和 page-bootstrap.js 不一致：跑 python tools/sync_tokens.py');
 });
 
 test('attach 注册 lb-page 处理器；插件没有 registerMarkdownCodeBlockProcessor 时不炸', () => {

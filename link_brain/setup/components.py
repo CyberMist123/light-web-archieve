@@ -9,8 +9,11 @@ from ..errtext import errtext
 
 import importlib.util
 import os
+import queue
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -32,6 +35,7 @@ RAM_MEASURED = {
     "reader_idle": 20,
 }
 READER_BROWSER_EST = 300  # 估计：读收藏时开的无界面浏览器（Chromium 单标签页常见 250–400 MB），没实测
+PIP_TIMEOUT_S = 1800   # 1104：装一批依赖的总时限（含读输出全程）
 READER_EXE_MB = 27        # 发布包 reader-v0.2.0 解出来的实量：link-brain-reader.exe 16.0 MB + relatedfile.exe 10.7 MB
 READER_QUARANTINE_HINT = "；可能被杀毒软件隔离，去 Windows 安全中心恢复并加入排除"
 
@@ -66,6 +70,29 @@ IDS = [c["id"] for c in COMPONENTS]
 # 1102：不再需要的功能 id（老设置的 setup.selected 里可能还有）：check / install 当它不存在，不报「不认识」
 # dataview：页面改成 ```lb-page 块、由 LWA 插件自己显示（page-host.js），不再要 Dataview
 RETIRED = {"dataview": "不再需要 Dataview：目录页等由 LWA 插件自己显示"}
+
+
+def normalize_selection(ids: list[str]) -> list[str]:
+    """1104（审查 1）：补齐必选项（required）和依赖（depends），和插件 home-ui.js withDeps 同一口径；
+    认得的按 COMPONENTS 顺序排，不认得的（老配置里的 id）原样留在后面，不丢。"""
+    by_id = {c["id"]: c for c in COMPONENTS}
+    want: set[str] = set()
+
+    def add(cid: str) -> None:
+        if cid in want or cid not in by_id:
+            return
+        want.add(cid)
+        for d in by_id[cid].get("depends") or []:
+            add(d)
+    for cid in ids or []:
+        add(cid)
+    for c in COMPONENTS:
+        if c.get("required"):
+            add(c["id"])
+    extra = [x for x in dict.fromkeys(ids or []) if x not in by_id]
+    return [c["id"] for c in COMPONENTS if c["id"] in want] + extra
+
+
 PRESETS = {
     "light": ["core", "reader", "ocr"],
     "recommended": ["core", "reader", "ocr", "asr", "capslock", "ai_text"],
@@ -155,7 +182,7 @@ OCR_MEDIUM_BYTES = 62119454 + 76629984  # PP-OCRv6 medium det + rec（开发机�
 
 
 def _ocr() -> dict[str, Any]:
-    tier, model_dir, mode = _ocr_settings()
+    tier, model_dir, _mode = _ocr_settings()
     pkgs_ok = all(_has(m) for m in OCR_REQS.values())
     pkg_bytes, _ = sysinfo.dist_bytes(list(OCR_REQS), transitive=False)
     root, files = _ocr_model_files(tier, model_dir)
@@ -170,8 +197,10 @@ def _ocr() -> dict[str, Any]:
     if not pkgs_ok:
         row = _row("ocr", "missing", "没装 rapidocr / onnxruntime", fix="auto",
                    hint=f"点「安装」用 pip 补装，或自己装：{extras.install_hint('ocr')}")
-    elif mode == "off":
-        row = _row("ocr", "partial", "OCR 在设置里关着", fix="manual", hint="设置 → AI → 本地 OCR 打开")
+    # 1103：check 只答「装没装」——设置里关着（mode == "off"）不算没装好，开没开由界面按设置自己判断
+    elif sys.platform == "win32" and not _vc_runtime_ok():
+        row = _row("ocr", "partial", "这台电脑缺 VC++ 运行库（msvcp140.dll），OCR 加载不了", fix="auto",
+                   hint="点「安装」自动补装（约 2 MB）")
     elif not models_ok:
         where = f"设置里的模型目录 {model_dir}" if model_dir else "rapidocr 的模型目录"
         row = _row("ocr", "partial", f"PP-OCRv6 {tier} 档模型还没下（{where}）；第一次用时会自动下载",
@@ -219,15 +248,10 @@ def _capslock(det: dict[str, Any]) -> dict[str, Any]:
     else:
         ram, ram_note = RAM_MEASURED["capswriter_client"], f"开发机上客户端峰值工作集实测约 {RAM_MEASURED['capswriter_client']} MB"
     basis = f"磁盘：客户端在 CapsWriter 同一个包里，不另占；内存：{ram_note}，开着 CapsLock 语音时常驻"
-    try:
-        from .. import ai_config
-        on = bool((ai_config.load().get("voice") or {}).get("capsLock", True))
-    except Exception:  # noqa: BLE001
-        on = True
     if det.get("client_exe"):
+        # 1103：check 只答「装没装」——设置里 CapsLock 语音关着不算没装好
         detail = "客户端在" + ("（正在运行）" if clients else "（插件开着 CapsLock 语音时自动拉起）")
-        row = _row("capslock", "ready" if on else "partial", detail if on else detail + "；设置里 CapsLock 语音关着",
-                   fix="" if on else "manual", hint="" if on else "设置 → AI → 语音输入 打开 CapsLock")
+        row = _row("capslock", "ready", detail)
     elif det.get("dir"):
         row = _row("capslock", "missing", f"CapsWriter 目录里没有 {capswriter.CLIENT_EXE}：{det['dir']}", fix="manual",
                    hint="用 CapsWriter 的完整包（含客户端）")
@@ -414,13 +438,34 @@ def _pip_install(component: str, specs: list[str], emit: Emit | None) -> None:
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8",
                             errors="replace", creationflags=flags)
     tail: list[str] = []
+    # 1104（审查 3）：计时覆盖读输出全程——以前先阻塞读完 stdout 才 wait(1800)，uv / pip 不出声也不退时这里没有时限
+    lines: queue.Queue = queue.Queue()
+
+    def pump() -> None:
+        try:
+            for raw in proc.stdout:  # type: ignore[union-attr]
+                lines.put(raw)
+        except (OSError, ValueError):
+            pass
+        finally:
+            lines.put(None)
+    threading.Thread(target=pump, daemon=True).start()
+    deadline = time.monotonic() + PIP_TIMEOUT_S
     try:
-        for line in proc.stdout:  # type: ignore[union-attr]
-            line = line.strip()
+        while True:
+            try:
+                raw = lines.get(timeout=max(0.1, min(1.0, deadline - time.monotonic())))
+            except queue.Empty:
+                raw = ""
+            if raw is None:
+                break
+            line = raw.strip()
             if line:
                 tail = (tail + [line])[-5:]
                 progress(emit, component, "安装", None, None, line[:200])
-        code = proc.wait(timeout=1800)
+            if time.monotonic() > deadline:
+                raise SetupError("TRANSIENT.TIMEOUT", f"装依赖超过 {PIP_TIMEOUT_S // 60} 分钟没装完，已停下（网络卡住了？再点一次会接着装）")
+        code = proc.wait(timeout=max(1.0, deadline - time.monotonic()))
     except BaseException:
         from .. import procs
         procs.kill_tree(proc.pid)
@@ -464,10 +509,42 @@ def _install_ocr(emit: Emit | None) -> dict[str, Any]:
             patch = {"ocr": {"modelDir": str(target)}}
             model_dir = str(target)
         changed = True
+    if _ensure_vc_runtime(emit):
+        changed = True
     progress(emit, "ocr", "验证", None, None, "加载 OCR 模型认一张测试图")
     _ocr_selftest(tier, model_dir)
     msg = (f"本地 OCR 可用（PP-OCRv6 {tier}）" + ("，模型已下好" if need_models else ""))
     return {"message": msg, "changed": changed, "settings_patch": patch}
+
+
+VC_RUNTIME_SPEC = "msvc-runtime>=14.40"
+
+
+def _vc_runtime_ok() -> bool:
+    """msvcp140.dll 加载得上（System32 里有，或 link_brain 启动时已把 sys.prefix 加进 DLL 搜索路径）。"""
+    import ctypes
+    try:
+        ctypes.WinDLL("msvcp140.dll")
+        return True
+    except OSError:
+        return False
+
+
+def _ensure_vc_runtime(emit: Emit | None) -> bool:
+    """1103 干净 Win11 实测：没装 VC++ 运行库时 pyclipper（rapidocr 依赖）导入报 DLL load failed。
+    缺就装 PyPI 的 msvc-runtime（微软可再分发 DLL，约 2 MB，落在 sys.prefix），再把 sys.prefix 加进 DLL 搜索路径。
+    不用系统级 vc_redist.exe：要管理员权限、要弹 UAC。返回这次装了没有。"""
+    if sys.platform != "win32" or _vc_runtime_ok():
+        return False
+    progress(emit, "ocr", "补运行库", None, None, "这台电脑没有 VC++ 运行库，补装 msvc-runtime（约 2 MB）")
+    _pip_install("ocr", [VC_RUNTIME_SPEC], emit)
+    if os.path.isfile(os.path.join(sys.prefix, "msvcp140.dll")):
+        import link_brain
+        if link_brain._VC_RUNTIME_DIR is None:
+            link_brain._VC_RUNTIME_DIR = link_brain._add_vc_runtime_dir()
+    if not _vc_runtime_ok():
+        raise SetupError("PERMANENT.BAD_PACKAGE", "装了 VC++ 运行库还是加载不上：到微软官网装「Visual C++ 可再发行程序包（x64）」后再点一次")
+    return True
 
 
 def _ocr_selftest(tier: str, model_dir: str) -> None:

@@ -123,6 +123,21 @@ def list_due(data: dict[str, Any], now: datetime) -> tuple[bool, str]:
     return True, ""
 
 
+def list_gap_left_s(now: datetime | None = None) -> float:
+    """1103：离「能再进收藏页签读专辑列表」还差几秒（距上次读收藏 / 读专辑列表满 LIST_GAP_MIN 分钟）；0 = 现在就能读。
+    懒人安装第一次跑完同步后用它等够再读专辑（不连读收藏，守读取服务的限频和自律间隔）。"""
+    now = now or _now()
+    try:
+        from ... import actionlog
+        for row in reversed(actionlog.read(limit=200)):
+            if row.get("action") in ("favorites", "boards"):
+                at = _parse(row.get("ts"))
+                return max(0.0, (at + timedelta(minutes=LIST_GAP_MIN) - now).total_seconds()) if at else 0.0
+    except Exception:  # noqa: BLE001 - 日志读不到就按「没读过」
+        pass
+    return 0.0
+
+
 # ---------------------------------------------------------------- 挑专辑
 
 def due_boards(data: dict[str, Any], now: datetime, limit: int) -> list[tuple[str, str]]:

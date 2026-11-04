@@ -273,7 +273,18 @@ async function inventory(p) {
   assert.equal(root.querySelectorAll('.lb-bili button').filter(b => b.textContent === '立即同步').length, 1, 'B 站卡一个「立即同步」');
   assert.ok(root.querySelectorAll('button').filter(b => b.classList.contains('mod-cta') && visible(b, root)).length <= 1, '最多一个主按钮');
   assert.match(pane(root).querySelector('.lb-v7-lead').textContent, /改动自动保存/);
-  assert.ok(root.querySelectorAll('details.lb-more').every(d => !d.open && d.querySelector('summary').textContent === '＋ 更多'), '组底「＋ 更多」默认收着');
+  assert.ok(root.querySelectorAll('details.lb-more').filter(d => !d.closest('[data-section="lazy-install"]')).every(d => !d.open && d.querySelector('summary').textContent === '＋ 更多'), '组底「＋ 更多」默认收着');
+  // 1103 作者：导航在页面最上面（在正文前面）、懒人安装在正文最上面；卡片里只留必要的选项，其余收进「更多选项」，问题 / 状态只给一个跳到 06 修复的入口
+  const v7 = pane(root).querySelector('.lb-v7');
+  assert.equal(v7.children[0].tagName.toLowerCase(), 'nav', '导航是页面第一块');
+  const lazyBox = pane(root).querySelector('[data-section="lazy-install"]');
+  assert.ok(lazyBox && lazyBox.closest('.lb-v7-head'), '懒人安装在正文最上面');
+  const lazyMore = lazyBox.querySelector('details[data-section="lazy-more"]');
+  assert.ok(lazyMore && !lazyMore.open && /更多选项/.test(lazyMore.querySelector('summary').textContent), '不常改的收进「更多选项」');
+  assert.ok(!rowsOf(lazyBox).some(r => !r.closest('details') && ['评论', 'B 站画质', 'B 站超过多长先不下'].includes(nameOf(r))), '卡片面上没有评论 / 画质 / 时长');
+  const toRepair = lazyBox.querySelector('.lb-lazy-repair');
+  assert.ok(toRepair && /06 修复/.test(toRepair.textContent), '卡片上有跳到 06 修复的入口');
+  assert.ok(!lazyBox.querySelector('[data-section="repair-state"]'), '问题 / 状态不在卡片里');
   // ① 账号：小红书一张卡（账号卡片放在卡里、平台名在卡片标题上、登好了给「换个账号」）+ B 站灰着
   const acc = group(root, 'g-account');
   assert.deepEqual(acc.querySelectorAll('.lb-twin-card').map(c => c.getAttribute('data-platform') + ':' + c.querySelector('strong').textContent), ['xhs:小红书', 'bilibili:B 站']);
@@ -354,13 +365,14 @@ async function inventory(p) {
   // ⑥ 修复：当前状态 + 检查 / 全部修一遍；问题记录只有一个入口
   const rp = group(root, 'g-repair');
   // 1027b 作者：「一键装好」和「重新走首次设置」放最前面（这里没有 home-ui，一键装好那块不画）
-  assert.deepEqual(visibleRows(rp), ['重新走一遍首次设置', '当前状态', '问题记录']);
+  assert.deepEqual(visibleRows(rp), ['重新走一遍首次设置', '当前状态', '问题记录', '上次一键装好 / 跑完']);   // 1103：懒人安装的完整结果只在这里
   assert.deepEqual(rowNamed(rp, '当前状态').querySelectorAll('button').map(b => b.textContent), ['检查', '全部修一遍']);
-  assert.equal(descText(rowNamed(rp, '当前状态')), '⚠ 1 件要你处理', '1027b：只说要你动手的，自动处理 / 已放弃不提');
+  assert.equal(descText(rowNamed(rp, '当前状态')), '⚠ 1 件要你处理（扫码 / 验证这类）：点下面「问题记录」看是哪件', '1027b：只说要你动手的，自动处理 / 已放弃不提');
   await openAll(root);
   assert.equal(root.querySelectorAll('button').filter(b => /打开问题列表/.test(b.textContent) || (b.textContent === '打开' && b.closest('.setting-item') && nameOf(b.closest('.setting-item')) === '问题记录')).length, 1, '问题记录只有一个入口（更多里不再有「问题」那一行）');
   await rowNamed(rp, '当前状态').querySelectorAll('button')[0].onclick(); await settle();
-  assert.deepEqual(rp.querySelectorAll('.lb-check-line').map(x => x.textContent), ['✓ Python 程序：能用', '⚠ Obsidian 插件：尚未启用 — 到第三方插件里启用']);
+  // 1103 作者：「当前状态 ⚠ 1 件」和点「检查」的说法一致——先说同一个数，再列这台电脑的逐项检查
+  assert.deepEqual(rp.querySelectorAll('.lb-check-line').map(x => x.textContent), ['⚠ 问题记录里有 1 件要你处理（这一类系统不替你点）打开问题记录', '✓ Python 程序：能用', '⚠ Obsidian 插件：尚未启用 — 到第三方插件里启用']);
   assert.ok(env.calls.some(a => a.join(' ').includes('problems summary')), '检查 = 先请后端重算问题记录');
   await rowNamed(rp, '当前状态').querySelectorAll('button')[1].onclick(); await settle();
   assert.ok(env.calls.some(a => a.join(' ') === '-m link_brain problems repair') && notices.includes('修好 2 件'), '全部修一遍 = problems repair，结果如实说');
@@ -528,6 +540,79 @@ async function inventory(p) {
     REPLIES.usage = USAGE;
   }
 
+  // —— 3b. 1103 作者：「填好 API key 或接好 CLI，AI 就该直接能用，不要再去设置里选一遍提供方」——
+  {
+    const DS = 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions';
+    const MODELS = [{ name: '文本 AI', mode: 'inherit' }, { name: '旧接口', mode: 'http', endpoint: 'https://old.example/v1', model: 'm' }];
+    // 问答下拉停在一个单独配的接口上却没 key；文本 AI 那一格填着别家地址、没 key、还关着；问收藏这一项没开
+    const e = makePlugin({ models: MODELS, activeModel: '旧接口', textAI: { mode: 'off', endpoint: 'https://api.deepseek.com/chat/completions', model: 'deepseek-v4-flash' },
+      setup: { selected: ['core', 'reader', 'ocr'], aiSynced: true } });
+    e.p.v6Cache = {};
+    REPLIES.usage = { ...USAGE, keys: {} };
+    await e.p.settingsV6().pasteKey('sk-aliyun-fake'); await settle();
+    const s = e.p.settings;
+    assert.equal(s.textAI.endpoint, DS, '别家地址却没 key 的那一格：换成这家');
+    assert.equal(s.textAI.model, 'qwen3.7-flash', '换了家，模型跟着换');
+    assert.equal(s.textAI.apiKey, 'sk-aliyun-fake');
+    assert.equal(s.textAI.mode, 'http', '关着的打开');
+    assert.ok(s.setup.selected.includes('ai_text'), '问收藏直接打开');
+    assert.equal(s.activeModel, '文本 AI', '问答下拉换回跟着这一格走的那个');
+    // 已经接好命令行的那一格不拿 key 盖掉
+    const e2 = makePlugin({ textAI: { mode: 'cli', preset: 'codex', endpoint: '' }, setup: { selected: ['core', 'reader', 'ocr', 'ai_text'], aiSynced: true } });
+    e2.p.v6Cache = {};
+    await e2.p.settingsV6().pasteKey('sk-aliyun-fake'); await settle();
+    assert.equal(e2.p.settings.textAI.mode, 'cli', '命令行那一格没被 key 盖掉');
+    assert.ok(!e2.p.settings.textAI.apiKey);
+    // 选了命令行程序：问收藏直接打开、下拉回到跟着这一格走的那个
+    const e3 = makePlugin({ models: MODELS, activeModel: '旧接口', setup: { selected: ['core', 'reader', 'ocr'], aiSynced: true } });
+    const t3 = openPage(e3.p); await settle(); await openAll(t3.containerEl); await settle();
+    const sel = rowNamed(t3.containerEl, '命令行程序').querySelector('select');
+    sel.value = 'codex'; await sel.onchange(); await settle();
+    assert.equal(e3.p.settings.textAI.mode, 'cli'); assert.equal(e3.p.settings.textAI.preset, 'codex');
+    assert.ok(e3.p.settings.setup.selected.includes('ai_text'), '选了命令行：问收藏直接打开');
+    assert.equal(e3.p.settings.activeModel, '文本 AI');
+    t3.hide();
+    REPLIES.usage = USAGE;
+  }
+
+  // —— 3c. 1103 作者：B 站收藏夹登录后后台读好，懒人安装卡片上直接勾；画质说明写「非大会员最高 1080P」；评论那一行说清「限频暂停」——
+  {
+    const STATUS = REPLIES['bilibili status'];
+    REPLIES['bilibili status'] = { ok: true, state: 'logged_in', mid_masked: '12***34', tv: { state: 'logged_out' } };
+    REPLIES['bilibili folders'] = { ok: true, code: '', message: '收藏夹 2 个', folders: [{ id: '7', title: '做饭', media_count: 3, kind: 'folder' }, { id: '9', title: '旅行', media_count: 5, kind: 'folder' }] };
+    const e = makePlugin({ bilibili: { skipFolders: [] } });
+    const t = openPage(e.p); await settle(20);
+    assert.equal(e.calls.filter(a => a.join(' ').includes('bilibili folders')).length, 1, '看到 B 站登着：后台读一次收藏夹');
+    const lazy = t.containerEl.querySelector('[data-section="lazy-bili-folders"]');
+    const boxes = lazy.querySelectorAll('.lb-bili-folder input');
+    assert.equal(boxes.length, 2, '直接列出来勾，不用点按钮等');
+    assert.ok(boxes.every(b => b.checked), '默认全勾');
+    boxes[1].checked = false; await boxes[1].onchange(); await settle();
+    assert.deepEqual(e.p.settings.bilibili.skipFolders, ['9'], '取消勾选 = 跳过这个收藏夹');
+    // 1104 作者：全选 / 取消全选是同一个按钮（有没勾的 = 全选；全勾着 = 取消全选）
+    const allBtn = () => t.containerEl.querySelector('[data-section="lazy-bili-folders"]').querySelectorAll('button').find(b => /^(全选|取消全选)$/.test(b.textContent));
+    assert.equal(allBtn().textContent, '全选');
+    await allBtn().onclick(); await settle();
+    assert.deepEqual(e.p.settings.bilibili.skipFolders, [], '全选 = 一个都不跳过');
+    assert.equal(allBtn().textContent, '取消全选', '全勾着：按钮变成取消全选');
+    await allBtn().onclick(); await settle();
+    assert.deepEqual(e.p.settings.bilibili.skipFolders, ['7', '9'], '取消全选 = 全部跳过');
+    assert.ok(t.containerEl.querySelector('[data-section="lazy-bili-folders"]').querySelectorAll('.lb-bili-folder input').every(b => !b.checked));
+    await allBtn().onclick(); await settle();
+    assert.deepEqual(e.p.settings.bilibili.skipFolders, []);
+    assert.ok(t.containerEl.querySelector('[data-section="lazy-bili-folders"] .lb-bili-next'), '选完给下一步：去 B 站同步 / 说明文档');
+    await openAll(t.containerEl); await settle();
+    assert.ok(/非大会员最高 1080P/.test(t.containerEl.querySelector('[data-section="lazy-more"]').textContent), '卡片里画质说明');
+    assert.ok(/非大会员最高 1080P/.test(t.containerEl.querySelector('[data-section="bili-options"]').textContent), 'B 站同步那块画质说明');
+    assert.ok(/限频暂停.*正常/.test(descText(rowsOf(t.containerEl).find(r => nameOf(r) === '评论'))), '评论那一行一句话说清「限频暂停」是正常的');
+    t.hide();
+    // 再开设置页：这一次 Obsidian 里已经读过，不再读
+    const t2 = openPage(e.p); await settle(20);
+    assert.equal(e.calls.filter(a => a.join(' ').includes('bilibili folders')).length, 1, '不重复读');
+    t2.hide();
+    REPLIES['bilibili status'] = STATUS; delete REPLIES['bilibili folders'];
+  }
+
   // —— 4. 旧落点名照认；落点在收着的「更多」里：先打开、画出来，再滚，焦点落进能改的那一格 ——
   env.p.app.setting = { activeTab: null, open() {}, openTabById() {} };
   env.p.openPluginSettings = () => {};
@@ -687,7 +772,8 @@ async function inventory(p) {
     for (const x of [...REMOVED, '输入框里的提示字']) assert.ok(!all.includes(x), '不该再有：' + x);
     // 单例：页面上（不算「接口与密钥」逐项切过去的那几格）只出现一次
     const t = openPage(p); await settle(); await openAll(t.containerEl); await settle();
-    const page = count(rowsOf(t.containerEl).map(idOf).filter(Boolean));
+    // 1103 作者：懒人安装卡片上方的选项（收藏位置 / 认字 / 语音 / 评论楼数 / B 站画质…）是首次安装时的快捷入口，不算重复
+    const page = count(rowsOf(t.containerEl).filter(r => !(r.closest && r.closest('[data-section="lazy-choices"]'))).map(idOf).filter(Boolean));
     const dup = ONCE.filter(x => (page.get(x) || 0) > 1).map(x => `${x} ×${page.get(x)}`);
     assert.deepEqual(dup, [], `配置 ${k}：重复的设置项要删到只剩一处`);
     const lost = ONCE.filter(x => !page.get(x));
@@ -727,13 +813,13 @@ async function inventory(p) {
     const desc = () => rowNamed(t.containerEl, '收藏同步').querySelector('.setting-item-description').textContent;
     assert.match(desc(), /^收藏同步完成/);
     const live = () => handlers.filter(h => h.live).length;
-    assert.equal(live(), 4, '收藏同步那一行 2 个 + ⑥当前状态 2 个');
+    assert.equal(live(), 6, '收藏同步那一行 2 个 + ⑥当前状态 2 个 + 懒人安装卡片同步那一行 2 个（1103）');
     e.files['_archive/sync-status.json'] = JSON.stringify({ state: 'running', message: '正在同步收藏：《a》查附件 / 下附件中', updated_at: new Date().toISOString(), done: 3, total: 10 });
     handlers.filter(h => h.live && h.ev === 'modify').forEach(h => h.cb({ path: '_archive/sync-status.json' }));
     await new Promise(r => setTimeout(r, 350)); await settle();
     assert.equal(desc(), '正在同步收藏：《a》查附件 / 下附件中 · 已完成 3/10 篇 · 剩 7 篇 · 自动同步：没开');
     t.display(); await settle();
-    assert.equal(offs, 4); assert.equal(live(), 4, '重画整页：旧监听注销，新的接上');
+    assert.equal(offs, 6); assert.equal(live(), 6, '重画整页：旧监听注销，新的接上');
     t.hide();
     assert.equal(live(), 0, '关设置页：全部注销');
   }
@@ -802,7 +888,8 @@ async function inventory(p) {
     const e5 = makePlugin({});
     const hits = [];
     Object.assign(e5.p, { openIndexFile: () => hits.push('open'), indexDraft: async () => { hits.push('draft'); }, openIndexSuggestions: () => hits.push('suggest'),
-      indexRebuild: () => hits.push('rebuild'), indexUI: { indexRel: () => e5.p.settings.indexFile || '索引.md' }, run: async args => hits.push('run ' + args.slice(2).join(' ')) });
+      indexRebuild: () => hits.push('rebuild'), indexUI: { indexRel: () => e5.p.settings.indexFile || '索引.md' }, run: async args => hits.push('run ' + args.slice(2).join(' ')),
+      refreshCatalog: async () => hits.push('run catalog') });   // 1103：整理目录统一走 refreshCatalog（不占「正在跑」那一格）
     const t5 = openPage(e5.p); await settle(); await openMore(t5.containerEl, 'catalog-more');
     const row = rowNamed(t5.containerEl, '编辑索引');
     const btns = row.querySelectorAll('button');
@@ -893,6 +980,44 @@ async function inventory(p) {
     assert.ok(!rowsOf(r.querySelector('[data-section="connect-more"]')).some(x => nameOf(x) === '小红书收藏库'), '收藏库那个开关只在外面一处');
     for (const n of ['端口', '访问令牌（给不支持口令的软件）', '全部断开']) assert.ok(rowNamed(r, n), '更多里：' + n);
     t.hide();
+  }
+
+  // —— 1103：同一个设置在页上两处（懒人安装卡片上方 + 原来的分组），改一处另一处立刻跟着变 ——
+  {
+    const e = makePlugin({});
+    const hs = [];
+    e.p.app.workspace.on = (ev, cb) => { const ref = { ev, cb }; hs.push(ref); return ref; };
+    e.p.app.workspace.offref = ref => { const i = hs.indexOf(ref); if (i >= 0) hs.splice(i, 1); };
+    e.p.app.workspace.trigger = ev => { for (const h of [...hs]) if (h.ev === ev) h.cb(); };
+    const save0 = e.p.saveSettings;
+    e.p.saveSettings = async () => { await save0(); e.p.app.workspace.trigger('link-brain:settings'); };
+    const t = openPage(e.p); await settle(); await openAll(t.containerEl); await settle();
+    const lazy = t.containerEl.querySelector('[data-section="lazy-choices"]');
+    assert.ok(lazy, '懒人安装上方有选项区');
+    const outside = n => rowsOf(t.containerEl).filter(r => !r.closest('[data-section="lazy-choices"]')).find(r => nameOf(r) === n);
+    // B 站画质：卡片里改 → 「收藏与同步 → B 站」那一格跟着变
+    const qLazy = rowNamed(lazy, 'B 站画质').querySelector('select');
+    const qSync = outside('画质').querySelector('select');
+    qLazy.value = '720'; await qLazy.onchange(); await settle();
+    assert.equal(e.p.settings.bilibili.quality, '720');
+    assert.equal(qSync.value, '720', '原位置的 B 站画质跟着变');
+    // 反过来：原位置改时长上限 → 卡片里跟着变
+    const dSync = outside('超过多长先不下').querySelector('select');
+    const dLazy = rowNamed(lazy, 'B 站超过多长先不下').querySelector('select');
+    dSync.value = '7200'; await dSync.onchange(); await settle();
+    assert.equal(dLazy.value, '7200', '卡片里的时长上限跟着变');
+    // 评论楼数：卡片里改 → 收藏与同步那一行跟着变
+    const fLazy = rowNamed(lazy, '评论').querySelector('select');
+    const fSync = outside('评论').querySelector('select');
+    fLazy.value = '50'; await fLazy.onchange(); await settle();
+    assert.equal(fSync.value, '50', '原位置的评论楼数跟着变');
+    // 认字：卡片里关掉 → 选择里去掉 ocr、OCR 设置关掉；页关掉后监听全部注销
+    const ocr = rowNamed(lazy, '认图片里的字').querySelector('.checkbox-container');
+    assert.equal(ocr.checked ?? ocr.classList.contains('is-enabled'), true);
+    ocr.click?.(); if (ocr.onchange) { ocr.checked = false; await ocr.onchange(); } await settle();
+    assert.ok(!e.p.settings.setup.selected.includes('ocr') && e.p.settings.ocr.mode === 'off', '卡片上关掉认字');
+    t.hide();
+    assert.equal(hs.filter(h => h.ev === 'link-brain:settings').length, 0, '关设置页：监听全部注销');
   }
 
   console.log('PASS settings page 1027 (six groups): anchors + 账号登录 / 收藏与同步 / 目录与批注 / 高级功能 / CLI 与外接 MCP / 修复, 「＋ 更多」 lazy, one 立即同步, one sync-time editor that autosaves (debounced, invalid not saved, change flushes) with a 同步 switch, wizard and settings share the same rows and values, feature selects drive setup.selected + modes (dual gate) with revert on failed save, paste-a-key replaces the failing provider\'s slots (old fill-blanks-only bug reproduced) and otherwise fills blanks, refine model edits the effective key, landing names open the right 「更多」, nothing lost vs pre-1009 inventory and no duplicates, unread default keys dropped, data.json key refs never touched, models edited inline');

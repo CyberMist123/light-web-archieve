@@ -161,9 +161,13 @@ function makePlugin() {
   assert.equal(p.busyText('导出'), '正在导出，完成后再点，或在底部状态栏停止');
 
   // ── refreshCatalog / openLightbox 转发 / saveSettings 广播 ──
-  const runs = []; p.run = async (...a) => { runs.push(a); return { code: 0 }; };
+  // 1103：刷新目录不占「正在跑」那一格（懒人安装 / 同步跑着也能点）：直接 spawnPy、不带 exclusive
+  const runs = []; const realSpawn = p.spawnPy; p.spawnPy = async (args, o) => { runs.push([args, o]); return { code: 0, all: '', out: '', json: null }; };
+  p.running = '装好并跑完';
   await p.refreshCatalog();
-  same(runs[0], [['-m', 'link_brain', 'catalog'], '刷新目录', true]);
+  same(runs[0][0], ['-m', 'link_brain', 'catalog']);
+  assert.ok(!runs[0][1].exclusive, '不占互斥锁');
+  p.running = null; p.spawnPy = realSpawn;
   assert.equal(p.openLightbox([{ src: 'a' }], 0), null, '没有 media-nav：返回 null');
   p.mediaNav = { skipped: true, openLightbox: () => 'x' }; assert.equal(p.openLightbox([], 0), null, 'media-nav 被跳过：null');
   const seen = []; p.mediaNav = { openLightbox: (...a) => { seen.push(a); return { close() {} }; } };
@@ -205,7 +209,8 @@ function makePlugin() {
   // ── onload：五个挂载点（批次 D 四个 + 10-10 索引树 index-ui.js）都 attach，没起任何进程 ──
   const before = spawned.length;
   const q = makePlugin();
-  q.p.loadData = async () => null; q.p.saveData = async () => {};
+  const savedData = [];
+  q.p.loadData = async () => null; q.p.saveData = async d => { savedData.push(JSON.parse(JSON.stringify(d))); };
   // 1102：挂载点都打进 main.js，不再按路径 require、也不再删 require 缓存
   const required = []; const req0 = context.require;
   context.require = n => { required.push(n); return req0(n); };
@@ -216,6 +221,17 @@ function makePlugin() {
   assert.ok(attached.every(a => a[1] && a[2]), '工厂拿到 (obsidian, plugin)');
   for (const k of ['noteActions', 'noteTools', 'imageActions', 'playerUI', 'indexUI']) assert.equal(typeof q.p[k]?.attach, 'function', 'this.' + k + ' 挂上了');
   assert.equal(spawned.length, before, 'onload 不起进程');
+  // 1103：onload 把这个插件会画的页面块写法写进 data.json（pageFormats），后端只写这里列着的
+  assert.deepEqual([...q.p.settings.pageFormats], ['lb-page', 'dataviewjs']);
+  assert.ok(savedData.some(d => d && Array.isArray(d.pageFormats) && d.pageFormats.join() === 'lb-page,dataviewjs'), '写进了 data.json');
+  assert.equal(q.p.declarePageFormats(), false, '已经声明过：不再改、不再存');
+  // 1103：页面里是这个插件不认识的块（后端比插件新）→ 提示「插件需要更新」给入口（只一次），不走「旧格式 / 刷新目录」那条
+  const told = []; const n0 = q.p.notify; q.p.notify = (m, o) => { told.push([m, o]); };
+  q.p.app.vault.cachedRead = async () => ['```lb-page9', 'catalog-page.js', '```'].join(String.fromCharCode(10));
+  assert.equal(await q.p.legacyPageHint({ path: '目录.md' }), true);
+  assert.ok(/插件比后台程序旧/.test(told[0][0]) && told[0][1].actions[0].label === '去更新插件', JSON.stringify(told));
+  assert.equal(await q.p.legacyPageHint({ path: '目录.md' }), false, '只提示一次');
+  q.p.notify = n0;
   // onunload：有 detach 的挂载点各调一次
   q.p.onunload();
   assert.deepEqual(detached, ['note-actions.js', 'note-tools.js', 'image-actions.js', 'player-ui.js', 'index-ui.js'], 'onunload 调各挂载点的 detach');

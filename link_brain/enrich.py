@@ -108,6 +108,8 @@ def needs(source_key: str, source_id: str, *, llm: bool = True) -> list[str]:
         meta = storage.read_json(obj / "meta.json")
     except (OSError, ValueError):
         return out
+    if not isinstance(meta, dict):
+        return out
     if llm:
         doc = llm_mod.load_extracted(source_key, source_id)
         if not doc or doc.get("status") not in ("ok", "skipped"):
@@ -116,23 +118,33 @@ def needs(source_key: str, source_id: str, *, llm: bool = True) -> list[str]:
             out.append("summary")  # 以前没配模型跳过了，现在配上了：补
     try:
         manifest = storage.read_json(storage.raw_dir(source_key, source_id, meta["current_version"]) / "manifest.json")
-    except (OSError, ValueError, KeyError):
+    except (OSError, ValueError, KeyError, TypeError):
         manifest = {}
-    assets = {m["file"] for m in manifest.get("media", []) if m.get("file")
+    # 1104：manifest / 媒体条目形状不对（不是对象、file 不是字符串）就跳过那一条，不让这篇的 needs 抛错
+    media = manifest.get("media") if isinstance(manifest, dict) else None
+    assets = {m["file"] for m in (media if isinstance(media, list) else [])
+              if isinstance(m, dict) and isinstance(m.get("file"), str) and m["file"]
               and Path(m["file"]).suffix.lower() in IMAGE_SUFFIXES and (obj / m["file"]).is_file()}
     if assets:
         vision_path = storage.derived_dir(source_key, source_id) / "vision.json"
         try:
-            done = {x.get("asset") for x in storage.read_json(vision_path).get("images", [])}
-        except (OSError, ValueError):
+            images = storage.read_json(vision_path).get("images", [])
+            done = {x.get("asset") for x in images if isinstance(x, dict)}
+        except (OSError, ValueError, AttributeError, TypeError):
             done = set()
         if assets - done:
             out.append("vision")
     return out
 
 
-def candidates(*, pending_only_marked: bool = False) -> list[tuple[str, str, dict[str, Any], list[str]]]:
-    """[(source_key, source_id, state, needs)]：标了待 enrich 的排前面；连着失败 ≥3 次的按 retry_after 退避，到点再捡。"""
+LAST_BAD: list[dict[str, Any]] = []   # 1104：上一次 candidates() 跳过的坏篇（run 并进 failed 报出来）
+
+
+def candidates(*, pending_only_marked: bool = False,
+               bad: list[dict[str, Any]] | None = None) -> list[tuple[str, str, dict[str, Any], list[str]]]:
+    """[(source_key, source_id, state, needs)]：标了待 enrich 的排前面；连着失败 ≥3 次的按 retry_after 退避，到点再捡。
+    1104：逐篇隔离——某篇的数据坏到连「缺什么」都算不出，跳过它（记进 LAST_BAD；bad 给了也记一份：{item_id, status, error}），接着下一篇。"""
+    LAST_BAD.clear()
     from . import index as index_mod
 
     conn = index_mod.connect()
@@ -143,15 +155,30 @@ def candidates(*, pending_only_marked: bool = False) -> list[tuple[str, str, dic
     marked, rest = [], []
     for r in rows:
         key, sid = r["source"], r["source_id"]
-        state = load_state(key, sid)
-        if backing_off(state):
+        try:
+            state = load_state(key, sid)
+            if backing_off(state):
+                continue
+            missing = needs(key, sid)
+        except Exception as exc:  # noqa: BLE001 - 一篇坏了不挡整批
+            entry = {"item_id": _safe_item_id(key, sid), "status": "failed",
+                     "error": f"数据有问题，没法判断缺什么：{errtext(exc)}"[:300], "fails": 0, "gave_up": False}
+            LAST_BAD.append(entry)
+            if bad is not None:
+                bad.append(dict(entry))
             continue
-        missing = needs(key, sid)
         if state.get("pending"):
             marked.append((key, sid, state, missing))
         elif missing and not pending_only_marked:
             rest.append((key, sid, state, missing))
     return marked + rest
+
+
+def _safe_item_id(source_key: str, source_id: str) -> str:
+    try:
+        return domain.item_id(source_key, source_id)
+    except ValueError:
+        return ""
 
 
 # --------------------------------------------------------------------------
@@ -348,7 +375,11 @@ def enrich_items(targets: list[tuple[str, str]], *, llm: bool = True, deadline: 
             break
         if verbose:
             print(f"[enrich] {i + 1}/{len(targets)} {domain.item_id(SOURCE, sid)} 识图 / 概要中", file=sys.stderr)
-        out = enrich_one(key, sid, llm=llm, timeout=left)
+        try:
+            out = enrich_one(key, sid, llm=llm, timeout=left)
+        except Exception as exc:  # noqa: BLE001 - 1104：一篇在父进程这边就崩了（状态文件 / 数据坏），记它失败、接着下一篇
+            out = {"item_id": _safe_item_id(key, sid), "status": "failed", "error": errtext(exc)[:300],
+                   "fails": 0, "gave_up": False}
         api_streak = api_streak + 1 if out.get("api_error") else 0
         if out["status"] == "done":
             done.append(out["item_id"])
@@ -391,6 +422,7 @@ def _run_locked(args, deadline) -> int:
     from . import index as index_mod
     from .read import dump_json
 
+    bad: list[dict[str, Any]] = []   # 1104：候选阶段就算不出缺什么的坏篇，并进 failed 报出来
     with contextlib.redirect_stdout(sys.stderr):
         if getattr(args, "item", None):
             conn = index_mod.connect()
@@ -403,11 +435,17 @@ def _run_locked(args, deadline) -> int:
                 return EXIT_ERROR
             targets = [(row["source"], row["source_id"])]
         elif getattr(args, "pending", False):
+            LAST_BAD.clear()   # 测试替身不一定会清它
             targets = [(k, s) for k, s, _, _ in candidates()]
+            bad = [dict(b) for b in LAST_BAD]   # 不传 bad=：candidates 的替身 / 旧调用方照旧只认无参
         else:
             print("需要 --pending 或 --item", file=sys.stderr)
             return EXIT_ERROR
         out = enrich_items(targets, llm=True, deadline=deadline, limit=int(getattr(args, "limit", 0) or 0))
+        if bad:
+            out["failed"] = bad + out["failed"]
+            print(f"[enrich] {len(bad)} 篇数据有问题，跳过：" + "；".join(f"{b['item_id']}（{b['error']}）" for b in bad[:5]),
+                  file=sys.stderr)
         gave_up = [f for f in out["failed"] if f.get("gave_up")]
         if gave_up:
             # 第 4 批：不推送（enrich_one 已逐篇登记 TRANSIENT.RETRY_EXHAUSTED，目录页问题入口看得到）

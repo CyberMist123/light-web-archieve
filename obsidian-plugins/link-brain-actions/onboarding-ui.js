@@ -71,7 +71,8 @@ module.exports = function (obsidian, plugin) {
     const state = row.descEl.createDiv({ cls: 'lb-onb-state' });
     const setState = (kind, text) => { state.className = 'lb-onb-state' + (kind ? ' is-' + kind : ''); state.setText(text); };
     const preview = () => { const n = normalizeFolder(value); n.ok ? setState('', '收藏会放在：' + (n.folder ? base.replace(/[\\/]+$/, '') + '/' + n.folder : base)) : setState('failed', n.error); };
-    row.addText(t => t.setPlaceholder('留空 = 库根目录，或如：收藏').setValue(value).onChange(v => { value = v; preview(); }))
+    let input = null;
+    row.addText(t => { input = t; t.setPlaceholder('留空 = 库根目录，或如：收藏').setValue(value).onChange(v => { value = v; preview(); }); })
       .addButton(b => b.setButtonText('保存').onClick(async () => {
         b.setDisabled(true);
         try { setState('done', '✓ ' + await saveFolder(value) + '（已经存下的收藏不会跟着搬）'); }
@@ -79,6 +80,18 @@ module.exports = function (obsidian, plugin) {
         finally { b.setDisabled(false); }
       }));
     setState('', '当前：' + (plugin.vaultDir || base || '本库根目录'));
+    // 1103：页上两处（懒人安装卡片上方 + 收藏与同步）——另一处存了新位置，这里跟着变（正在这一格里打字时不动它）
+    const ws = plugin.app.workspace;
+    if (input && ws && typeof ws.on === 'function') {
+      const ref = ws.on('link-brain:settings', () => {
+        const saved = plugin.settings.collectionFolder || '';
+        const el = input.inputEl;
+        if (saved === value || (el && el.ownerDocument && el.ownerDocument.activeElement === el)) return;
+        value = saved; input.setValue(saved);
+        setState('', '当前：' + (plugin.vaultDir || base || '本库根目录'));
+      });
+      if (tab && tab.stops) tab.stops.push(() => { try { ws.offref(ref); } catch {} });
+    }
     return row;
   }
 
@@ -108,10 +121,17 @@ module.exports = function (obsidian, plugin) {
     // 1102：不再查 Dataview（页面由插件自己画）
     async startup() {
       const b = plugin.currentBackend();
+      // 1104 作者：首轮全自动时自动打开的设置页直接是「懒人安装」卡片，不先出「开始使用 LWA」引导（新库里引导会盖住安装进度）。
+      // 引导记成走过；想走还能在「06 修复 → 重新走一遍首次设置」进
+      const skipGuide = () => { plugin.settings.onboarding = { ...(plugin.settings.onboarding || {}), guideDone: true }; };
       if (b.mode === 'missing') {
+        skipGuide();
+        Promise.resolve(plugin.saveSettings()).catch(e => console.error('[lb] 引导状态没存上', e));
         // 1102：不再只弹「复制安装命令」——新电脑（可能连 Python 都没有）由插件自己装后端；装好接着走首次自动跑，没装上才提示并停下
-        plugin.notify('Link Brain：这台电脑还没有后端程序，正在自动安装（uv · Python 3.12 · link-brain，约 100 MB）。进度在设置页顶部「懒人安装」。', { ms: 12000,
-          actions: [{ label: '打开设置', run: () => plugin.openSetupPage?.() }] });
+        // 1103 作者：全自动——直接打开设置页的「懒人安装」卡片（上面边装边选，下面是进度），通知只是个入口
+        try { plugin.openSetupPage?.(); } catch (e) { console.error('[lb] 设置页没打开', e); }
+        plugin.notify('Link Brain 正在自动安装（后端、认字、读取组件，几百 MB）：进度在设置页「懒人安装」，上面的选项随时能改。', { ms: 12000,
+          actions: [{ label: '看进度', run: () => plugin.openSetupPage?.() }] });
         const got = await installBackend({ quiet: true });
         if (!got || !got.ok || plugin.currentBackend().mode === 'missing') {
           noticeWithButton(plugin.backendMissingText() + (got && got.message ? '（自动安装没做成：' + got.message + '）' : ''), '复制安装命令', () => copy(BACKEND_INSTALL), 30000);
@@ -120,7 +140,11 @@ module.exports = function (obsidian, plugin) {
       }
       if (await needsOnboarding()) {
         // 1009 作者：零配置——装上就按轻量版自动跑（装好缺的 → 同步 → OCR → 目录 → 索引），不弹分步向导
-        plugin.settings.onboarding = { done: true, at: new Date().toISOString(), via: 'first-run' };
+        // 1103 作者（虚拟机）：「走完首次设置教程，后来又被带回第 2 步『同步』」——根因在这里：以前整个换掉 onboarding，
+        // 装后端那几分钟里用户在设置页走完的教程（guideDone）被冲掉；目录页还没生成时 needsGuide() 又判「要教程」，
+        // 带着「同步时间」落点打开设置页就停在第 2 步。现在只并进这几个键，走完的记号留着
+        skipGuide();
+        plugin.settings.onboarding = { ...plugin.settings.onboarding, done: true, at: new Date().toISOString(), via: 'first-run' };
         Promise.resolve(plugin.saveSettings()).catch(e => console.error('[lb] 引导状态没存上', e));
         try { await plugin.homeUI().firstRun(); } catch (e) { console.error('[lb] 首次自动跑没起来', e); this.open(); }
         return 'onboarding';
@@ -132,7 +156,15 @@ module.exports = function (obsidian, plugin) {
     renderSetupHints(c) {
       const shown = [];
       const b = plugin.currentBackend();
-      if (b.mode === 'missing') { hintBox(c, plugin.backendMissingText(), [['一键装好', () => installBackend()], ['复制安装命令', () => copy(BACKEND_INSTALL)]], 'is-backend'); shown.push('backend'); }
+      // 1103：正在装后端时不另挂提示（进度就在下面「懒人安装」卡片里）；没在装才说缺后端。后端一装好这块自己消失（挂在 home 的重画上）
+      if (b.mode === 'missing' && !plugin.backendInstalling?.()) {
+        const box = hintBox(c, plugin.backendMissingText(), [['一键装好', () => installBackend()], ['复制安装命令', () => copy(BACKEND_INSTALL)]], 'is-backend');
+        shown.push('backend');
+        const h = plugin.homeUI?.();
+        if (h && typeof h.onRepaint === 'function') {
+          const off = h.onRepaint(() => { if (plugin.backendInstalling?.() || plugin.currentBackend().mode !== 'missing') { box.remove?.(); off(); } });
+        }
+      }
       if (plugin.mediaNav?.skipped) {
         hintBox(c, '图片导航已经并进本插件。旧插件「Link Brain Native Media Nav」还开着，现在由它负责；在「第三方插件」里停用它并重启 Obsidian，就由本插件接管（两个同时开会重复）。',
           [['打开第三方插件', () => plugin.openPluginSettings('community-plugins')]], 'is-medianav');

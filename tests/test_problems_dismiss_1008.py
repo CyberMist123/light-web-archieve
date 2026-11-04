@@ -215,3 +215,12 @@ def test_delete_note_resolves_its_problems_via_remove(tmp_path, monkeypatch):
     _gave_up(item="xhs-other")
     assert remove.delete_items([item_id])["deleted"] == 1
     assert [r["item_id"] for r in problems.load()] == ["xhs-other"]
+
+
+def test_repair_with_only_human_items_says_so_not_nothing_to_fix():
+    """1103 作者（虚拟机）：修复区「⚠ 1 件要你处理」，点修复却回「没有要当场修的问题」。现在同一个计数、照实说。"""
+    assert repair.run()["message"] == "没有要当场修的问题"
+    problems.report("login", "CAPTCHA_REQUIRED", "要验证")
+    assert problems.summary()["needs_human"] == 1
+    out = repair.run()
+    assert out["fixed"] == 0 and "还有 1 件要你自己处理" in out["message"], out["message"]

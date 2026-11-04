@@ -137,7 +137,7 @@ def apply_settings_patch(patch: dict[str, Any]) -> dict[str, Any]:
     if not path.parent.is_dir():
         return {"written": False, "path": str(path), "reason": "插件目录不在（没在 Obsidian 里装插件），只在结果里带补丁"}
     try:
-        raw = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+        raw = json.loads(path.read_text(encoding="utf-8-sig")) if path.exists() else {}   # 1103：带 BOM 的也认
     except (OSError, ValueError) as exc:
         return {"written": False, "path": str(path), "reason": f"插件设置读不了，没改：{type(exc).__name__}"}
     if not isinstance(raw, dict):

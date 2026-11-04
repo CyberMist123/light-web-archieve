@@ -158,7 +158,8 @@ module.exports = function scheduleUI(obsidian, plugin) {
       catch (e) { cur = { error: e.message || String(e) }; }
       if (!alive) return cur;
       // 上次没存成（格式不对 / 写失败）的草稿：接着显示，并标出来（不冒充已生效）
-      const draft = preserveDraft && plugin.scheduleDraft;
+      // 1104：空的草稿不算（以前「同步」开失败时把空列表存成草稿，之后一直显示空、一直开不了）
+      const draft = preserveDraft && Array.isArray(plugin.scheduleDraft) && plugin.scheduleDraft.length ? plugin.scheduleDraft : null;
       rows = draft ? plugin.scheduleDraft : rowsFromState(cur);
       paintStatus();
       paint();
@@ -205,7 +206,13 @@ module.exports = function scheduleUI(obsidian, plugin) {
     }
     // 设置页「同步」开关：开 = 按编辑器里这几条注册 / 恢复计划任务；关 = 关掉（触发器留着，再开就恢复）
     async function setEnabled(on) {
-      if (on) return saveNow({ force: true });
+      if (on) {
+        // 1104（虚拟机实测）：打开设置页马上点「同步」——现在的定时还没读回来（后端查计划任务慢），编辑行是空的，
+        // 以前直接报「至少要有一条时间」而界面上根本看不到时间行。先等读完；还是空的就按默认（每天 04:00）开
+        try { await ready; } catch {}
+        if (!rulesFromRows(rows).rules) { rows = rowsFromState(null); paint(); }
+        return saveNow({ force: true });
+      }
       clearTimeout(timer); timer = null;
       msg.setText('正在关…');
       try {

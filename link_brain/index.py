@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from . import domain, storage
+from .errtext import errtext
 
 TOMBSTONES_JSONL = "tombstones.jsonl"
 TOMB_FIELDS = ("source", "source_id", "item_id", "title", "url", "cover", "deleted_at", "trash_dir", "state")
@@ -86,7 +87,8 @@ CREATE INDEX IF NOT EXISTS idx_relations_item ON relations(item_id);
 def connect(db_path: Path | None = None) -> sqlite3.Connection:
     path = db_path or storage.index_db_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(path))
+    # 1103：小红书、B 站同步和建目录可以同时跑——各自每篇一提交，别家正在提交时多等一会儿（默认 5 秒），别报 database is locked
+    conn = sqlite3.connect(str(path), timeout=30)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.executescript(SCHEMA)
@@ -325,8 +327,29 @@ def get_object(conn: sqlite3.Connection, item_id: str) -> sqlite3.Row | None:
     return cur.fetchone()
 
 
+def check_meta(meta: Any) -> str:
+    """meta.json 能不能进索引：不能就返回一句原因（空串 = 能）。1104：身份（item_id / source / source_id）、版本号
+    这类关键字段缺了或坏了不编造，由调用方记这一篇失败、接着下一篇；作者 id / 昵称本来就可缺省，不在这里拦。"""
+    if not isinstance(meta, dict):
+        return "meta.json 不是对象"
+    for key in ("item_id", "source", "source_id"):
+        if not isinstance(meta.get(key), str) or not meta[key].strip():
+            return f"meta.json 缺 {key}"
+    version = meta.get("current_version")
+    if isinstance(version, bool) or not isinstance(version, int) or version < 1:
+        return f"meta.json 的版本号不对：{version!r}"
+    return ""
+
+
 def upsert_object(conn: sqlite3.Connection, meta: dict[str, Any], source_doc: dict[str, Any]) -> None:
+    bad = check_meta(meta)
+    if bad:
+        raise ValueError(bad)
+    if not isinstance(source_doc, dict) or not isinstance(source_doc.get("note"), dict):
+        raise ValueError("source.json 不是对象或缺 note")
     note = source_doc["note"]
+    # 1104：作者 id / 昵称可缺省（没抓到作者、作者号注销），给空，不让一篇拖垮整批
+    author = meta.get("author") if isinstance(meta.get("author"), dict) else {}
     object_dir = storage.object_dir(meta["source"], meta["source_id"])
     conn.execute(
         """
@@ -359,8 +382,8 @@ def upsert_object(conn: sqlite3.Connection, meta: dict[str, Any], source_doc: di
             meta["canonical_url"],
             meta["kind"],
             meta["title"],
-            meta["author"]["nickname"],
-            meta["author"]["user_id"],
+            author.get("nickname") or "",
+            author.get("user_id") or "",
             note.get("body"),
             json.dumps(note.get("hashtags") or [], ensure_ascii=False),
             meta["published_at"],
@@ -494,70 +517,113 @@ def search(conn: sqlite3.Connection, query: str, *, limit: int = 20) -> list[sql
     return cur.fetchall()
 
 
-def reindex_all(conn: sqlite3.Connection, *, verbose: bool = False) -> list[str]:
+class ReindexResult(list):
+    """reindex_all 的返回：照旧是回填了的 item_id 列表；1104 另带 `failed`——
+    [{"item_id", "status": "failed", "error", "path"}]，坏的那篇记在这里，不挡后面的。"""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.failed: list[dict[str, str]] = []
+
+
+def reindex_all(conn: sqlite3.Connection, *, verbose: bool = False) -> ReindexResult:
     """从已有的 `vault/_archive/<source>/<id>/{meta.json,raw/vNNNN/source.json}` 回填索引。
 
     不重抓、不联网。用于 Lot 1 已落盘但 `index.db` 还没建 / 被删掉重建的场景。
     已存在的对象会被跳过（`INSERT OR IGNORE`），不会覆盖当前 relations 历史。
-    返回本次回填的 item_id 列表。
+    返回本次回填的 item_id 列表（`ReindexResult`，`.failed` 是没回填成的那几篇）。
+    1104：逐篇隔离——一篇的 meta / source.json 坏了只记它失败（没提交的那半截回滚），接着下一篇。
     """
     sync_tombstones(conn)  # 1024：屏蔽从 tombstones.jsonl 恢复（connect 已对过一遍，这里保险再对一次）
     root = storage.archive_root()
-    reindexed: list[str] = []
+    reindexed = ReindexResult()
     if not root.is_dir():
         return reindexed
     for source_dir in sorted(p for p in root.iterdir() if p.is_dir()):
-        source = source_dir.name
         for object_dir in sorted(p for p in source_dir.iterdir() if p.is_dir()):
             meta_path = object_dir / "meta.json"
             if not meta_path.exists():
                 continue
-            meta = storage.read_json(meta_path)
-            item_id = meta["item_id"]
-            source_id = meta["source_id"]
-            versions = storage.existing_versions(source, source_id)
-            if not versions:
+            try:
+                item_id = _reindex_one(conn, source_dir.name, meta_path)
+            except Exception as exc:  # noqa: BLE001 - 一篇坏了不挡整批（CONVENTIONS §1.3）
+                if conn.in_transaction:
+                    conn.rollback()
+                guess = _guess_item_id(meta_path)
+                rel = f"_archive/{source_dir.name}/{object_dir.name}"
+                reindexed.failed.append({"item_id": guess, "status": "failed",
+                                         "error": errtext(exc)[:200], "path": rel})
+                if verbose:
+                    print(f"[reindex] 跳过 {guess or rel}：{exc}")
                 continue
-            current_raw = storage.raw_dir(source, source_id, meta["current_version"]) / "source.json"
-            if not current_raw.exists():
+            if item_id is None:
                 continue
-            # 先插 objects（FK 目标），再补 sources 各版本
-            upsert_object(conn, meta, storage.read_json(current_raw))
-            for version in versions:
-                raw_dir = storage.raw_dir(source, source_id, version)
-                source_json = raw_dir / "source.json"
-                if not source_json.exists():
-                    continue
-                source_doc = storage.read_json(source_json)
-                sha = normalized_source_sha256(source_doc)
-                add_source_version(
-                    conn,
-                    item_id=item_id,
-                    version=version,
-                    raw_dir=raw_dir,
-                    captured_at=source_doc["capture"]["captured_at"],
-                    adapter=source_doc["capture"]["adapter"],
-                    input_url=source_doc["capture"]["input_url"],
-                    input_kind=source_doc["capture"]["input_kind"],
-                    source_sha256=sha,
-                )
-            already_has_relation = conn.execute(
-                "SELECT 1 FROM relations WHERE item_id = ? LIMIT 1", (item_id,)
-            ).fetchone()
-            if not already_has_relation:
-                add_relation(
-                    conn,
-                    item_id=item_id,
-                    origin=meta.get("origin", "cli"),
-                    actor=meta.get("actor", "human"),
-                    ingest_kind=meta.get("ingest_kind", "shared"),
-                    note=meta.get("note"),
-                    created_at=meta.get("first_archived_at") or meta.get("last_checked_at"),
-                )
             reindexed.append(item_id)
             if verbose:
                 print(f"[reindex] {item_id}")
     return reindexed
+
+
+def _guess_item_id(meta_path: Path) -> str:
+    """失败清单里那一篇叫什么：meta.json 读得出 item_id 就用它，读不出给空（不编）。"""
+    try:
+        meta = storage.read_json(meta_path)
+    except (OSError, ValueError):
+        return ""
+    value = meta.get("item_id") if isinstance(meta, dict) else None
+    return value if isinstance(value, str) else ""
+
+
+def _reindex_one(conn: sqlite3.Connection, source: str, meta_path: Path) -> str | None:
+    """回填一篇。返回 item_id；没有完整版本 / 当前版本没 source.json = None（照旧安静跳过）；数据坏了抛错。"""
+    meta = storage.read_json(meta_path)
+    bad = check_meta(meta)
+    if bad:
+        raise ValueError(bad)
+    if meta["source"] != source:
+        raise ValueError(f"meta.json 的 source 是 {meta['source']!r}，却放在 {source} 目录下")
+    item_id = meta["item_id"]
+    source_id = meta["source_id"]
+    versions = storage.existing_versions(source, source_id)
+    if not versions:
+        return None
+    current_raw = storage.raw_dir(source, source_id, meta["current_version"]) / "source.json"
+    if not current_raw.exists():
+        return None
+    # 先插 objects（FK 目标），再补 sources 各版本
+    upsert_object(conn, meta, storage.read_json(current_raw))
+    for version in versions:
+        raw_dir = storage.raw_dir(source, source_id, version)
+        source_json = raw_dir / "source.json"
+        if not source_json.exists():
+            continue
+        source_doc = storage.read_json(source_json)
+        sha = normalized_source_sha256(source_doc)
+        add_source_version(
+            conn,
+            item_id=item_id,
+            version=version,
+            raw_dir=raw_dir,
+            captured_at=source_doc["capture"]["captured_at"],
+            adapter=source_doc["capture"]["adapter"],
+            input_url=source_doc["capture"]["input_url"],
+            input_kind=source_doc["capture"]["input_kind"],
+            source_sha256=sha,
+        )
+    already_has_relation = conn.execute(
+        "SELECT 1 FROM relations WHERE item_id = ? LIMIT 1", (item_id,)
+    ).fetchone()
+    if not already_has_relation:
+        add_relation(
+            conn,
+            item_id=item_id,
+            origin=meta.get("origin", "cli"),
+            actor=meta.get("actor", "human"),
+            ingest_kind=meta.get("ingest_kind", "shared"),
+            note=meta.get("note"),
+            created_at=meta.get("first_archived_at") or meta.get("last_checked_at"),
+        )
+    return item_id
 
 
 def resolve_item_id(conn: sqlite3.Connection, target: str) -> str | None:

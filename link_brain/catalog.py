@@ -42,6 +42,7 @@ STATE_NAME = "catalog-state.json"
 # 1023 ARCH-AUDIT 第 1 批：目录的输入（meta / 标签 / 专辑 / 回收站…）变了就记一笔「待重建」，
 # 统一由 ensure_fresh 重建；build 写完且期间没人再记，才清掉。文件在 = 目录数据落后于库。
 DIRTY_NAME = "catalog-dirty.json"
+DIRTY_LOCK = "catalog-dirty"   # 只护 catalog-dirty.json 的读改写（很快），和建目录的 catalog-build 锁分开
 # 1025 开源前 P0：catalog-data 的格式版本号（插件 ↔ 后端握手）。页面脚本 lb-page-lib.js 里的 CATALOG_SCHEMA 必须和它相等
 # （tests/test_catalog.py::test_build_writes_schema_and_page_lib_agrees 守着）。字段改了页面读不懂时 +1：
 # 页面读到对不上的数据，说一句「重建目录 / 更新插件」而不是崩或者画错。
@@ -75,17 +76,21 @@ _FRONTMATTER_RE = re.compile(r"\A---\r?\n(.*?)\r?\n---\r?\n", re.S)
 
 
 def effective_big_cats() -> list[tuple[str, tuple[str, ...]]]:
-    """大类清单：Owner 在插件设置里编辑过就用用户的（data.json 的 `catalogCats`），否则用内置 BIG_CATS。
+    """大类清单：Owner 在插件设置里编辑过就用用户的（data.json 的 `catalogCats`），否则看 `catalogCatsPreset`。
 
     用户的格式是 `[{"name": "人机恋", "keywords": ["人机恋","ai伴侣"]}, ...]`（设置页那个可编辑文本框解析出来的）。
+    1104：catalogCats 空 / 全无效时——`catalogCatsPreset` 是 "none"（新库首轮插件写）= 不预设分类，返回空，内容进「其他 / 未归类」；
+    缺这个键或别的值 = 内置 BIG_CATS（作者个人分类，老库照旧；老 data.json 普遍存着 catalogCats: []，不能拿空列表当「不要分类」）。
     改完要重跑 `catalog` 才生效（这个函数只在重建目录时读一次）。fail-open：读不动就用内置。
     """
     try:
         from . import ai_config
 
-        raw = ai_config.load().get("catalogCats")
+        settings = ai_config.load()
+        raw = settings.get("catalogCats")
+        preset = settings.get("catalogCatsPreset")
     except Exception:  # noqa: BLE001 - 配置读不动绝不挡住目录重建
-        raw = None
+        raw, preset = None, None
     if isinstance(raw, list) and raw:
         out: list[tuple[str, tuple[str, ...]]] = []
         for entry in raw:
@@ -94,6 +99,8 @@ def effective_big_cats() -> list[tuple[str, tuple[str, ...]]]:
                 out.append((str(entry["name"]).strip(), kws))
         if out:
             return out
+    if str(preset or "").strip().lower() == "none":
+        return []
     return BIG_CATS
 
 
@@ -444,12 +451,35 @@ def pinyin_chars(items: list[dict[str, Any]]) -> dict[str, str]:
     return {c: lazy_pinyin(c)[0] for c in sorted(corpus | _common_hanzi()) if "\u4e00" <= c <= "\u9fff"}
 
 
-def collect(vault: Path, source: str | None = None) -> list[dict[str, Any]]:
-    from .render import parse_frontmatter, source_open_url
+class _BadItem(ValueError):
+    """这一篇的数据坏了（原因给人看），collect 跳过它、登记进 skipped。"""
+
+
+def _load_obj(path: Path) -> dict[str, Any]:
+    """读一个应是对象的 JSON：缺 / 坏 / 不是对象一律当空对象。"""
+    data = _load_json(path)
+    return data if isinstance(data, dict) else {}
+
+
+def _load_source(obj_dir: Path, version: int) -> dict[str, Any]:
+    """当前版本的 source.json：没有 = 空（照旧）；有但不是对象 = 这篇坏了。"""
+    data = _load_json(obj_dir / "raw" / f"v{version:04d}" / "source.json")
+    if data is None:
+        return {}
+    if not isinstance(data, dict):
+        raise _BadItem("source.json 不是对象")
+    return data
+
+
+def collect(vault: Path, source: str | None = None, *, skipped: list[dict[str, str]] | None = None) -> list[dict[str, Any]]:
+    """收集目录条目。1104：skipped 给了就把读不出的那几篇（{item_id, path, status, error}）登记进去。"""
     from . import sources
 
     if source is None:
+        start = len(LAST_SKIPPED)
         items = [item for name in sources.names() for item in collect(vault, name)]
+        if skipped is not None:
+            skipped.extend(dict(x) for x in LAST_SKIPPED[start:])
         items.sort(key=lambda it: it.get("ts") or "", reverse=True)
         return items
     src = sources.get(source)
@@ -463,114 +493,143 @@ def collect(vault: Path, source: str | None = None) -> list[dict[str, Any]]:
     if not base.is_dir():
         return items
     for obj_dir in sorted(base.iterdir()):
-        meta = _load_json(obj_dir / "meta.json")
-        if not isinstance(meta, dict):
+        if not obj_dir.is_dir():
             continue
-        source_id = obj_dir.name
-        version = int(meta.get("current_version", 1) or 1)
-        extracted = _load_json(obj_dir / "derived" / "extracted.json") or {}
-        data = extracted.get("data") if isinstance(extracted, dict) else None
-        summary = (data or {}).get("summary") or ""
-        visible = meta.get("visible_note")
-        tags = _note_tags(vault, visible)
-        visible_text = (vault / visible).read_text(encoding='utf-8') if visible and (vault / visible).is_file() else None
-        if not tags and 'tags' not in parse_frontmatter(visible_text):
-            # 没渲染出可见笔记时退回 source.json / extracted 的 tag
-            source_doc = _load_json(obj_dir / "raw" / f"v{version:04d}" / "source.json") or {}
-            note = source_doc.get("note") if isinstance(source_doc, dict) else {}
-            tags = [str(t).strip() for t in (note or {}).get("tags", []) if str(t).strip()]
-            if not tags and isinstance(data, dict):
-                tags = [str(t).strip() for t in data.get("tags", []) if str(t).strip()]
-        comment_count, last_comment = _last_comment(vault, visible)
-        source_doc = _load_json(obj_dir / 'raw' / f'v{version:04d}' / 'source.json') or {}
-        note = source_doc.get('note') or {}
-        observed_links = list(dict.fromkeys(
-            url.rstrip('。，、；：！？）)]}') for url in re.findall(
-                r'https?://[^\s<>"\\]+', json.dumps(source_doc, ensure_ascii=False)
-            )
-        ))
-        from .attachments import inventory
-        report = inventory(obj_dir, meta)
-        vision = _load_json(obj_dir / "derived" / "vision.json") or {}
-        transcript = _load_json(obj_dir / "derived/transcript.json") or {}
-        notes_doc = _load_json(obj_dir / "notes.json")
-        notes_doc = notes_doc if isinstance(notes_doc, dict) else {}
-        ok_images = [im for im in vision.get("images", []) if im.get("status") == "ok"]
-        search_fields = {
-            # 1015 第二批 ask：视频文字稿 / 画面文字各成一路（结果标来源类型）；评论区的图单列 comment_ocr（不和正文图混）
-            "transcript": str(transcript.get("text") or ""),
-            "screen": str((transcript.get("screen") or {}).get("text") or ""),
-            "body": str(note.get("body") or ""),
-            # 评论只放原文进检索：评论者昵称不进（昵称「不是鱼露是鲈鱼」会被当成内容命中）；说话人由问收藏证据阶段另挂
-            # 1026 作者：评论里 @ 的人名也是噪音（「@喵喵酱」「@Murrrrrphy」被当成内容命中）——@人名、「回复 某某：」不进检索
-            "comments": "\n".join(_comment_search_text(c.get("text")) for c in _flat_comments(source_doc.get("comments") or [])),
-            # 图片文字 + 识图结果（表格 Markdown / 图片描述）一起进检索；精细识图（第二层 refined）成功就用它替代第一层
-            "ocr": "\n".join(filter(None, (_image_search_text(im) for im in ok_images if not _is_comment_image(im)))),
-            "comment_ocr": "\n".join(filter(None, (_image_search_text(im) for im in ok_images if _is_comment_image(im)))),
-            "attachments": "\n\n".join(p.read_text(encoding="utf-8") for p in sorted((obj_dir / "derived" / "attachments").glob("*.md"))),
-            # 第 10 批：用户自己的批注进检索（词法 + 语义）；问收藏另按 notes.json 的修改时间现读，不必等重建目录
-            "notes": annotation_text(notes_doc),
-            # 1015 第二批 ask：用户划的重点进检索（和批注同权）
-            "highlights": highlight_text(visible_text, notes_doc),
-        }
-        # 新加的三路空着就不写（catalog-data 体积不涨）；老字段照旧总在
-        search_fields = {k: v for k, v in search_fields.items() if v or k not in ("screen", "comment_ocr", "highlights")}
-        archived = _parse_dt(meta.get("first_archived_at"))
-        items.append(
-            {
-                "id": meta.get("item_id", source_id),
-                "title": meta.get("title") or source_id,
-                "note": visible,
-                "notes_path": f"_archive/{source}/{source_id}/notes.json",
-                "starred": bool(notes_doc.get("starred")),
-                "starred_at": notes_doc.get("starred_at"),
-                **dict(zip(("cover", "cover_w", "cover_h"), _cover_info(obj_dir, source, source_id, version))),
-                "summary": _clip(summary),
-                # 1001 审计 ui-4：不再另存拼好的 search_text（与 search_fields 全文重复，占了一半体积）；
-                # 读方（retrieval.fields / 目录页 itemText / semantic）都以 search_fields 为准
-                "search_fields": search_fields,
-                "agent_md": f"_archive/{source}/{source_id}/derived/agent.md",
-                "attachment_files": report["files"],
-                "attachment_missing": report["missing"],
-                "attachment_errors": report["errors"],
-                "author": (note.get('author') or {}).get('nickname', ''),
-                "source": source,
-                "url": source_open_url(note, meta),
-                "github_urls": [url for url in observed_links if re.match(r'https?://github\.com/', url, re.I)],
-                "suggested_links": (data or {}).get('links_worth_opening', []),
-                "likes": _likes_of(note, obj_dir, version),
-                # 整音节、空格分隔（标点处「/」断开）：搜索只认整音节，见 retrieval.pinyin_match / catalog-search.js
-                "pinyin": pinyin_text(str(meta.get('title') or ''), summary, *tags),
-                "tags": tags,
-                "albums": album_map.get(source_id, []),
-                # 批次 D · N9：原帖话题（正文里显示的那一串 #）；目录「#x」筛选看 tags ∪ hashtags（用户改过的 tags 可能删掉了某个）
-                "hashtags": [str(t).strip().lstrip('#') for t in (note.get('hashtags') or []) if str(t).strip().lstrip('#')][:30],
-                "cats": _cats(tags, big_cats),
-                "kind": meta.get("kind", "image"),
-                "date": archived.strftime("%Y-%m-%d") if archived else "",
-                # 1015 第二批：发帖日期（用户说「2024 年存的」多半指那年的帖子；date 是入库日期）
-                "published": str(note.get("published_at") or "")[:10],
-                "ts": archived.isoformat() if archived else "",
-                "comments": comment_count,
-                "last_comment": last_comment,
-                "attachment": (badge := _attachment_badge(obj_dir, meta, report)),
-                "attachment_reason": _attachment_reason(obj_dir, meta, badge),
-                # 第 4 批：卡片悬停的问题原因（label / hover 已从 problems 登记表取好；attachment_reason 照留）
-                "problems": item_problems(obj_dir, report, vision, transcript, extracted),
-                # 1020 谁收的：""=用户自己的收藏；fable / 项目名（规则在 domain.py）。目录默认只看 ""
-                "src": collected_by(meta),
-                # 1025：TG 发给 Fable 的并进 fable 组，这里记一个 "tg" 还分得清（页面暂不用）
-                "via": via(meta),
-                # 收藏来自哪个号（0926）：同步时写进 meta.favorited_by，供按账号筛选
-                "accounts": [a.get("nickname") or a.get("user_id") for a in (meta.get("favorited_by") or [])
-                             if isinstance(a, dict)],
-                # 1101 她：B 站卡片照 B 站首页——封面底栏 播放量 · 时长，标题下 上传时间；悬停静音播本地视频
-                **(_bili_card(obj_dir, source, source_id, version, note) if source == "bilibili" else {}),
-            }
-        )
+        try:
+            item = _collect_one(vault, source, obj_dir, big_cats, album_map)
+        except Exception as exc:  # noqa: BLE001 - 坏项跳过并登记，好项照出
+            from .errtext import errtext
+            reason = str(exc) if isinstance(exc, _BadItem) else errtext(exc)
+            iid = _load_obj(obj_dir / "meta.json").get("item_id")
+            entry = {"item_id": iid if isinstance(iid, str) else "", "path": f"_archive/{source}/{obj_dir.name}",
+                     "status": "skipped", "error": reason[:200]}
+            LAST_SKIPPED.append(entry)   # build 先清空、run() 报出来（不改 collect 的调用方式，替身照旧能用）
+            if skipped is not None:
+                skipped.append(dict(entry))
+            continue
+        if item is not None:
+            items.append(item)
     # 新→旧
     items.sort(key=lambda it: it.get("ts") or "", reverse=True)
     return items
+
+
+def _collect_one(vault: Path, source: str, obj_dir: Path, big_cats: list[tuple[str, tuple[str, ...]]],
+                 album_map: dict[str, Any]) -> dict[str, Any] | None:
+    """一篇 → 目录条目（没有 meta.json = 不是一篇，None）。数据坏了抛错，由 collect 记下跳过（1104：一篇坏不拖垮整份目录）。"""
+    from .render import parse_frontmatter, source_open_url
+
+    if not (obj_dir / "meta.json").exists():
+        return None
+    meta = _load_json(obj_dir / "meta.json")
+    if not isinstance(meta, dict):
+        raise _BadItem("meta.json 缺了、读不出或不是对象")
+    source_id = obj_dir.name
+    raw_version = meta.get("current_version", 1) or 1
+    if isinstance(raw_version, bool) or not isinstance(raw_version, (int, str)) or not str(raw_version).strip().isdigit():
+        raise _BadItem(f"meta.json 的版本号不对：{raw_version!r}")
+    version = int(raw_version)
+    # 1104：派生文件（概要 / 识图 / 文字稿 / 批注）不是对象就当没有；source.json 是正文本体，坏了整篇跳过
+    extracted = _load_obj(obj_dir / "derived" / "extracted.json")
+    data = extracted.get("data") if isinstance(extracted.get("data"), dict) else None
+    summary = (data or {}).get("summary") or ""
+    visible = meta.get("visible_note")
+    tags = _note_tags(vault, visible)
+    visible_text = (vault / visible).read_text(encoding='utf-8') if visible and (vault / visible).is_file() else None
+    if not tags and 'tags' not in parse_frontmatter(visible_text):
+        # 没渲染出可见笔记时退回 source.json / extracted 的 tag
+        source_doc = _load_source(obj_dir, version)
+        note = source_doc.get("note") if isinstance(source_doc.get("note"), dict) else {}
+        tags = [str(t).strip() for t in (note or {}).get("tags", []) if str(t).strip()]
+        if not tags and isinstance(data, dict):
+            tags = [str(t).strip() for t in data.get("tags", []) if str(t).strip()]
+    comment_count, last_comment = _last_comment(vault, visible)
+    source_doc = _load_source(obj_dir, version)
+    note = source_doc.get('note') if isinstance(source_doc.get('note'), dict) else {}
+    observed_links = list(dict.fromkeys(
+        url.rstrip('。，、；：！？）)]}') for url in re.findall(
+            r'https?://[^\s<>"\\]+', json.dumps(source_doc, ensure_ascii=False)
+        )
+    ))
+    from .attachments import inventory
+    report = inventory(obj_dir, meta)
+    vision = _load_obj(obj_dir / "derived" / "vision.json")
+    transcript = _load_obj(obj_dir / "derived/transcript.json")
+    notes_doc = _load_obj(obj_dir / "notes.json")
+    images = vision.get("images") if isinstance(vision.get("images"), list) else []
+    ok_images = [im for im in images if isinstance(im, dict) and im.get("status") == "ok"]
+    search_fields = {
+        # 1015 第二批 ask：视频文字稿 / 画面文字各成一路（结果标来源类型）；评论区的图单列 comment_ocr（不和正文图混）
+        "transcript": str(transcript.get("text") or ""),
+        "screen": str((transcript.get("screen") or {}).get("text") or ""),
+        "body": str(note.get("body") or ""),
+        # 评论只放原文进检索：评论者昵称不进（昵称「不是鱼露是鲈鱼」会被当成内容命中）；说话人由问收藏证据阶段另挂
+        # 1026 作者：评论里 @ 的人名也是噪音（「@喵喵酱」「@Murrrrrphy」被当成内容命中）——@人名、「回复 某某：」不进检索
+        "comments": "\n".join(_comment_search_text(c.get("text")) for c in _flat_comments(source_doc.get("comments") or [])),
+        # 图片文字 + 识图结果（表格 Markdown / 图片描述）一起进检索；精细识图（第二层 refined）成功就用它替代第一层
+        "ocr": "\n".join(filter(None, (_image_search_text(im) for im in ok_images if not _is_comment_image(im)))),
+        "comment_ocr": "\n".join(filter(None, (_image_search_text(im) for im in ok_images if _is_comment_image(im)))),
+        "attachments": "\n\n".join(p.read_text(encoding="utf-8") for p in sorted((obj_dir / "derived" / "attachments").glob("*.md"))),
+        # 第 10 批：用户自己的批注进检索（词法 + 语义）；问收藏另按 notes.json 的修改时间现读，不必等重建目录
+        "notes": annotation_text(notes_doc),
+        # 1015 第二批 ask：用户划的重点进检索（和批注同权）
+        "highlights": highlight_text(visible_text, notes_doc),
+    }
+    # 新加的三路空着就不写（catalog-data 体积不涨）；老字段照旧总在
+    search_fields = {k: v for k, v in search_fields.items() if v or k not in ("screen", "comment_ocr", "highlights")}
+    archived = _parse_dt(meta.get("first_archived_at"))
+    return (
+        {
+            "id": meta.get("item_id", source_id),
+            "title": meta.get("title") or source_id,
+            "note": visible,
+            "notes_path": f"_archive/{source}/{source_id}/notes.json",
+            "starred": bool(notes_doc.get("starred")),
+            "starred_at": notes_doc.get("starred_at"),
+            **dict(zip(("cover", "cover_w", "cover_h"), _cover_info(obj_dir, source, source_id, version))),
+            "summary": _clip(summary),
+            # 1001 审计 ui-4：不再另存拼好的 search_text（与 search_fields 全文重复，占了一半体积）；
+            # 读方（retrieval.fields / 目录页 itemText / semantic）都以 search_fields 为准
+            "search_fields": search_fields,
+            "agent_md": f"_archive/{source}/{source_id}/derived/agent.md",
+            "attachment_files": report["files"],
+            "attachment_missing": report["missing"],
+            "attachment_errors": report["errors"],
+            "author": (note.get('author') or {}).get('nickname', ''),
+            "source": source,
+            "url": source_open_url(note, meta),
+            "github_urls": [url for url in observed_links if re.match(r'https?://github\.com/', url, re.I)],
+            "suggested_links": (data or {}).get('links_worth_opening', []),
+            "likes": _likes_of(note, obj_dir, version),
+            # 整音节、空格分隔（标点处「/」断开）：搜索只认整音节，见 retrieval.pinyin_match / catalog-search.js
+            "pinyin": pinyin_text(str(meta.get('title') or ''), summary, *tags),
+            "tags": tags,
+            "albums": album_map.get(source_id, []),
+            # 批次 D · N9：原帖话题（正文里显示的那一串 #）；目录「#x」筛选看 tags ∪ hashtags（用户改过的 tags 可能删掉了某个）
+            "hashtags": [str(t).strip().lstrip('#') for t in (note.get('hashtags') or []) if str(t).strip().lstrip('#')][:30],
+            "cats": _cats(tags, big_cats),
+            "kind": meta.get("kind", "image"),
+            "date": archived.strftime("%Y-%m-%d") if archived else "",
+            # 1015 第二批：发帖日期（用户说「2024 年存的」多半指那年的帖子；date 是入库日期）
+            "published": str(note.get("published_at") or "")[:10],
+            "ts": archived.isoformat() if archived else "",
+            "comments": comment_count,
+            "last_comment": last_comment,
+            "attachment": (badge := _attachment_badge(obj_dir, meta, report)),
+            "attachment_reason": _attachment_reason(obj_dir, meta, badge),
+            # 第 4 批：卡片悬停的问题原因（label / hover 已从 problems 登记表取好；attachment_reason 照留）
+            "problems": item_problems(obj_dir, report, vision, transcript, extracted),
+            # 1020 谁收的：""=用户自己的收藏；fable / 项目名（规则在 domain.py）。目录默认只看 ""
+            "src": collected_by(meta),
+            # 1025：TG 发给 Fable 的并进 fable 组，这里记一个 "tg" 还分得清（页面暂不用）
+            "via": via(meta),
+            # 收藏来自哪个号（0926）：同步时写进 meta.favorited_by，供按账号筛选
+            "accounts": [a.get("nickname") or a.get("user_id") for a in (meta.get("favorited_by") or [])
+                         if isinstance(a, dict)],
+            # 1101 她：B 站卡片照 B 站首页——封面底栏 播放量 · 时长，标题下 上传时间；悬停静音播本地视频
+            **(_bili_card(obj_dir, source, source_id, version, note) if source == "bilibili" else {}),
+        }
+    )
 
 
 # ── 页面（```lb-page 块 → 插件 page-host.js 执行；样式自注入，不依赖 CSS snippet；读 catalog-data.json 渲染） ──
@@ -625,15 +684,36 @@ PAGE_BLOCK_MODES = ("lb-page", "dataviewjs")
 PAGE_BLOCK_ENV = "LINK_BRAIN_PAGE_BLOCK"
 
 
+def plugin_page_formats() -> tuple[str, ...] | None:
+    """1103（作者本机：后端 0.2.0 写了 ```lb-page，vault 里的插件还是 11-01 的、只认 dataviewjs → 每篇都报「批注块没了」、
+    目录页只剩一行 catalog-page.js）：插件在 data.json 里声明自己会画哪几种页面块（pageFormats），后端只写它认得的。
+    None = 没有插件设置文件（纯命令行），不限；有设置文件却没声明 = 11-03 之前的插件，只当它认 dataviewjs。"""
+    try:
+        from . import ai_config
+        raw = json.loads(ai_config.data_json_path().read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError, ImportError):
+        return None
+    if not isinstance(raw, dict):
+        return None
+    got = raw.get("pageFormats")
+    if isinstance(got, list):
+        return tuple(str(x).strip().lower() for x in got)
+    return ("dataviewjs",)
+
+
 def page_block_mode() -> str:
+    """环境变量（显式指定，照办）> 插件设置 pageBlock（在插件认得的里面）> 插件认得的第一种（lb-page 优先）。"""
     raw = os.environ.get(PAGE_BLOCK_ENV, "").strip().lower()
-    if not raw:
-        try:
-            from . import ai_config
-            raw = str(ai_config.load().get("pageBlock") or "").strip().lower()
-        except Exception:  # noqa: BLE001 — 设置读不到就用默认，页面照样生成
-            raw = ""
-    return raw if raw in PAGE_BLOCK_MODES else PAGE_BLOCK_MODES[0]
+    if raw in PAGE_BLOCK_MODES:
+        return raw
+    formats = plugin_page_formats()
+    known = [m for m in PAGE_BLOCK_MODES if formats is None or m in formats] or ["dataviewjs"]
+    try:
+        from . import ai_config
+        raw = str(ai_config.load().get("pageBlock") or "").strip().lower()
+    except Exception:  # noqa: BLE001 — 设置读不到就用默认，页面照样生成
+        raw = ""
+    return raw if raw in known else known[0]
 
 
 def _page_bootstrap(script_name: str, params: dict[str, Any] | None = None, mode: str | None = None) -> str:
@@ -796,18 +876,20 @@ def _same_content(a: dict[str, Any], b: dict[str, Any]) -> bool:
 
 
 def mark_dirty(reason: str, vault: Path | None = None) -> None:
-    """目录的输入变了：记一笔待重建（fail-open，记不上只是等下一次重建）。"""
+    """目录的输入变了：记一笔待重建（fail-open，记不上只是等下一次重建）。
+    1103：读改写和 _clear_dirty 的「比序号再删」放进同一把小锁——小红书、B 站同步并行时，别让一边的记号被另一边删掉。"""
     try:
         path = (vault or storage.vault_root()) / "_archive" / DIRTY_NAME
-        try:
-            old = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            old = {}
-        reasons = [r for r in (old.get("reasons") or []) if r != reason][-19:] + [reason]
-        path.parent.mkdir(parents=True, exist_ok=True)
-        storage.atomic_write_text(path, json.dumps({
-            "since": old.get("since") or datetime.now().astimezone().isoformat(),
-            "seq": int(old.get("seq") or 0) + 1, "reasons": reasons}, ensure_ascii=False))
+        with storage.file_lock(DIRTY_LOCK, wait_s=10, owner="catalog.mark_dirty"):
+            try:
+                old = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                old = {}
+            reasons = [r for r in (old.get("reasons") or []) if r != reason][-19:] + [reason]
+            path.parent.mkdir(parents=True, exist_ok=True)
+            storage.atomic_write_text(path, json.dumps({
+                "since": old.get("since") or datetime.now().astimezone().isoformat(),
+                "seq": int(old.get("seq") or 0) + 1, "reasons": reasons}, ensure_ascii=False))
     except Exception:  # noqa: BLE001
         pass
 
@@ -844,9 +926,10 @@ def _clear_dirty(vault: Path, seen: dict[str, Any] | None) -> None:
         return
     path = vault / "_archive" / DIRTY_NAME
     try:
-        if json.loads(path.read_text(encoding="utf-8")).get("seq") == seen.get("seq"):
-            path.unlink()
-    except (OSError, ValueError):
+        with storage.file_lock(DIRTY_LOCK, wait_s=10, owner="catalog._clear_dirty"):
+            if json.loads(path.read_text(encoding="utf-8")).get("seq") == seen.get("seq"):
+                path.unlink()
+    except (OSError, ValueError, storage.LockBusy):
         pass
 
 
@@ -855,7 +938,14 @@ def build(vault: Path | None = None, *, source: str | None = None) -> tuple[Path
     vault = vault or storage.vault_root()
     now = datetime.now().astimezone()
     dirty_seen = dirty_state(vault)
+    # 1104：读不出的那几篇没进目录——collect 记进 LAST_SKIPPED，留给 run() 报出来（build 不写问题记录，见 CONVENTIONS §3.4）
+    LAST_SKIPPED.clear()
     items = collect(vault, source)
+    skipped = list(LAST_SKIPPED)
+    if skipped:
+        import sys
+        print(f"[catalog] {len(skipped)} 篇数据有问题没进目录：" + "；".join(
+            f"{x['item_id'] or x['path']}（{x['error']}）" for x in skipped[:5]), file=sys.stderr)
     pages = library_pages(vault)
 
     data_path = vault / "_archive" / DATA_NAME
@@ -1004,6 +1094,7 @@ def build(vault: Path | None = None, *, source: str | None = None) -> tuple[Path
 
 PATCHABLE = frozenset({"starred", "starred_at"})
 LAST_INDEX: dict[str, Any] = {}   # 上一次 build 算出的索引摘要（run() 拼提示用）
+LAST_SKIPPED: list[dict[str, str]] = []   # 1104：上一次 build 跳过的坏条目（run() 报出来）
 
 
 def file_stat(path: Path) -> dict[str, int]:
@@ -1098,6 +1189,10 @@ def run(args) -> int:
             result['message'] += f"；第一次建了 {LAST_INDEX.get('file')}（按原来的分类，顶部分类不变）"
         elif LAST_INDEX.get('warnings'):
             result['message'] += f"；{LAST_INDEX.get('file')} 有 {LAST_INDEX['warnings']} 处写法要看一眼（目录页「索引」里有）"
+    if LAST_SKIPPED:
+        # 1104：坏的那几篇跳过、其余照出；状态是 skipped（不是 failed），目录本身建成了，退出码照旧 0
+        result['skipped'] = [dict(x) for x in LAST_SKIPPED]
+        result['message'] += f"；{len(LAST_SKIPPED)} 篇数据有问题没进目录"
     # 1102：不再提示 Dataview——页面是 ```lb-page 块，由 LWA 插件自己显示
     dump_json(result)
     return 0

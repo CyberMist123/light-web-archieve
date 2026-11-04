@@ -131,6 +131,10 @@ def isolated_vault_and_home(monkeypatch, tmp_path):
         raise httpx.ConnectError("测试环境没有读取服务")
     monkeypatch.setattr(accounts.httpx, "request", reader_not_running)
     monkeypatch.delenv("LINK_BRAIN_XHS_ENDPOINT", raising=False)
+    # 1104：默认按「这台电脑登录过」——测读取服务答了什么的用例照旧走到问它那一步；测「从没登录过」的用例自己改成 False
+    from link_brain.sources.xiaohongshu import accounts as xhs_accounts
+    monkeypatch.setattr(xhs_accounts, "_ever_logged_in_real", xhs_accounts.ever_logged_in, raising=False)
+    monkeypatch.setattr(xhs_accounts, "ever_logged_in", lambda: True)
     # 开页间隔 / 抓取后歇息：测试里不等
     monkeypatch.setenv("LWA_OPEN_GAP", "0,0")
     monkeypatch.setenv("LWA_FETCH_REST", "0,0")

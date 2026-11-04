@@ -182,6 +182,24 @@ async function scheduleTests() {
   // 每几小时：1–6 下拉
   const k2 = box.querySelectorAll('.lb-sched-row')[0].querySelector('.lb-sched-kind'); k2.value = 'hourly'; k2.onchange();
   assert.equal(box.querySelectorAll('.lb-sched-row')[0].querySelectorAll('option').length, 4 + 6);
+  // 1104（虚拟机实测）：打开设置页马上点「同步」——定时还没读回来（编辑行是空的）。先等读完；没有定时就按每天 04:00 开，不报「至少要有一条时间」
+  {
+    let release;
+    const slow = new Promise(r => { release = r; });
+    const saved2 = [];
+    const p2 = {
+      async getSyncSchedule() { await slow; return { freq: 'none', installable: true }; },
+      async setSyncRules(rules) { saved2.push(rules); return { ok: true, detail: '已保存' }; },
+    };
+    const host2 = dom.document.body.createDiv();
+    const ed2 = factory(obs, p2).render(host2, { delay: 60000 });
+    const on = ed2.setEnabled(true);   // 还没读回来就点
+    await flush();
+    assert.equal(saved2.length, 0, '没读完不存');
+    release(); const res = await on;
+    assert.equal(res.ok, true, JSON.stringify(res));
+    assert.deepEqual(saved2[0], [{ kind: 'daily', times: ['04:00'] }], '没有定时 → 按默认每天 04:00 开');
+  }
   console.log('PASS schedule editor: rules ↔ rows, status one-liner, weekly multi-day, daily several times, once, hourly 1–6 + risk note, autosave via setSyncRules (no save button), invalid not saved, off via setSyncSchedule');
 }
 

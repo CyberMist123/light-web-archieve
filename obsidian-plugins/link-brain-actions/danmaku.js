@@ -7,7 +7,7 @@
 // 以前那套 danmaku-mine.json 去掉了（一次性迁移：python -m link_brain.migrate_danmaku_mine，见 FORMAT.md）。
 // 性能：弹幕按时间排好、只往前走一个指针；只给屏幕上的那几十条建节点（节点回收复用）；每帧只改这几条的 transform，宽度用 canvas 量字、不读布局。
 // 设置记在插件设置 settings.media.danmaku（所有视频共用）：开关、透明度、字号、显示区域、滚动速度、屏蔽三种。焦点在视频上按 D 开关（全屏里也行）；
-// 画面左下角（原生控制条那一排最左边）一个「弹」字开关：鼠标在画面上动时出现，静止 2 秒淡出——全屏时工具行不显示，靠它开关。
+// 画面左下角、原生控制条正上方（1104 作者：以前压在控制条最左边，挡住播放键）一个「弹」字开关：鼠标在画面上动时出现，静止 2 秒淡出——全屏时工具行不显示，靠它开关。
 'use strict';
 
 const DEFAULTS = Object.freeze({ on: true, opacity: 0.9, scale: 1, area: 0.5, speed: 1, block: Object.freeze({ scroll: false, top: false, bottom: false }) });
@@ -364,12 +364,12 @@ const CSS = [
   '.lb-dm-item.is-adv{line-height:1.15;}',
   // 画面上的「弹」字开关：鼠标在画面上动才出现（is-awake），静止 2 秒淡出；关着时字上一道斜杠
   // 1031 作者：从右下角挪到原生控制条那一排的最左边（音量键左边那块空位），和控制条的图标同一条线
-  '.xhs-note .lb-dm-ovbtn{position:absolute;left:10px;bottom:7px;z-index:6;width:34px;height:34px;min-width:0;padding:0;display:flex;align-items:center;justify-content:center;border:1px solid rgb(255 255 255 / .35)!important;border-radius:var(--lb-radius-pill);background:rgb(0 0 0 / .5)!important;box-shadow:none!important;color:#fff!important;font-family:var(--lb-font-body);font-size:15px;font-weight:700;line-height:1;cursor:pointer;opacity:0;pointer-events:none;transition:opacity .3s;}',
+  '.xhs-note .lb-dm-ovbtn{position:absolute;left:10px;bottom:52px;z-index:6;width:34px;height:34px;min-width:0;padding:0;display:flex;align-items:center;justify-content:center;border:1px solid rgb(255 255 255 / .35)!important;border-radius:var(--lb-radius-pill);background:rgb(0 0 0 / .5)!important;box-shadow:none!important;color:#fff!important;font-family:var(--lb-font-body);font-size:15px;font-weight:700;line-height:1;cursor:pointer;opacity:0;pointer-events:none;transition:opacity .3s;}',
   '.xhs-note .lb-dm-ovbtn.is-awake,.xhs-note .lb-dm-ovbtn.is-awake:hover,.xhs-note .lb-dm-ovbtn:focus-visible{opacity:1;pointer-events:auto;}',
   '.xhs-note .lb-dm-ovbtn:hover{background:rgb(0 0 0 / .7)!important;}',
   '.xhs-note .lb-dm-ovbtn[aria-pressed="false"]{color:rgb(255 255 255 / .6)!important;}',
   '.xhs-note .lb-dm-ovbtn[aria-pressed="false"]::after{content:"";position:absolute;left:7px;right:7px;top:50%;height:2px;margin-top:-1px;background:currentColor;transform:rotate(-40deg);border-radius:1px;}',
-  '.xhs-note .lb-media.is-lb-fullscreen .lb-dm-ovbtn{left:16px;bottom:10px;width:40px;height:40px;font-size:18px;}',
+  '.xhs-note .lb-media.is-lb-fullscreen .lb-dm-ovbtn{left:16px;bottom:58px;width:40px;height:40px;font-size:18px;}',
   '.xhs-note .lb-media.is-lb-fullscreen .lb-dm-panel{bottom:auto!important;top:12px!important;}',
   '@media print{.lb-dm-layer,.lb-dm-panel,.lb-dm-flash,.lb-dm-ovbtn{display:none!important;}}',
 ].join('\n');
