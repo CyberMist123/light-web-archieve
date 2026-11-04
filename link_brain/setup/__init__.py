@@ -92,6 +92,8 @@ def run(args) -> int:
             _say(out["message"])
         stdout_emit(out)
         # 1102：NEEDS_HUMAN / NEEDS_HUMAN.NOT_INSTALLED 退 5（要人做一步）；TRANSIENT.DISCONNECTED（读取组件没起来）退 1
+        if out.get("busy"):
+            return 6   # 1104：同一个收藏库已有一轮在跑（CONVENTIONS 的「忙」退出码，和号被占用同一个）
         return EXIT_OK if out["ok"] else (EXIT_NEEDS_HUMAN if str(out.get("code") or "").startswith("NEEDS_HUMAN") else EXIT_FAILED)
     dump_json({"ok": False, "code": "SKIPPED.NOT_CONFIGURED", "message": "要给子命令：plan / check / install / estimate / backfill"})
     return EXIT_FAILED

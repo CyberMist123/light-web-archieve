@@ -292,6 +292,7 @@ const DEFAULT_SETTINGS = {
   // 目录页顶部大类筛选（空=用内置 BIG_CATS）；形如 [{name, keywords:[...]}]。10-10 起目录分类以 索引.md 为准，
   // 这一项只在第一次生成 索引.md 时用来迁移（顶部分类和原来一样），之后不再读。
   catalogCats: [],
+  catalogCatsPreset: '',   // 1104：'none' = 新库不预设内置分类（首轮自动跑写入；后端 catalog.effective_big_cats 读）
   // 10-10 索引树：索引文件（收藏库根目录相对的 .md；空 = 索引.md）。和 link_brain/indextree.index_rel 同一规则。
   indexFile: "",
   hiddenCats: [],
@@ -918,9 +919,11 @@ class LinkBrainActions extends Plugin {
     // 首次引导 + Dataview 提示（onboarding-ui.js）：窗口开好后再查，不拖慢启动
     if (this.app.workspace?.onLayoutReady) this.app.workspace.onLayoutReady(() => { this.onboardTimer = setTimeout(() => this.startupChecks().catch(e => console.error('[lb] 启动检查没做完', e)), 1500); });
     // 1009：打开 Obsidian 一分半后看一眼评论有没有没补齐的，有就后台接着补（单实例；号要人处理时它自己停下等）
-    if (this.app.workspace?.onLayoutReady) this.app.workspace.onLayoutReady(() => { this.fillTimer = setTimeout(() => this.ensureCommentFill('startup'), 90000); });
+    // 1104（审查 2）：首轮装后端 / 一键装好在跑时不另起——那一轮最后自己会安排补评论、整理目录，别和它抢 CPU、重复安排
+    const firstRunBusy = () => { try { const r = this.homeState && this.homeState.run; return this.backendInstalling() || !!(r && r.state === 'running'); } catch { return false; } };
+    if (this.app.workspace?.onLayoutReady) this.app.workspace.onLayoutReady(() => { this.fillTimer = setTimeout(() => { if (!firstRunBusy()) this.ensureCommentFill('startup'); }, 90000); });
     // 1023 ARCH-AUDIT 第 1 批：上次同步被打断 / 别处导入过，目录还没跟上 → 打开 Obsidian 20 秒后补建一次（没有待重建就秒回、不碰文件；不占「正在跑」）
-    if (this.app.workspace?.onLayoutReady) this.app.workspace.onLayoutReady(() => { this.freshTimer = setTimeout(() => this.spawnPy(['-m', 'link_brain', 'catalog', '--if-dirty']).catch(() => {}), 20000); });
+    if (this.app.workspace?.onLayoutReady) this.app.workspace.onLayoutReady(() => { this.freshTimer = setTimeout(() => { if (!firstRunBusy()) this.spawnPy(['-m', 'link_brain', 'catalog', '--if-dirty']).catch(() => {}); }, 20000); });
     // 1009：没有分步引导了——首次打开按轻量版自动装好并跑一次（home-ui firstRun），设置页顶部就是功能开关；命令 id 不变
     this.addCommand({ id: 'open-onboarding', name: '打开设置', callback: () => this.openSetupPage('overview') });
     this.settingTab = new LinkBrainSettingTab(this.app, this);

@@ -72,7 +72,9 @@ STEPS = ("sync.favorites", "ingest", "attachments.download", "attachments.conver
          # 1011：这篇在小红书网页版要验证才能看（只是这一篇，不是号出事；link_brain/restricted.py）
          "note.restricted",
          # 1024：本机 MCP 服务（mcp_server）里工具 / 协议层漏出来的异常
-         "mcp")
+         "mcp",
+         # 1104：一键装好 / 跑完里装组件没成（setup.pipeline）
+         "setup")
 STEP_PREFIXES = ("nightly.", "cli.")  # cli.<子命令>：命令行兜底登记的未知崩溃（cli.main）
 # 推送标题 / 问题列表里给人看的步骤名（夜跑步骤 nightly.<名> 显示「夜跑：<名>」）
 # 注记行（annotate）能改的字段：自愈动作的状态（running / failed / waiting）、一句「试过什么、为什么没好、下一步」、
@@ -96,7 +98,7 @@ STEP_LABELS = {
     "login": "小红书账号", "config": "设置", "remote": "远程阅读",
     "ai.summary": "AI 概要 / 打标接口", "ai.vision": "识图接口", "ai.refine": "精细识图接口", "ai.embed": "向量索引接口",
     "ai.ask": "问答接口", "render.check": "笔记页检查", "comments.fill": "评论补齐",
-    "note.restricted": "网页版要验证", "mcp": "MCP 工具",
+    "note.restricted": "网页版要验证", "mcp": "MCP 工具", "setup": "一键装好",
 }
 
 # 现有裸码 → 类（§2.2：复用现有码、不改拼写）

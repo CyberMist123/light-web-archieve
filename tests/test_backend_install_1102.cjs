@@ -160,7 +160,51 @@ const listen = () => new Promise(r => server.listen(0, '127.0.0.1', () => r(`htt
   out = await B.ensureBackend(plugin, { ...opts, onProgress: e => prog.push(e) });
   assert.equal(out.ok, true); assert.match(out.message, /已经装好/);
   assert.deepEqual([...new Set(prog.filter(e => e.state === 'skipped').map(e => e.stage))], ['uv', 'python', 'venv', 'install']);
-  assert.deepEqual(calls.map(c => c[0]), [P === 'win32' ? 'link-brain.exe' : 'link-brain'], '只跑了自检');
+  assert.deepEqual(calls.map(c => c.slice(0, 2).join(' ')), ['version', 'setup'].map(a => (P === 'win32' ? 'link-brain.exe ' : 'link-brain ') + a), '只跑了自检（版本 + 核心检查）');
+  // 1104（审查 11）：自检 = version + 不联网的核心检查；版本 JSON 只取版本号；核心检查不过 → 如实说「核心功能跑不起来」
+  assert.equal(B.versionText('{"ok": true, "version": "0.2.2", "python": "3.12"}\n'), '0.2.2');
+  assert.equal(B.versionText('link-brain 0.2.0\n'), 'link-brain 0.2.0');
+  {
+    const ck = await B.selfCheck(path.join(home, 'py'), { platform: P, runImpl: async (exe, args) => (args[0] === 'version'
+      ? { code: 0, out: '{"ok": true, "version": "0.2.2"}\n', err: '' }
+      : { code: 1, out: '{"ok": false, "message": "core 缺依赖：jieba"}\n', err: '' }) });
+    assert.equal(ck.ok, false); assert.equal(ck.code, 'PERMANENT.BAD_PACKAGE'); assert.match(ck.message, /核心功能跑不起来：core 缺依赖：jieba/);
+    const ok2 = await B.selfCheck(path.join(home, 'py'), { platform: P, runImpl: async (exe, args) => ({ code: 0, out: args[0] === 'version' ? '{"ok": true, "version": "0.2.2"}\n' : '{"ok": true}\n', err: '' }) });
+    assert.equal(ok2.version, '0.2.2');
+  }
+  // 1104（审查 4）：装后端的跨进程锁——别的活进程拿着 → 忙；持有者死了 / 太久 → 当过期重拿；放锁只放自己的
+  {
+    const lh = path.join(tmp, 'lockhome');
+    const a = B.takeInstallLock(lh, { pid: 111, alive: () => true });
+    assert.equal(a.ok, true);
+    const b = B.takeInstallLock(lh, { pid: 222, alive: () => true });
+    assert.equal(b.ok, false); assert.equal(b.holder.pid, 111);
+    const c = B.takeInstallLock(lh, { pid: 222, alive: pid => pid !== 111 });
+    assert.equal(c.ok, true, '持有者进程没了 = 过期');
+    a.release();
+    assert.ok(fs.existsSync(path.join(lh, 'locks', 'backend-install.lock')), '别人的锁不放');
+    c.release();
+    assert.ok(!fs.existsSync(path.join(lh, 'locks', 'backend-install.lock')));
+    const d = B.takeInstallLock(lh, { pid: 333, now: 0, alive: () => true }); d && null;
+    const e = B.takeInstallLock(lh, { pid: 444, now: 4 * 3600000, alive: () => true });
+    assert.equal(e.ok, true, '超过 3 小时 = 过期'); e.release();
+    // 另一个窗口正在装 → ensureBackend 不动手、说清楚
+    const busyHome = path.join(tmp, 'busyhome');
+    fs.mkdirSync(path.join(busyHome, 'locks'), { recursive: true });
+    fs.writeFileSync(path.join(busyHome, 'locks', 'backend-install.lock'), JSON.stringify({ pid: process.ppid, started: Date.now() }));
+    calls.length = 0;
+    const busy = await B.ensureBackend(plugin, { ...opts, home: busyHome, env: { ...process.env, LINK_BRAIN_HOME: busyHome } });
+    assert.equal(busy.ok, false); assert.equal(busy.code, 'TRANSIENT.BUSY'); assert.match(busy.message, /另一个 Obsidian 窗口正在装后端/);
+    assert.equal(calls.length, 0, '别的窗口在装就不下载、不起进程');
+  }
+  // 1104（审查 3）：超时整棵结束（Windows 用 taskkill /T），再收尾
+  {
+    const seen = [];
+    B.killTree({ pid: 42, kill: s => seen.push('kill ' + s) }, { platform: 'win32', spawnSyncImpl: (exe, args) => seen.push([exe, ...args].join(' ')) });
+    assert.deepEqual(seen, ['taskkill /PID 42 /T /F', 'kill SIGKILL']);
+    const r = await B.run(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { timeoutMs: 300 });
+    assert.equal(r.code, -2); assert.match(r.err, /已停止/);
+  }
 
   // 3d 每一步失败：不抛、码对、那一步 failed
   const fresh = async (at, home2) => {

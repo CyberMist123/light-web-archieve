@@ -1500,7 +1500,11 @@ vault/
 
 - `vault/_archive/setup-run.json`（`setup run` 每步状态一变就 `storage.write_json`，写不进去不挡安装）：
   `{"running": true|false, "pid": 1234, "started_at": "…", "updated_at": "…", "current": "sync"|null,
-    "stages": [{"id","label","state":"ok|skipped|failed","text"}], "result": null|{setup run 的 result 原样}}`。
+    "stages": [{"id","label","state":"ok|partial|skipped|waiting|failed","text"}], "result": null|{setup run 的 result 原样}}`。
+  1104：`state` 多 `partial`（子命令退出码 2 / 3 = 做了一部分，`text` 带子命令结果里的原因）和 `waiting`（小红书等扫码，不算失败）；
+  顶层多 `"detail"`（这一步正在做的那件事：装哪一项、等限频），换了才落盘。整轮在锁 `~/.link-brain/locks/setup-run-<库路径哈希>.lock` 里：
+  同一个收藏库已有一轮在跑时，后到的不碰这个文件，result 是 `{"ok": false, "code": "TRANSIENT.BUSY", "busy": true}`、退出码 6。
+  中途出意外也收尾成 `running=false` + `result.code = "TRANSIENT.STEP_CRASHED"`。result 多 `synced`（这一轮同步那步做没做）。
   `running=true` 且 pid 活着 = 还在后台跑（插件续画）；`running=true` 而 pid 死了 = 上次没跑完（插件按 `current` / 最后一条 stage 说停在哪一步）；
   `running=false` 时 `result` 一定在。谁写：只有 `setup.pipeline.run`；谁读：插件 home-ui（打开设置页 / 启动时）。
 - `~/.link-brain/logs/setup-run.log`：stdout 管道断了之后 `stdout_emit` 的兜底，每行「时间 + 原来那一行 JSON」，第一行是一条 `{"type":"note"}` 说明为什么改写到这里。只追加。

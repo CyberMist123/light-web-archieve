@@ -17,11 +17,10 @@ def _settings(selected, **extra):
 
 def _run(monkeypatch, *, child=None, check=None, install=None):
     monkeypatch.setattr(components, "check", check or (lambda ids: {"ok": True, "results": [{"item_id": i, "status": "ready"} for i in ids]}))
-    if install:
-        monkeypatch.setattr(components, "install", install)
     monkeypatch.setattr(comment_fill, "spawn_worker", lambda: {"ok": True, "started": True})
     events = []
-    out = pipeline.run(events.append, child=child or (lambda args, **k: (0, False)), account_check=lambda: ("", ""), bili_check=lambda: False)
+    out = pipeline.run(events.append, child=child or (lambda args, **k: (0, False)), install=install,
+                       account_check=lambda: ("", ""), bili_check=lambda: False)
     return out, events
 
 
@@ -103,7 +102,7 @@ def test_settings_with_bom_are_still_read_and_patched():
     p = ai_config.data_json_path()
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_bytes(b"\xef\xbb\xbf" + json.dumps({"setup": {"selected": ["core", "ocr"]}}).encode("utf-8"))
-    assert pipeline.selected() == ["core", "ocr"]
+    assert pipeline.selected() == ["core", "reader", "ocr"]   # 读出来了（不是默认）；1104：必选的读取组件补齐
     out = apply_settings_patch({"ocr": {"modelDir": "D:/m"}})
     assert out["written"] is True
     assert ai_config.load()["ocr"]["modelDir"] == "D:/m" and ai_config.load()["setup"]["selected"] == ["core", "ocr"]

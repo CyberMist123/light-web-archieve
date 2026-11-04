@@ -57,7 +57,8 @@ def test_not_logged_in_waits_for_scan_without_failing_the_run(monkeypatch):
     out, calls, _ = _fake_env(monkeypatch, account=("NOT_LOGGED_IN", "小红书掉登录了：扫码登录"))
     assert [c[0] for c in calls] == ["catalog", "catalog"]   # 1103：目录先有 + 收尾
     assert out["ok"] is True and out["code"] == "NEEDS_HUMAN.NOT_LOGGED_IN"
-    assert out["message"] == "装好了；" + pipeline.LOGIN_WAIT_TEXT
+    assert out["message"] == "装好了，还没同步：" + pipeline.LOGIN_WAIT_TEXT   # 1104：等扫码不说成「都跑完了」
+    assert out["synced"] is False
     st = {s["id"]: s["state"] for s in out["stages"]}
     assert st["login"] == "waiting" and st["sync"] == "skipped" and st["comments"] == "skipped" and st["install"] == "ok"
 

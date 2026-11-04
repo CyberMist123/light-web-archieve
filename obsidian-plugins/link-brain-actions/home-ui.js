@@ -13,8 +13,9 @@
 'use strict';
 
 const LIGHT = ['core', 'reader', 'ocr'];
+const REQUIRED_FALLBACK = ['core', 'reader'];   // 功能清单没读回时的必选项（components.py required）
 const STATUS_TEXT = { ready: '已装好', missing: '还没装', partial: '没装全', failed: '没装上', unknown: '没查出来', needs_key: '要填密钥' };
-const STAGE_MARK = { running: '⟳', ok: '✓', skipped: '–', failed: '✗', waiting: '…' };   // waiting：小红书等扫码（1103，不算失败）
+const STAGE_MARK = { running: '⟳', ok: '✓', skipped: '–', failed: '✗', waiting: '…', partial: '◐' };   // 1104：partial = 做了一部分   // waiting：小红书等扫码（1103，不算失败）
 const AI_CAP = { ai_text: 'textAI', ai_vision: 'visionAI' };
 // 1010：给新手看的名字（后端 setup plan 的名字是给命令行 / 日志的，这里只换说法）。price：'free' = 本机跑；数组 = setup estimate 的哪几项
 const FEATURE_TEXT = {
@@ -57,7 +58,7 @@ function runFromState(state, alive) {
   return run;
 }
 const STAGE_LABEL = { catalog_first: '生成目录页', install: '装好要用的组件', login: '确认小红书登录', sync: '同步收藏（含 OCR / 识图 / 概要）', enrich: '补识图 / 概要',
-  catalog: '整理目录', embed: '建语义索引', comments: '评论补齐（读不完的后台接着补）' };
+  albums: '读小红书专辑', catalog: '整理目录', embed: '建语义索引', comments: '评论补齐（读不完的后台接着补）' };
 
 const num = v => (v === null || v === undefined || v === '' || typeof v === 'boolean' || !Number.isFinite(Number(v)) ? null : Number(v));
 // 1028：后台补评论多久没刷新算停了——状态文件里 Python 写的 stale_min 优先（comment_fill.STALE_MIN），旧文件按 15 分钟
@@ -183,8 +184,11 @@ module.exports = function homeUI(obsidian, plugin) {
     if (!s.setup || typeof s.setup !== 'object') s.setup = {};
     return s.setup;
   };
-  const save = () => Promise.resolve(plugin.saveSettings()).catch(e => new Notice('没保存上：' + e.message, 8000));
+  // 1104（审查 5）：返回存没存上——开跑前存不上就不开跑（后端会按磁盘上的旧选择跑）
+  const save = () => Promise.resolve(plugin.saveSettings()).then(() => true, e => { new Notice('没保存上：' + e.message, 8000); return false; });
   const comps = () => S().plan?.components || [];
+  // 1104（审查 1）：选择一律补齐必选项 / 依赖（读取组件是必选）——和后端 setup.selected() 同一口径；功能清单还没读回时按轻量版的必选两项补
+  const normSel = ids => comps().length ? withDeps(ids, comps()) : [...new Set([...REQUIRED_FALLBACK, ...(ids || [])])];
   const selected = () => initialSelection(setup().selected, S().plan);
   // 1010：本机那几样（认字 / 语音转文字 / CapsLock 说话）的开关显示「实际在用的」：选过，或者装好了而且设置里正开着——
   // 老用户的选择列表里可能没有，但其实一直在用（比如一直按 CapsLock 说话），开关要和实际对得上
@@ -220,7 +224,9 @@ module.exports = function homeUI(obsidian, plugin) {
     if (st.plan && !force) return st.plan;
     if (st.planLoading) {
       if (!force) return st.planLoading;
-      try { await st.planLoading; } catch {}
+      // 1104（审查 2）：强制刷新撞上进行中的查询——不各自再起一份：所有人合并成「等这份完了再查一次」，最多当前一份 + 后续一份
+      if (!st.planNext) st.planNext = st.planLoading.catch(() => {}).then(() => { st.planNext = null; return loadPlan(true); });
+      return st.planNext;
     }
     st.planLoading = (async () => {
       try {
@@ -229,7 +235,9 @@ module.exports = function homeUI(obsidian, plugin) {
         st.plan = json; st.planError = null;
       } catch (e) { st.planError = e; }
       finally { st.planLoading = null; }
-      if (plugin.v6Cache) delete plugin.v6Cache.usage;
+      // 1104（审查 2）：用量缓存只在那份查询已经回来时作废——正在查的那份别删（删了设置页重画又起一份）
+      const u = plugin.v6Cache && plugin.v6Cache.usage;
+      if (u && u.done) delete plugin.v6Cache.usage;
       repaint();
       return st.plan;
     })();
@@ -263,9 +271,9 @@ module.exports = function homeUI(obsidian, plugin) {
       const got = await installBackend({ quiet });
       if (!got || !got.ok) return got;
     }
-    if (!Array.isArray(setup().selected)) setup().selected = selected();
+    setup().selected = Array.isArray(setup().selected) ? normSel(setup().selected) : selected();
     setup().runVault = plugin.vaultDir || '';   // 1103：这一轮写到哪（收藏位置本轮钉死；改了下一轮生效，续画按它读）
-    await save();
+    if (!(await save())) { plugin.notify('设置没存上，这一轮先不跑（后台会按旧设置跑）：存好再点一次', { kind: 'error' }); return null; }
     st.run = { state: 'running', stages: {}, current: null, install: null, result: null, startedAt: Date.now() };
     repaint();
     let lineFrame = null;
@@ -275,6 +283,8 @@ module.exports = function homeUI(obsidian, plugin) {
       onLine: line => {
         let ev; try { ev = JSON.parse(line); } catch { return; }
         applyRunEvent(st.run, ev);
+        // 1104（审查 5）：装好一项带回的设置补丁（如 OCR 模型目录）按字段合进内存再存，免得下次保存把后端写的盖掉
+        if (ev.settings_patch && ev.component) { mergeInto(plugin.settings, ev.settings_patch); save(); }
         // 1103：装完一项 / 装组件那一步结束 → 马上重读功能清单（各处「装没装」跟着变），不等整轮几小时跑完
         if (ev.stage === 'install' && (ev.state === 'ok' || ev.state === 'failed')) loadPlan(true).catch(() => {});
         const sg = ev.stage && st.run.stages[ev.stage];
@@ -330,7 +340,13 @@ module.exports = function homeUI(obsidian, plugin) {
     const st = S();
     if (st.run || plugin.running) return st.run || null;
     const state = await readRunState();
-    if (!state || (!state.running && !st.resumeWatching)) return null;   // 跑完了的旧结果不重放；只接「还在跑」或「没跑完」
+    if (!state) return null;
+    if (!state.running && !st.resumeWatching) {
+      // 1104（审查 9）：上一轮已经跑完（可能是 Obsidian 关着时在后台跑完的）——把结果接回来显示，不弹通知、不当成在跑
+      const done = state.result && typeof state.result === 'object' ? runFromState(state, false) : null;
+      if (done && done.result) { st.run = done; repaint(); }
+      return st.run || null;
+    }
     if (st.run) return st.run;
     const run = runFromState(state, alive(state.pid));
     if (!run) return null;
@@ -416,6 +432,9 @@ module.exports = function homeUI(obsidian, plugin) {
     let fresh = true;
     try { fresh = !(await plugin.app.vault.adapter.exists(plugin.lbPath('_archive/catalog-data.json'))); } catch { fresh = true; }
     if (!fresh) { await save(); return 'existing-library'; }   // 老库（作者本机）：只记一笔，选择不动
+    // 1104（审查 10，作者定）：新库不预设内置的那套分类（是作者个人的），内容先进「未归类」；老库没有这个键，照旧
+    const ps = plugin.settings;
+    if (!(Array.isArray(ps.catalogCats) && ps.catalogCats.length) && !ps.catalogCatsPreset) ps.catalogCatsPreset = 'none';
     if (!Array.isArray(s.selected)) s.selected = [...LIGHT];
     await save();
     // 1103 作者：全自动、不要「开始」——直接把人带到「懒人安装」卡片（上面能边跑边改选项，下面是进度）；已经开着就不重画（别冲掉正在填的）
@@ -765,7 +784,7 @@ module.exports = function homeUI(obsidian, plugin) {
     const cur = before || [...LIGHT];
     // 关掉认字顺带关识图、关掉语音转文字顺带关 CapsLock（它们靠前者）
     const deps = { ocr: ['ai_vision'], asr: ['capslock'] }[id] || [];
-    s.selected = on ? [...new Set([...cur, id])] : cur.filter(x => x !== id && !deps.includes(x));
+    s.selected = normSel(on ? [...new Set([...cur, id])] : cur.filter(x => x !== id && !deps.includes(x)));
     const snap = snapRuntime();
     const ps = plugin.settings;
     if (id === 'ocr' && ps.ocr) ps.ocr.mode = on ? (ps.ocr.mode && ps.ocr.mode !== 'off' ? ps.ocr.mode : 'local') : 'off';

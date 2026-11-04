@@ -209,6 +209,64 @@ const PLAN = { ok: true, components: [
     assert.equal(await h2.firstRun(), 'started');
     assert.deepEqual(r.settings.setup.selected, ['core', 'reader', 'ocr'], '新库：轻量版');
     assert.match(told[0], /正在自动安装并同步：进度在设置页「懒人安装」/);   // 1103：全自动，直接带到懒人安装卡片
+    // 1104（审查 10）：新库不预设内置分类；老库不写这个键
+    assert.equal(r.settings.catalogCatsPreset, 'none');
+    assert.equal(q.settings.catalogCatsPreset, undefined);
+  }
+
+  // —— 1104 安装审查：选择补齐必选、强制刷新合并、存不上不开跑、装好一项带回的设置补丁合进内存 ——
+  {
+    const q = new Plugin();
+    q.app = { vault: { adapter: { exists: async () => false, read: async () => { throw new Error('no'); } } } };
+    q.lbPath = x => x; q.settings = { setup: { selected: ['core', 'ocr'] }, ocr: { mode: 'local' } };
+    q.saveSettings = async () => {}; q.notify = () => {};
+    q.currentBackend = () => ({ mode: 'managed' });
+    let plans = 0, inflight = 0, maxInflight = 0;
+    const gates = [];
+    q.runPy = async args => {
+      if (args.join(' ').includes('setup plan')) {
+        plans++; inflight++; maxInflight = Math.max(maxInflight, inflight);
+        await new Promise(r => gates.push(r));
+        inflight--;
+        return { json: PLAN };
+      }
+      return { json: null };
+    };
+    const h = homeFactory(OBS, q);
+    // 审查 2：一份在查，再来三次强制刷新 → 合并成「当前一份 + 后续一份」
+    const p0 = h.loadPlan(true), p1 = h.loadPlan(true), p2 = h.loadPlan(true), p3 = h.loadPlan(true);
+    await flush(); assert.equal(plans, 1);
+    gates.shift()(); await flush();
+    assert.equal(plans, 2, '后续只再查一次'); assert.equal(maxInflight, 1, '同时最多一份');
+    gates.shift()(); await Promise.all([p0, p1, p2, p3]);
+    assert.equal(plans, 2);
+    // 审查 1：懒人卡片改开关时，缺的必选读取组件补上
+    await h.setChoice?.('ocr', true);
+    if (h.setChoice) assert.ok(q.settings.setup.selected.includes('reader'), '补齐必选的读取组件');
+  }
+  {
+    // 审查 5：开跑前设置存不上 → 不开跑；装好一项带回 settings_patch → 合进内存
+    const q = new Plugin();
+    q.app = { vault: { adapter: { exists: async () => false, read: async () => { throw new Error('no'); } } } };
+    q.lbPath = x => x; q.settings = { setup: { selected: ['core', 'ocr'] }, ocr: { mode: 'local', other: 1 } };
+    q.notify = () => {}; q.currentBackend = () => ({ mode: 'managed' });
+    q.runPy = async () => ({ json: PLAN });
+    q.saveSettings = async () => { throw new Error('磁盘满'); };
+    let spawned = 0;
+    q.spawnPy = async () => { spawned++; return { code: 0, json: { type: 'result', ok: true, message: '好' } }; };
+    const h = homeFactory(OBS, q);
+    await h.loadPlan(true);
+    assert.equal(await h.runAll({ quiet: true }), null); assert.equal(spawned, 0, '存不上就不起 setup run');
+    q.saveSettings = async () => {};
+    q.spawnPy = async (args, o) => {
+      spawned++;
+      o.onLine(JSON.stringify({ type: 'progress', stage: 'install', component: 'ocr', state: 'ok', status: 'ready', settings_patch: { ocr: { modelDir: 'M' } } }));
+      return { code: 0, json: { type: 'result', ok: true, message: '好', stages: [] } };
+    };
+    await h.runAll({ quiet: true });
+    assert.equal(spawned, 1);
+    assert.deepEqual(q.settings.ocr, { mode: 'local', other: 1, modelDir: 'M' }, '按字段合并，别的字段不动');
+    assert.deepEqual(q.settings.setup.selected, ['core', 'reader', 'ocr'], '开跑前选择补齐');
   }
 
   // —— 4. spawnPy 的 onLine：碎块拼成整行；最后一行没换行也给；onChild 拿到子进程 ——
@@ -366,10 +424,14 @@ const PLAN = { ok: true, components: [
     // 本会话自己在跑时不碰
     q.homeState = { plan: PLAN, run: { state: 'running', stages: {}, result: null } };
     assert.equal((await h.resumeRun()).state, 'running');
-    // 跑完了的旧结果不重放
+    // 1104（审查 9）：跑完了的旧结果接回来显示（Obsidian 关着时在后台跑完的也看得到），但不算在跑、不盯文件
     files['_archive/setup-run.json'] = JSON.stringify({ ...stateFile, running: false, result: { ok: true, message: '旧' } });
     q.homeState = { plan: PLAN };
-    assert.equal(await h.resumeRun(), null);
+    const old = await h.resumeRun();
+    assert.equal(old.state, 'done'); assert.equal(old.result.message, '旧');
+    q.homeState = { plan: PLAN };
+    files['_archive/setup-run.json'] = '{"running": false, "stages": [], "result": null}';
+    assert.equal(await h.resumeRun(), null, '没有结果的旧文件不显示');
     // 启动（firstRun）也接：记过 firstRunAt 的老用户照样续画
     files['_archive/setup-run.json'] = JSON.stringify(stateFile); alive = true;
     q.homeState = { plan: PLAN }; q.settings.setup.firstRunAt = '2026-10-01T00:00:00Z';

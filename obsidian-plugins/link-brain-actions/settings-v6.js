@@ -131,13 +131,20 @@ module.exports = function (obsidian, plugin) {
   function cached(key, ttl, load) {
     const hit = cache[key];
     if (hit && hit.promise && Date.now() - hit.at < ttl) return hit.promise;
-    const promise = load().catch(e => { delete cache[key]; throw e; });
-    cache[key] = { at: Date.now(), promise };
-    return promise;
+    const entry = { at: Date.now(), promise: null, done: false };
+    entry.promise = load().then(v => { entry.done = true; return v; }, e => { if (cache[key] === entry) delete cache[key]; throw e; });
+    cache[key] = entry;
+    return entry.promise;
   }
+  // 1104（审查 2）：首轮装后端 / 装组件那几分钟，用量、本机 AI 应用这类不急的查询先排队（不占 CPU、也不消耗它自己的超时），装完再查
+  const installing = () => {
+    try { if (plugin.backendInstalling?.()) return true; const run = home()?.state?.().run; return !!(run && run.state === 'running' && run.current === 'install'); } catch { return false; }
+  };
+  const whenIdle = async () => { for (let i = 0; i < 400 && installing(); i++) await new Promise(r => setTimeout(r, 3000)); };
   const loadUsage = (force = false) => {
     if (force) delete cache.usage;
     return cached('usage', 60000, async () => {
+      await whenIdle();
       const r = await plugin.runPy(['-m', 'link_brain', 'usage'], { label: '读 AI 用量', timeoutMs: 45000, fallback: '没读出来' });
       if (!r.json || r.json.ok === false) throw new Error((r.json && r.json.message) || '没读出来');
       return r.json;
@@ -147,6 +154,7 @@ module.exports = function (obsidian, plugin) {
     if (force) delete cache.apps;
     // 1101：照 Claudian（CachedProviderCLIResolver）——检测结果记在插件上，Obsidian 开着期间只检测一次；接 / 断、点重试才重新检测
     return cached('apps', Infinity, async () => {
+      await whenIdle();
       const r = await plugin.runPy(['-m', 'link_brain', 'connect', 'status'], { label: '本机 AI 应用', timeoutMs: 60000, fallback: '没读出来' });
       if (!r.json || r.json.ok === false) throw new Error((r.json && r.json.message) || '没读出来');
       return r.json;

@@ -22,8 +22,8 @@ def test_selected_default_and_copy(monkeypatch, tmp_path):
     assert result is not pipeline.LIGHT
     configured = ["core", "ai_text"]
     monkeypatch.setattr(ai_config, "load", lambda: {"setup": {"selected": configured}})
-    assert pipeline.selected() == configured
-    assert pipeline.selected() is not configured
+    assert pipeline.selected() == ["core", "reader", "ai_text"]   # 1104：必选的读取组件补齐
+    assert configured == ["core", "ai_text"]
 
 
 def test_selected_load_failure(monkeypatch, tmp_path):
@@ -87,5 +87,5 @@ def test_ai_run_partial_sync_and_catalog_timeout(isolated, monkeypatch):
     assert calls == ["catalog", "sync-favorites", "enrich", "albums", "catalog", "embed"]
     assert not result["ok"]
     states = {r["id"]: r["state"] for r in result["stages"]}
-    assert states["sync"] == states["enrich"] == states["embed"] == "ok"
+    assert states["sync"] == states["enrich"] == states["embed"] == "partial"   # 1104：退出码 2 = 做了一部分，不再记成完成
     assert states["catalog"] == states["catalog_first"] == "failed"

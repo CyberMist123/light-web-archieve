@@ -6679,16 +6679,33 @@ var require_settings_v6 = __commonJS({
       function cached(key, ttl, load) {
         const hit = cache[key];
         if (hit && hit.promise && Date.now() - hit.at < ttl) return hit.promise;
-        const promise = load().catch((e) => {
-          delete cache[key];
+        const entry = { at: Date.now(), promise: null, done: false };
+        entry.promise = load().then((v) => {
+          entry.done = true;
+          return v;
+        }, (e) => {
+          if (cache[key] === entry) delete cache[key];
           throw e;
         });
-        cache[key] = { at: Date.now(), promise };
-        return promise;
+        cache[key] = entry;
+        return entry.promise;
       }
+      const installing = () => {
+        try {
+          if (plugin.backendInstalling?.()) return true;
+          const run = home()?.state?.().run;
+          return !!(run && run.state === "running" && run.current === "install");
+        } catch {
+          return false;
+        }
+      };
+      const whenIdle = async () => {
+        for (let i = 0; i < 400 && installing(); i++) await new Promise((r) => setTimeout(r, 3e3));
+      };
       const loadUsage = (force = false) => {
         if (force) delete cache.usage;
         return cached("usage", 6e4, async () => {
+          await whenIdle();
           const r = await plugin.runPy(["-m", "link_brain", "usage"], { label: "读 AI 用量", timeoutMs: 45e3, fallback: "没读出来" });
           if (!r.json || r.json.ok === false) throw new Error(r.json && r.json.message || "没读出来");
           return r.json;
@@ -6697,6 +6714,7 @@ var require_settings_v6 = __commonJS({
       const loadApps = (force = false) => {
         if (force) delete cache.apps;
         return cached("apps", Infinity, async () => {
+          await whenIdle();
           const r = await plugin.runPy(["-m", "link_brain", "connect", "status"], { label: "本机 AI 应用", timeoutMs: 6e4, fallback: "没读出来" });
           if (!r.json || r.json.ok === false) throw new Error(r.json && r.json.message || "没读出来");
           return r.json;
@@ -9853,8 +9871,9 @@ var require_home_ui = __commonJS({
   "obsidian-plugins/link-brain-actions/home-ui.js"(exports2, module2) {
     "use strict";
     var LIGHT = ["core", "reader", "ocr"];
+    var REQUIRED_FALLBACK = ["core", "reader"];
     var STATUS_TEXT = { ready: "已装好", missing: "还没装", partial: "没装全", failed: "没装上", unknown: "没查出来", needs_key: "要填密钥" };
-    var STAGE_MARK = { running: "⟳", ok: "✓", skipped: "–", failed: "✗", waiting: "…" };
+    var STAGE_MARK = { running: "⟳", ok: "✓", skipped: "–", failed: "✗", waiting: "…", partial: "◐" };
     var AI_CAP = { ai_text: "textAI", ai_vision: "visionAI" };
     var FEATURE_TEXT = {
       core: { name: "程序本体", short: "程序", desc: "同步、浏览、关键词搜索" },
@@ -9920,6 +9939,7 @@ var require_home_ui = __commonJS({
       login: "确认小红书登录",
       sync: "同步收藏（含 OCR / 识图 / 概要）",
       enrich: "补识图 / 概要",
+      albums: "读小红书专辑",
       catalog: "整理目录",
       embed: "建语义索引",
       comments: "评论补齐（读不完的后台接着补）"
@@ -10071,8 +10091,12 @@ var require_home_ui = __commonJS({
         if (!s.setup || typeof s.setup !== "object") s.setup = {};
         return s.setup;
       };
-      const save = () => Promise.resolve(plugin.saveSettings()).catch((e) => new Notice3("没保存上：" + e.message, 8e3));
+      const save = () => Promise.resolve(plugin.saveSettings()).then(() => true, (e) => {
+        new Notice3("没保存上：" + e.message, 8e3);
+        return false;
+      });
       const comps = () => S().plan?.components || [];
+      const normSel = (ids) => comps().length ? withDeps(ids, comps()) : [.../* @__PURE__ */ new Set([...REQUIRED_FALLBACK, ...ids || []])];
       const selected = () => initialSelection(setup().selected, S().plan);
       const runtimeOn = (id) => {
         const s = plugin.settings || {};
@@ -10106,10 +10130,12 @@ var require_home_ui = __commonJS({
         if (st.plan && !force) return st.plan;
         if (st.planLoading) {
           if (!force) return st.planLoading;
-          try {
-            await st.planLoading;
-          } catch {
-          }
+          if (!st.planNext) st.planNext = st.planLoading.catch(() => {
+          }).then(() => {
+            st.planNext = null;
+            return loadPlan(true);
+          });
+          return st.planNext;
         }
         st.planLoading = (async () => {
           try {
@@ -10122,7 +10148,8 @@ var require_home_ui = __commonJS({
           } finally {
             st.planLoading = null;
           }
-          if (plugin.v6Cache) delete plugin.v6Cache.usage;
+          const u = plugin.v6Cache && plugin.v6Cache.usage;
+          if (u && u.done) delete plugin.v6Cache.usage;
           repaint();
           return st.plan;
         })();
@@ -10169,9 +10196,12 @@ var require_home_ui = __commonJS({
           const got = await installBackend({ quiet });
           if (!got || !got.ok) return got;
         }
-        if (!Array.isArray(setup().selected)) setup().selected = selected();
+        setup().selected = Array.isArray(setup().selected) ? normSel(setup().selected) : selected();
         setup().runVault = plugin.vaultDir || "";
-        await save();
+        if (!await save()) {
+          plugin.notify("设置没存上，这一轮先不跑（后台会按旧设置跑）：存好再点一次", { kind: "error" });
+          return null;
+        }
         st.run = { state: "running", stages: {}, current: null, install: null, result: null, startedAt: Date.now() };
         repaint();
         let lineFrame = null;
@@ -10190,6 +10220,10 @@ var require_home_ui = __commonJS({
               return;
             }
             applyRunEvent(st.run, ev);
+            if (ev.settings_patch && ev.component) {
+              mergeInto(plugin.settings, ev.settings_patch);
+              save();
+            }
             if (ev.stage === "install" && (ev.state === "ok" || ev.state === "failed")) loadPlan(true).catch(() => {
             });
             const sg = ev.stage && st.run.stages[ev.stage];
@@ -10263,7 +10297,15 @@ ${String(r.all || r.err || "").trim()}`);
         const st = S();
         if (st.run || plugin.running) return st.run || null;
         const state = await readRunState();
-        if (!state || !state.running && !st.resumeWatching) return null;
+        if (!state) return null;
+        if (!state.running && !st.resumeWatching) {
+          const done = state.result && typeof state.result === "object" ? runFromState(state, false) : null;
+          if (done && done.result) {
+            st.run = done;
+            repaint();
+          }
+          return st.run || null;
+        }
         if (st.run) return st.run;
         const run = runFromState(state, alive(state.pid));
         if (!run) return null;
@@ -10402,6 +10444,8 @@ ${String(r.all || r.err || "").trim()}`);
           await save();
           return "existing-library";
         }
+        const ps = plugin.settings;
+        if (!(Array.isArray(ps.catalogCats) && ps.catalogCats.length) && !ps.catalogCatsPreset) ps.catalogCatsPreset = "none";
         if (!Array.isArray(s.selected)) s.selected = [...LIGHT];
         await save();
         try {
@@ -10817,7 +10861,7 @@ ${String(r.all || r.err || "").trim()}`);
         const before = Array.isArray(s.selected) ? [...s.selected] : null;
         const cur = before || [...LIGHT];
         const deps = { ocr: ["ai_vision"], asr: ["capslock"] }[id] || [];
-        s.selected = on ? [.../* @__PURE__ */ new Set([...cur, id])] : cur.filter((x) => x !== id && !deps.includes(x));
+        s.selected = normSel(on ? [.../* @__PURE__ */ new Set([...cur, id])] : cur.filter((x) => x !== id && !deps.includes(x)));
         const snap = snapRuntime();
         const ps = plugin.settings;
         if (id === "ocr" && ps.ocr) ps.ocr.mode = on ? ps.ocr.mode && ps.ocr.mode !== "off" ? ps.ocr.mode : "local" : "off";
@@ -11153,16 +11197,69 @@ var require_backend_install = __commonJS({
           buf = "";
           resolve({ code, out, err: e ? err + e : err });
         };
+        let timedOut = false;
         child.on("error", (e) => finish(-1, e.message));
-        child.on("close", (code) => finish(code == null ? -1 : code));
+        child.on("close", (code) => finish(timedOut ? -2 : code == null ? -1 : code, timedOut ? `超过 ${Math.round(timeoutMs / 6e4)} 分钟没有结果，已停止` : void 0));
         if (timeoutMs > 0) timer = setTimeout(() => {
-          try {
-            child.kill();
-          } catch {
-          }
-          finish(-2, `超过 ${Math.round(timeoutMs / 6e4)} 分钟没有结果，已停止`);
+          timedOut = true;
+          killTree(child);
+          setTimeout(() => finish(-2, `超过 ${Math.round(timeoutMs / 6e4)} 分钟没有结果，已停止`), 5e3);
         }, timeoutMs);
       });
+    }
+    function killTree(child, { platform = process.platform, spawnSyncImpl = require("child_process").spawnSync } = {}) {
+      if (isWin(platform) && child && child.pid) {
+        try {
+          spawnSyncImpl("taskkill", ["/PID", String(child.pid), "/T", "/F"], { windowsHide: true, timeout: 15e3 });
+        } catch {
+        }
+      }
+      try {
+        child.kill("SIGKILL");
+      } catch {
+      }
+    }
+    var INSTALL_LOCK_STALE_MS = 3 * 36e5;
+    function pidAlive(pid) {
+      try {
+        process.kill(pid, 0);
+        return true;
+      } catch (e) {
+        return !!(e && e.code === "EPERM");
+      }
+    }
+    function takeInstallLock(home, { now = Date.now(), alive = pidAlive, pid = process.pid } = {}) {
+      const file = path2.join(home, "locks", "backend-install.lock");
+      fs2.mkdirSync(path2.dirname(file), { recursive: true });
+      for (let i = 0; i < 2; i++) {
+        try {
+          const fd = fs2.openSync(file, "wx");
+          fs2.writeSync(fd, JSON.stringify({ pid, started: now, owner: "装后端" }));
+          fs2.closeSync(fd);
+          return { ok: true, release: () => {
+            try {
+              const cur = JSON.parse(fs2.readFileSync(file, "utf8"));
+              if (cur.pid === pid) fs2.unlinkSync(file);
+            } catch {
+            }
+          } };
+        } catch (e) {
+          if (!e || e.code !== "EEXIST") return { ok: true, release: () => {
+          } };
+          let cur = null;
+          try {
+            cur = JSON.parse(fs2.readFileSync(file, "utf8"));
+          } catch {
+          }
+          const stale = !cur || !Number.isFinite(cur.pid) || !alive(cur.pid) || now - (Number(cur.started) || 0) > INSTALL_LOCK_STALE_MS;
+          if (!stale) return { ok: false, holder: cur };
+          try {
+            fs2.unlinkSync(file);
+          } catch {
+          }
+        }
+      }
+      return { ok: false, holder: null };
     }
     var lastLine = (r) => String(r.err || r.out || "").trim().split("\n").filter(Boolean).pop() || `退出码 ${r.code}`;
     function uvEnv(home, base = process.env) {
@@ -11209,10 +11306,31 @@ var require_backend_install = __commonJS({
     async function selfCheck(dir, { platform = process.platform, runImpl = run, env = process.env } = {}) {
       const exe = venvBackend(dir, platform), py = venvPython(dir, platform);
       const r = await runImpl(exe, ["version"], { env, timeoutMs: 12e4 });
-      if (r.code === 0) return { ok: true, exe, python: py, version: String(r.out || "").trim().split("\n").pop() || "" };
-      const r2 = await runImpl(py, ["-m", "link_brain", "--help"], { env, timeoutMs: 12e4 });
-      if (r2.code === 0) return { ok: true, exe, python: py, version: "" };
-      return fail("PERMANENT.BAD_PACKAGE", "装好了但跑不起来：" + lastLine(r.code === -1 ? r2 : r), { exe, python: py });
+      if (r.code !== 0) {
+        const r2 = await runImpl(py, ["-m", "link_brain", "--help"], { env, timeoutMs: 12e4 });
+        if (r2.code !== 0) return fail("PERMANENT.BAD_PACKAGE", "装好了但跑不起来：" + lastLine(r.code === -1 ? r2 : r), { exe, python: py });
+      }
+      const version = versionText(r.code === 0 ? r.out : "");
+      const k = await runImpl(exe, ["setup", "check", "--components", "core"], { env, timeoutMs: 18e4 });
+      if (k.code !== 0) {
+        let why = "";
+        try {
+          const j = JSON.parse(String(k.out || "").trim().split("\n").pop());
+          why = j && (j.message || j.results && j.results[0] && (j.results[0].detail || j.results[0].fix_hint)) || "";
+        } catch {
+        }
+        return fail("PERMANENT.BAD_PACKAGE", "装好了，但核心功能跑不起来：" + (why || lastLine(k)), { exe, python: py });
+      }
+      return { ok: true, exe, python: py, version };
+    }
+    function versionText(out) {
+      const last = String(out || "").trim().split("\n").pop() || "";
+      try {
+        const j = JSON.parse(last);
+        if (j && j.version) return String(j.version);
+      } catch {
+      }
+      return last.slice(0, 40);
     }
     function uvInstallMeter() {
       let pkgs = 0, big = 0, got = 0;
@@ -11271,6 +11389,7 @@ var require_backend_install = __commonJS({
         progress(stage, { state: "failed", text: r.message });
         return { ...r, stages };
       };
+      let lock = null;
       try {
         const uvEnvironment = uvEnv(home, env);
         const asset = uvRelease ? uvRelease.asset : uvAsset(platform, arch);
@@ -11289,6 +11408,11 @@ var require_backend_install = __commonJS({
         if (!release.wheelSha256 || !release.lockSha256) {
           progress("install", { state: "failed", text: "后端发布包还没发布" });
           return { ...fail("SKIPPED.NOT_CONFIGURED", `后端发布包（v${release.version}）还没发布：等作者发出 Release 后更新插件再点一次`), stages };
+        }
+        lock = takeInstallLock(home);
+        if (!lock.ok) {
+          progress("uv", { state: "failed", text: "另一个窗口正在装" });
+          return { ...fail("TRANSIENT.BUSY", "另一个 Obsidian 窗口正在装后端（共用同一份），等它装完这里会自己认到；过几分钟再点一次也行"), stages };
         }
         progress("uv", { text: "检查…" });
         let haveUv = fs2.existsSync(uv) && (await runImpl(uv, ["--version"], { env: uvEnvironment, timeoutMs: 6e4 })).code === 0;
@@ -11374,6 +11498,8 @@ var require_backend_install = __commonJS({
         return { ok: true, code: "", message: (upgrade ? "后端已更新到 " : "后端装好了：") + `link-brain ${release.version}` + (c.version ? `（${c.version}）` : ""), dir: targetDir, python: c.python, exe: c.exe, stages };
       } catch (e) {
         return { ...fail(e && e.code === "ENOSPC" ? "PERMANENT.DISK_FULL" : "PERMANENT.BAD_PACKAGE", "安装后端时出错：" + (e && e.message || e)), stages };
+      } finally {
+        if (lock && lock.release) lock.release();
       }
     }
     function fileUrl(p) {
@@ -11420,6 +11546,9 @@ var require_backend_install = __commonJS({
       };
     }
     module2.exports = {
+      takeInstallLock,
+      killTree,
+      versionText,
       ensureBackend,
       rollbackBackend,
       managedInfo,
@@ -12580,6 +12709,8 @@ var DEFAULT_SETTINGS = {
   // 目录页顶部大类筛选（空=用内置 BIG_CATS）；形如 [{name, keywords:[...]}]。10-10 起目录分类以 索引.md 为准，
   // 这一项只在第一次生成 索引.md 时用来迁移（顶部分类和原来一样），之后不再读。
   catalogCats: [],
+  catalogCatsPreset: "",
+  // 1104：'none' = 新库不预设内置分类（首轮自动跑写入；后端 catalog.effective_big_cats 读）
   // 10-10 索引树：索引文件（收藏库根目录相对的 .md；空 = 索引.md）。和 link_brain/indextree.index_rel 同一规则。
   indexFile: "",
   hiddenCats: [],
@@ -13309,12 +13440,24 @@ var LinkBrainActions = class extends Plugin {
     if (this.app.workspace?.onLayoutReady) this.app.workspace.onLayoutReady(() => {
       this.onboardTimer = setTimeout(() => this.startupChecks().catch((e) => console.error("[lb] 启动检查没做完", e)), 1500);
     });
+    const firstRunBusy = () => {
+      try {
+        const r = this.homeState && this.homeState.run;
+        return this.backendInstalling() || !!(r && r.state === "running");
+      } catch {
+        return false;
+      }
+    };
     if (this.app.workspace?.onLayoutReady) this.app.workspace.onLayoutReady(() => {
-      this.fillTimer = setTimeout(() => this.ensureCommentFill("startup"), 9e4);
+      this.fillTimer = setTimeout(() => {
+        if (!firstRunBusy()) this.ensureCommentFill("startup");
+      }, 9e4);
     });
     if (this.app.workspace?.onLayoutReady) this.app.workspace.onLayoutReady(() => {
-      this.freshTimer = setTimeout(() => this.spawnPy(["-m", "link_brain", "catalog", "--if-dirty"]).catch(() => {
-      }), 2e4);
+      this.freshTimer = setTimeout(() => {
+        if (!firstRunBusy()) this.spawnPy(["-m", "link_brain", "catalog", "--if-dirty"]).catch(() => {
+        });
+      }, 2e4);
     });
     this.addCommand({ id: "open-onboarding", name: "打开设置", callback: () => this.openSetupPage("overview") });
     this.settingTab = new LinkBrainSettingTab(this.app, this);

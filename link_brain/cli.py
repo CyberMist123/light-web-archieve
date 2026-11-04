@@ -836,6 +836,13 @@ def _dispatch(args) -> int:
         finally:
             conn.close()
         print(f"回填 {len(done)} 个对象：" + (", ".join(done) if done else "(空)"))
+        failed = getattr(done, "failed", [])
+        # 1104：坏的那几篇逐条列出（不挡别的篇）；有失败就不退 0（CONVENTIONS §1.2）
+        for f in failed:
+            print(f"没回填：{f.get('item_id') or f.get('path')}：{f.get('error')}", file=sys.stderr)
+        if failed:
+            print(f"{len(failed)} 篇数据有问题没回填，其余已回填", file=sys.stderr)
+            return EXIT_ERROR
         return EXIT_OK
 
     if args.command == "attachments":

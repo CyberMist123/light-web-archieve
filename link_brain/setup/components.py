@@ -9,8 +9,11 @@ from ..errtext import errtext
 
 import importlib.util
 import os
+import queue
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -32,6 +35,7 @@ RAM_MEASURED = {
     "reader_idle": 20,
 }
 READER_BROWSER_EST = 300  # 估计：读收藏时开的无界面浏览器（Chromium 单标签页常见 250–400 MB），没实测
+PIP_TIMEOUT_S = 1800   # 1104：装一批依赖的总时限（含读输出全程）
 READER_EXE_MB = 27        # 发布包 reader-v0.2.0 解出来的实量：link-brain-reader.exe 16.0 MB + relatedfile.exe 10.7 MB
 READER_QUARANTINE_HINT = "；可能被杀毒软件隔离，去 Windows 安全中心恢复并加入排除"
 
@@ -66,6 +70,29 @@ IDS = [c["id"] for c in COMPONENTS]
 # 1102：不再需要的功能 id（老设置的 setup.selected 里可能还有）：check / install 当它不存在，不报「不认识」
 # dataview：页面改成 ```lb-page 块、由 LWA 插件自己显示（page-host.js），不再要 Dataview
 RETIRED = {"dataview": "不再需要 Dataview：目录页等由 LWA 插件自己显示"}
+
+
+def normalize_selection(ids: list[str]) -> list[str]:
+    """1104（审查 1）：补齐必选项（required）和依赖（depends），和插件 home-ui.js withDeps 同一口径；
+    认得的按 COMPONENTS 顺序排，不认得的（老配置里的 id）原样留在后面，不丢。"""
+    by_id = {c["id"]: c for c in COMPONENTS}
+    want: set[str] = set()
+
+    def add(cid: str) -> None:
+        if cid in want or cid not in by_id:
+            return
+        want.add(cid)
+        for d in by_id[cid].get("depends") or []:
+            add(d)
+    for cid in ids or []:
+        add(cid)
+    for c in COMPONENTS:
+        if c.get("required"):
+            add(c["id"])
+    extra = [x for x in dict.fromkeys(ids or []) if x not in by_id]
+    return [c["id"] for c in COMPONENTS if c["id"] in want] + extra
+
+
 PRESETS = {
     "light": ["core", "reader", "ocr"],
     "recommended": ["core", "reader", "ocr", "asr", "capslock", "ai_text"],
@@ -411,13 +438,34 @@ def _pip_install(component: str, specs: list[str], emit: Emit | None) -> None:
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8",
                             errors="replace", creationflags=flags)
     tail: list[str] = []
+    # 1104（审查 3）：计时覆盖读输出全程——以前先阻塞读完 stdout 才 wait(1800)，uv / pip 不出声也不退时这里没有时限
+    lines: queue.Queue = queue.Queue()
+
+    def pump() -> None:
+        try:
+            for raw in proc.stdout:  # type: ignore[union-attr]
+                lines.put(raw)
+        except (OSError, ValueError):
+            pass
+        finally:
+            lines.put(None)
+    threading.Thread(target=pump, daemon=True).start()
+    deadline = time.monotonic() + PIP_TIMEOUT_S
     try:
-        for line in proc.stdout:  # type: ignore[union-attr]
-            line = line.strip()
+        while True:
+            try:
+                raw = lines.get(timeout=max(0.1, min(1.0, deadline - time.monotonic())))
+            except queue.Empty:
+                raw = ""
+            if raw is None:
+                break
+            line = raw.strip()
             if line:
                 tail = (tail + [line])[-5:]
                 progress(emit, component, "安装", None, None, line[:200])
-        code = proc.wait(timeout=1800)
+            if time.monotonic() > deadline:
+                raise SetupError("TRANSIENT.TIMEOUT", f"装依赖超过 {PIP_TIMEOUT_S // 60} 分钟没装完，已停下（网络卡住了？再点一次会接着装）")
+        code = proc.wait(timeout=max(1.0, deadline - time.monotonic()))
     except BaseException:
         from .. import procs
         procs.kill_tree(proc.pid)

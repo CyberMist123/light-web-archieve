@@ -155,9 +155,12 @@ DEFAULTS: dict[str, Any] = {
     # 还存在用户 data.json 里的 false）不再读：现在扩词不走命令行模型、也不挡作答。
     # topK = 送进作答模型的最少篇数；实际篇数按 totalCharLimit 动态（每篇约 700 字，最多 20）。
     "retrieval": {"totalCharLimit": 8000, "fragChars": 800, "topK": 8, "queryExpand": True},
-    # 目录页顶部的大类筛选（catalog.py 读；空=用内置 BIG_CATS）。
+    # 目录页顶部的大类筛选（catalog.py 读；空=看 catalogCatsPreset）。
     # 形如 [{"name": "人机恋", "keywords": ["人机恋","ai伴侣"]}, ...]
     "catalogCats": [],
+    # 1104：catalogCats 为空时用不用内置 BIG_CATS（作者个人分类）。"none" = 不预设分类，内容进未归类（新库首轮由插件写）；
+    # 空 / 其他值 = 用内置（老库照旧——插件默认设置里 catalogCats 就是 []，老用户的 data.json 普遍存着空列表，不能拿它当「不要分类」）。
+    "catalogCatsPreset": "",
     "hiddenCats": [],
     "downloads": {"folder": str(Path.home() / "Downloads"), "waitMinutes": 5},
     # 收藏同步选项（0926 Owner）：评论楼层 all/10/20/50（0929 Owner：默认 10 楼，楼中楼照展开、评论图/语音照存；all 要滚全评论区，评论多的会超读取服务 10 分钟上限）；
