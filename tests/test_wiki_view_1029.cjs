@@ -382,7 +382,7 @@ const tocPage = (A, title) => A.qa('.lbw-tpage').find(b => b.textContent === tit
 
   // ── 没插件：只读（能看、能跳、能开原文；没有编辑框 / 新建 / 历史） ──
   {
-    const { A: C, app: app2 } = await open({ plugin: null });
+    const { A: C, app: app2 } = await open({ plugin: null, files: { 'Web/示例/it-1.md': '# it-1' } });
     assert.ok(C.q('.lbw-ro').textContent.includes('只能看'));
     assert.equal(C.q('.lbw-hbtn[data-hist]'), null, '没有历史');
     assert.ok(C.q('.lbw-hbtn.is-more'), '1101：「···」只读时也在（看的操作：目录首页 / 全部展开 / 全部收起）');
@@ -394,7 +394,7 @@ const tocPage = (A, title) => A.qa('.lbw-tpage').find(b => b.textContent === tit
     assert.equal(C.q('.lbw-ptitle').getAttribute('readonly'), '');
     assert.equal(C.q('.lbw-task input').disabled, true);
     C.q('.lbw-cite').click(); await tick(2);
-    assert.equal(app2.workspace.opened.at(-1)[0], 'Web/示例/it-1.md', '没插件：引用照样打开笔记');
+    assert.equal(app2.workspace.leaves.filter(l => l.opened.length).at(-1).opened.at(-1).path, 'Web/示例/it-1.md', '没插件：引用照样打开笔记（1103：按路径，LB.openNote）');
     assert.ok(C.q('.lbw-hint').textContent.includes('只能看'));
   }
   // 手机：只读那句

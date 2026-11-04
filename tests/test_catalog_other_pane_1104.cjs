@@ -53,8 +53,9 @@ function world(leaves) {
     const cat = leaf('cat', g1, 5);
     const w = world([cat]);
     assert.equal(w.LB.otherPane(), null);
-    w.openItem({ note: 'a.md' });
-    assert.deepEqual(w.opened, [['a.md', false]]);
+    w.openItem({ note: 'a.md' }); await new Promise(r => setTimeout(r, 0));
+    assert.deepEqual(cat.opened.map(o => o[0]), ['a.md'], '1103：本栏按路径打开（LB.openNote）');
+    assert.deepEqual(w.opened, [], '不走 openLinkText（老文件名带 # 时它会去新建同名文件）');
     assert.equal(w.env.leaving, true, '本栏打开：目录要走');
   }
   // 两栏，目录在左：在右边那栏打开；目录不走、不起 openLinkText
@@ -70,8 +71,9 @@ function world(leaves) {
     assert.equal(right.opened[0][1].active, false, '焦点留在目录，下一次点还是开在那一栏');
     assert.equal(w.env.leaving, false, '目录留在原地');
     // Ctrl：照 Obsidian 习惯开新标签
-    w.openItem({ note: 'c.md' }, { ctrlKey: true });
-    assert.deepEqual(w.opened, [['c.md', true]]);
+    w.openItem({ note: 'c.md' }, { ctrlKey: true }); await new Promise(r => setTimeout(r, 0));
+    assert.equal(cat.opened.at(-1)[0], 'c.md', '1103：新标签也按路径打开（getLeaf(\'tab\')，这里的假 workspace 给回第一栏）');
+    assert.deepEqual(w.opened, [], '不走 openLinkText');
     // 索引 / 草稿文件：也在另一栏，带上行号
     await w.openVaultFile('索引.md', 12);
     assert.deepEqual(right.opened[1], ['索引.md', { eState: { line: 11 }, active: false }]);

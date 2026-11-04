@@ -29,7 +29,7 @@ const titles = c => c.querySelectorAll('.lbc-card').map(x => x.querySelector('.l
 async function catalogTests() {
   delete globalThis.__lbState;
   const dom = makeDom();
-  const V = makeVault({ [DATA]: JSON.stringify(catalogData()), '_archive/sync-status.json': '{}' });
+  const V = makeVault({ [DATA]: JSON.stringify(catalogData()), '_archive/sync-status.json': '{}', 'Web/a.md': '#', 'Web/b.md': '#', 'Web/c.md': '#' });
   const plugin = { settings: { hiddenCats: [] }, openAttachments() {}, openCategories() {}, openLibraryPage() {}, starNote: async (id, on) => ({ starred: on }) };
   const app = makeApp(V, plugin);
   const code = LIB + '\n' + SEARCH + '\n' + asset('catalog-view.js');
@@ -98,13 +98,15 @@ async function catalogTests() {
   await C.run();
   assert.ok(C.section.querySelectorAll('.lbc-cat').find(x => x.textContent === '吃的').classList.contains('is-active'));
   assert.deepEqual(titles(C.section), ['电饭煲鸡肉饭']);
-  // 平时点卡片：同一窗格打开（openLinkText 第三个参数 false），按住 Ctrl 才开新标签
+  // 平时点卡片：同一窗格打开（getLeaf(false)），按住 Ctrl 才开新标签（'tab'）——1103 起按路径打开（LB.openNote），不走 openLinkText
   const D = dataviewBlock({ dom, app, code });
   delete globalThis.__lbState;
   await D.run();
   D.section.querySelectorAll('.lbc-card')[0].onclick({});
-  D.section.querySelectorAll('.lbc-card')[0].onclick({ ctrlKey: true });
-  assert.deepEqual(app.workspace.opened.map(x => x[2]), [false, true]);
+  D.section.querySelectorAll('.lbc-card')[0].onclick({ ctrlKey: true }); await new Promise(r => setTimeout(r, 5));
+  assert.deepEqual(app.workspace.gotLeaves, [false, 'tab']);
+  assert.equal(app.workspace.leaves.filter(l => l.opened.length).length, 2);
+  assert.deepEqual(app.workspace.opened, []);
   // 计时埋点（§5.8）
   const marks = globalThis.__lbPerf.catalog.marks.map(m => m[0]);
   for (const m of ['read(cache)', 'render', 'restore', 'total']) assert.ok(marks.includes(m), m + ' ' + marks);

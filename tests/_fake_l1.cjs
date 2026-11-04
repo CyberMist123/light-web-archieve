@@ -4,9 +4,11 @@ const { asset, makeDom, makeApp, dataviewBlock } = require('./_fakedom.cjs');
 
 const DATA = '_archive/catalog-data.json';
 const tick = (ms = 0) => new Promise(r => setTimeout(r, ms));
-const code = ({ starred = false } = {}) => {
+// arrange：1103 起「编排」收起来了（catalog-view.js ARRANGE_ON = false）；编排自己的用例打开它接着测
+const code = ({ starred = false, arrange = false } = {}) => {
   let c = asset('lb-page-lib.js') + '\n' + asset('catalog-search.js') + '\n' + asset('catalog-view.js');
   if (starred) c = c.replace('const simplePage = false;', 'const simplePage = true;').replace('const starredPage = false;', 'const starredPage = true;');
+  if (arrange) c = c.replace('const ARRANGE_ON = false;', 'const ARRANGE_ON = true;');
   return c;
 };
 function item(id, title, more = {}) {
@@ -19,14 +21,17 @@ function catalogData(items, more = {}) {
 // 手动控制的 Promise（插件方法挂起 / 失败）
 function deferred() { let resolve, reject; const p = new Promise((a, b) => { resolve = a; reject = b; }); return { p, resolve, reject }; }
 
-async function openCatalog({ items = [], data = null, plugin = null, files = {}, isMobile = false, mode = 'reading', frontmatter = {}, keepState = false, made = null, dom = null, params = {}, starred = false } = {}) {
+async function openCatalog({ items = [], data = null, plugin = null, files = {}, isMobile = false, mode = 'reading', frontmatter = {}, keepState = false, made = null, dom = null, params = {}, starred = false, arrange = false, notes = true } = {}) {
   if (!keepState) delete globalThis.__lbState;
   delete globalThis.__lbListeners; delete globalThis.__lbNotices;
   // 新的假库 mtime 从同一处起算：别让上一个库留在插件对象上的解析缓存（版本字符串可能撞上）被当成这个库的
   if (plugin && !made) plugin.catalogCache = null;
-  made = made || makeApp({ files: { [DATA]: JSON.stringify(data || catalogData(items)), '_archive/sync-status.json': '{}', ...files }, plugin, isMobile, frontmatter });
+  // 1103：点卡片按路径打开笔记（LB.openNote，找不到不新建）——假库里默认把每篇的笔记文件也放上（notes:false = 不放）
+  const noteFiles = {};
+  if (notes) for (const it of (data ? data.items : items) || []) if (it && typeof it.note === 'string' && it.note) noteFiles[it.note] = '# ' + (it.title || '');
+  made = made || makeApp({ files: { ...noteFiles, [DATA]: JSON.stringify(data || catalogData(items)), '_archive/sync-status.json': '{}', ...files }, plugin, isMobile, frontmatter });
   dom = dom || makeDom();
-  const A = dataviewBlock({ dom, app: made.app, code: code({ starred }), mode, params });
+  const A = dataviewBlock({ dom, app: made.app, code: code({ starred, arrange }), mode, params });
   await A.run();
   const $ = s => A.section.querySelector(s), $$ = s => A.section.querySelectorAll(s);
   const cards = () => $$('.lbc-card');
@@ -41,6 +46,8 @@ async function openCatalog({ items = [], data = null, plugin = null, files = {},
     enter(text) { const s = $('.lbc-search'); if (text != null) s.value = text; s.fire('keydown', { key: 'Enter', isComposing: false, keyCode: 13, preventDefault() {} }); },
     cat: label => $$('.lbc-cat').find(b => b.textContent === label),
     menuItems: () => dom.document.body.querySelectorAll('.lbc-menu-item'),
+    // 最近一次按路径打开的笔记：[路径, 新标签?]（getLeaf(false) = 同一窗格，'tab' = 新标签）
+    noteOpened: () => { const ws = made.app.workspace; const l = ws.leaves.filter(x => x.opened.length).at(-1); return l ? [l.opened.at(-1).path, ws.gotLeaves[ws.leaves.indexOf(l) - (ws.leaves.length - ws.gotLeaves.length)] === 'tab'] : null; },
     pick: label => dom.document.body.querySelectorAll('.lbc-menu-item').find(b => b.textContent === label || b.textContent === '✓ ' + label),
   };
 }

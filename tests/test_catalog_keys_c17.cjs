@@ -48,8 +48,8 @@ const { tick, item, openCatalog, ev } = require('./_fake_l1.cjs');
   assert.equal(dom.document.body.querySelector('.lbc-time-menu'), null, 'Tab 关菜单');
   // 中键：开新标签；mousedown 中键不出自动滚动
   let prevented = false;
-  P.card('a').onauxclick({ button: 1, preventDefault() { prevented = true; } });
-  assert.ok(prevented); assert.deepEqual(P.app.workspace.opened.at(-1), ['Web/a.md', '', true]);
+  P.card('a').onauxclick({ button: 1, preventDefault() { prevented = true; } }); await tick(5);
+  assert.ok(prevented); assert.deepEqual(P.noteOpened(), ['Web/a.md', true]);   // 1103：按路径打开（LB.openNote），不走 openLinkText
   prevented = false; P.card('a').onmousedown({ button: 1, preventDefault() { prevented = true; } }); assert.ok(prevented);
 
   // C19 大类条：竖向滚轮横滚；到头放给页面；重建保 scrollLeft 和焦点；渐隐 class

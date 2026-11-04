@@ -416,8 +416,9 @@ def run(args) -> int:
     if getattr(args, "table", False):
         dump_json(outcome({"ai_table": ai_config.ai_table()}, ok=True, message="已读取 AI 配置表"))
         return 0
-    payload: dict[str, Any] = {"summary": summary(), "links": provider_links(), "keys": key_status(),
-                               "ai_table": ai_config.ai_table()}
+    # 1103：目录页「Token 费用 · 本月」现读这一份（catalog-data 里的 usage_month 是上次建目录时算的，问收藏之后不重建就一直「还没有用量记录」）
+    payload: dict[str, Any] = {"summary": summary(), "month_summary": month_summary(), "links": provider_links(),
+                               "keys": key_status(), "ai_table": ai_config.ai_table()}
     try:  # 1018：AI 页「每个功能用谁」+ 每天上限，和用量一次读回来（少开一次后台）
         from . import ai_routes
         payload.update(ai_routes.routes())

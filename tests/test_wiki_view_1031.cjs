@@ -139,6 +139,23 @@ const run = async (name, fn) => { try { await fn(); console.log('  ok   ' + name
     assert.ok(!wrap.classList.contains('is-tocoff'), '「目录」钮打开');
   });
 
+  await run('1103 正文加宽（记住）· 标题能换行、回车确定不插换行', async () => {
+    const P = fakePlugin(); const { A } = await open({ plugin: P });
+    const wrap = A.q('.lbw');
+    assert.ok(!wrap.classList.contains('is-wide'));
+    await more(A, '正文加宽');
+    assert.ok(wrap.classList.contains('is-wide'), '「…→正文加宽」铺满');
+    await A.rerun(); await tick(5);
+    assert.ok(A.q('.lbw').classList.contains('is-wide'), '重跑还是宽的');
+    await more(A, '正文恢复标准宽度');
+    assert.ok(!A.q('.lbw').classList.contains('is-wide'));
+    await openPage(A, 'pw-stay');
+    const ti = A.q('.lbw-ptitle');
+    assert.equal(ti.tagName, 'TEXTAREA', '长标题换行显示，不在单行框里切掉');
+    ti.value = '住宿\n偏好'; ti.dispatchEvent({ type: 'input' });
+    assert.equal(ti.value, '住宿 偏好', '粘进来的换行变空格');
+  });
+
   await run('原地改：段落 / 列表一条 / 标题，记号不显示；首页没有历史钮', async () => {
     const P = fakePlugin(); const { A, V } = await open({ plugin: P });
     assert.ok(A.q('.lbw-hbtn[data-hist]').hidden, '首页不显示历史钮');

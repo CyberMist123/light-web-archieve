@@ -74,10 +74,10 @@ const txt = el => (el ? el.textContent : null);
     const y = daysAgo(1); assert.equal(txt(rows[3].querySelector('time')), `${y.getMonth() + 1}/${y.getDate()}`);
     assert.equal(txt(rows[0].querySelector('.lbc-rec-c')), '未归类'); assert.equal(txt(rows[2].querySelector('.lbc-rec-c')), '吃的');
     // 点行打开（同一窗格）；Ctrl 开新标签；多选模式下也是打开
-    rows[1].onclick({ ctrlKey: false });
-    assert.deepEqual(P.app.workspace.opened.at(-1), ['Web/t2.md', '', false]);
-    rows[1].onclick({ ctrlKey: true });
-    assert.deepEqual(P.app.workspace.opened.at(-1), ['Web/t2.md', '', true]);
+    rows[1].onclick({ ctrlKey: false }); await tick(5);
+    assert.deepEqual(P.noteOpened(), ['Web/t2.md', false]);   // 1103：按路径打开（LB.openNote）
+    rows[1].onclick({ ctrlKey: true }); await tick(5);
+    assert.deepEqual(P.noteOpened(), ['Web/t2.md', true]);
     // OVERVIEW 默认折叠：只有一行摘要
     const ov = P.$('.lbc-mod-overview');
     assert.ok(ov.classList.contains('is-folded')); assert.equal(ov.querySelector('.lbc-mod-body').hidden, true);

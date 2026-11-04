@@ -124,7 +124,7 @@ def fetch(parsed: Parsed, opts: FetchOptions) -> Fetched:
     log = opts.log
     if not ytdlp.ffmpeg_ok():
         from .. import NeedsHuman
-        err = NeedsHuman("没有 ffmpeg / ffprobe，无法合并和校验视频：先安装 ffmpeg 再导入")
+        err = NeedsHuman("找不到 ffmpeg，无法合并和校验视频：重新装一次 B 站功能包（随带 ffmpeg），或自己装 ffmpeg 加进 PATH，再导入")
         err.code = "MISSING_DEPENDENCY"
         raise err
     state = _login_state(log)

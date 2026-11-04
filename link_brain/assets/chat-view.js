@@ -196,7 +196,7 @@ function openNote(source, compare = false, context = '', fromCite = null, seg = 
   userAt = 0; dragging = false;   // 点来源这一下不是在滚（之前滚到一半的不算）
   const p = provider();
   if (!p || typeof p.openArchiveSource !== 'function') {
-    try { return Promise.resolve(app.workspace.openLinkText(lbPath(src.note), '', false)).catch(e => notice('打不开来源：' + errText(e))); }
+    try { return Promise.resolve(LB.openNote(src.note, false)).catch(e => notice('打不开来源：' + errText(e))); }
     catch (e) { notice('打不开来源：' + errText(e)); return; }
   }
   // 来源标题 / 卡片 / 导读只打开帖子；回答里的具体引用才定位
