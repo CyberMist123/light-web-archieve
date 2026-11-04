@@ -116,8 +116,25 @@ def version() -> str | None:
     return out.stdout.strip() or None if out.returncode == 0 else None
 
 
+def bundled_ffmpeg() -> str | None:
+    """`bilibili` 功能包随带的 ffmpeg（imageio-ffmpeg 的 wheel 里自带各平台的可执行文件）。1104 作者：虚拟机上懒人安装完
+    B 站一条都下不了——卡在「没装 ffmpeg，要另装并加进 PATH」。现在 PATH 上没有就用这一份，不用另装。"""
+    try:
+        import imageio_ffmpeg
+        exe = imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:  # noqa: BLE001 - 没装 / 平台没带二进制：当没有
+        return None
+    return exe if exe and Path(exe).is_file() else None
+
+
+def ffmpeg_exe() -> str | None:
+    """合并音视频用的 ffmpeg：PATH 上的优先，没有就用功能包随带的。"""
+    return shutil.which("ffmpeg") or bundled_ffmpeg()
+
+
 def ffmpeg_ok() -> bool:
-    return bool(shutil.which("ffmpeg") and shutil.which("ffprobe"))
+    # ffprobe 不再必需：没有它就用 ffmpeg 读文件头校验（probe_video）
+    return ffmpeg_exe() is not None
 
 
 def python_label() -> str:
@@ -152,7 +169,7 @@ def missing_text(names: list[str]) -> str:
     if "yt-dlp" in names:
         parts.append(f"缺下载器 yt-dlp（{python_label()} 里没装）：{extras.missing_text('bilibili')}")
     if "ffmpeg" in names:
-        parts.append("这台电脑没装 ffmpeg（合并、校验视频要用）")
+        parts.append("找不到 ffmpeg（合并、校验视频要用）：B 站功能包会随带一份，重新装一次功能包就有；或者自己装 ffmpeg 并加进 PATH")
     return "；".join(parts)
 
 
@@ -234,6 +251,10 @@ def build_argv(url: str, out_dir: Path, *, cookies: Path | None, quality: Any = 
             "-o", "%(id)s.%(ext)s", "-P", str(out_dir)]
     if cookies is not None:
         argv += ["--cookies", str(cookies)]
+    if not shutil.which("ffmpeg"):
+        exe = bundled_ffmpeg()
+        if exe:
+            argv += ["--ffmpeg-location", exe]   # 1104：PATH 上没有，用功能包随带的那份合并
     argv.append(url)
     return argv
 
@@ -435,8 +456,7 @@ def probe_video(path: Path) -> dict[str, Any]:
         out["error"] = f"读不到文件：{errtext(exc)}"
         return out
     if not shutil.which("ffprobe"):
-        out["error"] = "没有 ffprobe，无法校验"
-        return out
+        return _probe_with_ffmpeg(path, out)
     try:
         proc = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration:stream=codec_type,codec_name,width,height",
                                "-of", "json", str(path)], capture_output=True, text=True, encoding="utf-8", errors="replace",
@@ -464,6 +484,42 @@ def probe_video(path: Path) -> dict[str, Any]:
     out["duration_sec"] = round(dur, 3) if dur else None
     if out["vcodec"] is None:
         out["error"] = "没有视频流"
+    elif not dur:
+        out["error"] = "读不出时长（可能是半截文件）"
+    else:
+        out["ok"] = True
+    return out
+
+
+_DUR_RE = re.compile(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)")
+_VSTREAM_RE = re.compile(r"Stream #\S+.*?: Video: (\w+)[^\n]*?, (\d{2,5})x(\d{2,5})")
+_ASTREAM_RE = re.compile(r"Stream #\S+.*?: Audio: (\w+)")
+
+
+def _probe_with_ffmpeg(path: Path, out: dict[str, Any]) -> dict[str, Any]:
+    """1104：没有 ffprobe（只有功能包随带的 ffmpeg）时，用 `ffmpeg -i` 打出的文件头校验：时长、视频流（编码 / 宽高）、有没有音轨。"""
+    exe = ffmpeg_exe()
+    if not exe:
+        out["error"] = "没有 ffmpeg / ffprobe，无法校验"
+        return out
+    try:
+        proc = subprocess.run([exe, "-hide_banner", "-i", str(path)], capture_output=True, text=True, encoding="utf-8",
+                              errors="replace", timeout=120)
+    except (OSError, subprocess.SubprocessError) as exc:
+        out["error"] = f"ffmpeg 跑不动：{errtext(exc)}"
+        return out
+    text = proc.stderr or ""
+    m = _DUR_RE.search(text)
+    dur = int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3)) if m else 0.0
+    v = _VSTREAM_RE.search(text)
+    if v:
+        out.update(vcodec=v.group(1), width=int(v.group(2)), height=int(v.group(3)))
+    a = _ASTREAM_RE.search(text)
+    if a:
+        out.update(has_audio=True, acodec=a.group(1))
+    out["duration_sec"] = round(dur, 3) if dur else None
+    if out["vcodec"] is None:
+        out["error"] = "没有视频流" if m else "ffmpeg 认不出这个文件：" + sanitize(text, 200)
     elif not dur:
         out["error"] = "读不出时长（可能是半截文件）"
     else:
