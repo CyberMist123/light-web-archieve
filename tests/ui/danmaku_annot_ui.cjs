@@ -84,35 +84,30 @@ const rd = p => fs.readFileSync(path.join(ROOT, p), 'utf8');
   await page.locator('.lba-vt').first().click();
   assert.ok(await page.evaluate(() => Math.abs(document.querySelector('video').currentTime - 0.3) < 0.15 || !document.querySelector('video').paused), '点时间标跳过去播');
 
-  // ② 全屏：暂停在 0.5 秒，动一下鼠标 →「弹」出现在右下角、原生控制条上方
+  // ② 1104 作者（参考 B 站播放器）：「弹幕」「弹幕设置」是工具行里两个电视形「弹」图标；画面上不再浮一个圆「弹」
+  assert.equal(await page.locator('.lb-dm-ovbtn').count(), 0, '画面上不再浮「弹」');
+  await page.locator('.lb-media').hover();
+  await page.waitForTimeout(150);
+  await page.locator('.lb-media').screenshot({ path: path.join(QA, 'danmaku-icons-normal.png') });
+  // 全屏：暂停时工具行在，两个图标都看得见；点开关 = 关弹幕、图标带 ⊘，不暂停
   await page.evaluate(() => document.querySelector('.lb-media').lbToggleFullscreen());
   await page.waitForFunction(() => document.fullscreenElement && document.fullscreenElement.classList.contains('lb-media'));
   await page.evaluate(async () => { const v = document.querySelector('video'); v.pause(); v.currentTime = 0.5; });
-  await page.waitForTimeout(200);
   await page.mouse.move(600, 300); await page.mouse.move(620, 320);
   await page.waitForTimeout(350);
-  const g = await page.evaluate(() => { const b = document.querySelector('.lb-dm-ovbtn'), v = document.querySelector('video'); const br = b.getBoundingClientRect(), vr = v.getBoundingClientRect();
-    return { op: getComputedStyle(b).opacity, left: br.left - vr.left, right: vr.right - br.right, below: vr.bottom - br.bottom, w: br.width, pressed: b.getAttribute('aria-pressed') }; });
-  assert.equal(g.op, '1', '全屏 + 暂停时动鼠标，「弹」看得见：' + JSON.stringify(g));
-  // 1104 作者「弹的位置有点奇怪」：在左下角、原生控制条（约 40–48px 高）正上方，不压播放键；10-31 起工具行浮在视频上（全屏也在），不再断言它藏起来
-  assert.ok(g.left >= 0 && g.left <= 60 && g.below >= 48 && g.below <= 110 && g.w > 0, '在左下角、原生控制条正上方：' + JSON.stringify(g));
+  const g = await page.evaluate(() => [...document.querySelectorAll('.lb-dm-icobtn')].map(b => { const r = b.getBoundingClientRect(), i = b.querySelector('.lb-dm-ico').getBoundingClientRect();
+    return { w: Math.round(r.width), icoW: Math.round(i.width), icoH: Math.round(i.height), vis: getComputedStyle(b).visibility, op: getComputedStyle(b.closest('.lb-media-tools')).opacity }; }));
+  assert.equal(g.length, 2, '两个图标：' + JSON.stringify(g));
+  assert.ok(g.every(x => x.icoW >= 16 && x.icoH >= 12 && x.vis === 'visible'), '全屏里两个图标都画出来了：' + JSON.stringify(g));
   await page.screenshot({ path: path.join(QA, 'danmaku-fullscreen-on.png') });
-  await page.locator('.lb-dm-ovbtn').click();
+  await page.locator('.lb-dm-toggle').click();
   await page.waitForTimeout(250);
-  const off = await page.evaluate(() => ({ hidden: document.querySelector('.lb-dm-layer').hidden, pressed: document.querySelector('.lb-dm-ovbtn').getAttribute('aria-pressed'), paused: document.querySelector('video').paused }));
-  assert.deepEqual(off, { hidden: true, pressed: 'false', paused: true }, '点「弹」关弹幕、不把这一下当成点画面');
+  const off = await page.evaluate(() => ({ hidden: document.querySelector('.lb-dm-layer').hidden, pressed: document.querySelector('.lb-dm-toggle').getAttribute('aria-pressed'), paused: document.querySelector('video').paused }));
+  assert.deepEqual(off, { hidden: true, pressed: 'false', paused: true }, '点图标关弹幕、不把这一下当成点画面');
   await page.screenshot({ path: path.join(QA, 'danmaku-fullscreen-off.png') });
-  await page.locator('.lb-dm-ovbtn').click();
-  // 播放中静止 2 秒淡出
-  await page.evaluate(() => document.querySelector('video').play());
-  await page.mouse.move(500, 300);
-  await page.waitForTimeout(300);
-  assert.equal(await page.evaluate(() => document.querySelector('.lb-dm-ovbtn').classList.contains('is-awake')), true, '播放中动鼠标出现');
-  await page.waitForTimeout(2300);
-  assert.equal(await page.evaluate(() => document.querySelector('.lb-dm-ovbtn').classList.contains('is-awake')), false, '静止 2 秒淡出');
-  await page.screenshot({ path: path.join(QA, 'danmaku-fullscreen-playing-idle.png') });
+  await page.locator('.lb-dm-toggle').click();
   await page.evaluate(() => document.exitFullscreen());
   assert.deepEqual(errors, []);
   await browser.close();
-  console.log('PASS danmaku+annot (Edge): 批注框写的批注带 video_t（一律带当前时间）、列表有时间标、画面立刻飘（细框）；高级弹幕静态显示；全屏「弹」字开关在左下角、原生控制条正上方、动鼠标出现、静止 2 秒淡出、点了开关不暂停。截图：' + QA);
+  console.log('PASS danmaku+annot (Edge): 批注框写的批注带 video_t（一律带当前时间）、列表有时间标、画面立刻飘（细框）；高级弹幕静态显示；「弹幕」「弹幕设置」是工具行里的电视形「弹」图标（全屏也在），点开关不暂停。截图：' + QA);
 })().catch(e => { console.error(e); process.exit(1); });

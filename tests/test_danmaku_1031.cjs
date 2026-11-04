@@ -4,7 +4,7 @@
 // （焦点在视频上；全屏里焦点在哪都算；输入框里不算）、设置存 settings.media.danmaku（markSettingDirty('media') + saveSettings，没存上拨回 + 说原因）、
 // 所有视频共用；④用户自己的弹幕 = notes.json 里带 video_t 的批注（1031 第二轮：弹幕复用批注，不再有 danmaku-mine.json / 发弹幕框）：
 // 打开时读、批注框发 link-brain:annotations 就换（新写的立刻挤上画面、带 is-mine；删掉的撤下；不带时间的不播）；
-// 画面右下角「弹」字开关（动鼠标出现、静止 2 秒淡出、点了开关）；高级弹幕（mode 7）按坐标静态停几秒；⑤插件卸载拆干净。
+// 1104 起「弹幕」「弹幕设置」是工具行里的电视形「弹」图标（画面上不再浮圆「弹」）；高级弹幕（mode 7）按坐标静态停几秒；⑤插件卸载拆干净。
 'use strict';
 const assert = require('node:assert/strict');
 const fs = require('fs'), path = require('path');
@@ -213,7 +213,9 @@ const key = (E, target, k, extra = {}) => { const e = E.dom.event('keydown', { k
     assert.deepEqual(bar.children.map(b => b.textContent).slice(-2), ['弹幕', '弹幕设置'], '工具行末尾「弹幕」「弹幕设置」');
     assert.ok(A.slide.querySelector('.lb-dm-layer'), '弹幕层叠在视频那一格里（.lb-media 里：全屏照样在）');
     assert.ok(!E.D.body.querySelector('.lb-dm-send') && !A.media.querySelector('.lb-dm-input'), '没有另一个发弹幕框了（写批注就是发弹幕）');
-    assert.ok(A.slide.querySelector('.lb-dm-ovbtn'), '画面上有「弹」字开关');
+    // 1104 作者（参考 B 站）：两个都是电视形「弹」图标（字只给读屏），画面上不再浮一个圆「弹」
+    assert.ok(c.toggleBtn.querySelector('.lb-dm-ico') && c.menuBtn.querySelector('.lb-dm-ico'), '「弹幕」「弹幕设置」是图标');
+    assert.ok(!A.media.querySelector('.lb-dm-ovbtn'), '画面上不再浮「弹」');
     assert.equal(c.origState, 'ok'); assert.equal(c.engine.items.length, 4, '3 条原弹幕 + 1 条带时间的批注（不带时间的、删掉的、空的不算）');
     assert.deepEqual(c.engine.items.filter(d => d.mine).map(d => [d.time, d.text]), [[30, '老批注带时间']]);
     assert.equal(c.toggleBtn.getAttribute('aria-pressed'), 'true', '默认开');
@@ -237,7 +239,8 @@ const key = (E, target, k, extra = {}) => { const e = E.dom.event('keydown', { k
     assert.equal(host.settings.media.danmaku.on, false); assert.equal(host.settings.media.loop, true, '同组的循环设置不丢');
     assert.ok(host.saves >= 1 && host.dirty.includes('media'));
     assert.ok(c.layer.hidden, '关了：弹幕层藏起来');
-    assert.equal(c.ovBtn.getAttribute('aria-pressed'), 'false', '画面上的「弹」跟着变成关的样子');
+    assert.equal(c.toggleBtn.getAttribute('aria-pressed'), 'false', '图标变成关的样子（带 ⊘）');
+    assert.match(c.toggleBtn.getAttribute('aria-label'), /弹幕：关/);
     assert.equal(c.engine.live.length, 0);
     // D：焦点在视频上按 → 开；输入框里按不算；别处按不算；全屏时焦点在哪都算
     key(E, A.video, 'd'); await settle();
@@ -313,34 +316,6 @@ const key = (E, target, k, extra = {}) => { const e = E.dom.event('keydown', { k
     E.V.disk.set(`_archive/bilibili/${SID}/notes.json`, JSON.stringify({ annotations: [
       { id: 'b1', ts: '1', text: '第一次 发弹幕', video_t: 12.346 }, { id: 'b2', ts: '2', text: '第二条', video_t: 20 }, { id: 'b3', ts: '3', text: '没时间' }] }));
 
-    // 画面上的「弹」字开关：播放中动鼠标出现，静止 2 秒淡出；点了开关弹幕（不落到画面上：不暂停）
-    const ov = c.ovBtn;
-    assert.ok(!ov.classList.contains('is-awake'), '平常看不见');
-    A.video.paused = false; A.video.dispatchEvent({ type: 'play' });
-    A.media.dispatchEvent(E.dom.event('pointermove', { pointerType: 'mouse', bubbles: true }));
-    assert.ok(ov.classList.contains('is-awake'), '播放中动鼠标就出来');
-    ov.click(); await settle();
-    assert.equal(host.settings.media.danmaku.on, false, '点「弹」关弹幕');
-    assert.equal(ov.getAttribute('aria-pressed'), 'false');
-    assert.match(A.slide.querySelector('.lb-dm-flash').textContent, /弹幕：关/);
-    assert.equal(A.video.paused, false, '没把这一下当成点画面（没暂停）');
-    ov.click(); await settle();
-    assert.equal(host.settings.media.danmaku.on, true);
-    await tick(DM.AWAKE_MS + 150);
-    assert.ok(!ov.classList.contains('is-awake'), '静止 2 秒淡出');
-    A.media.dispatchEvent(E.dom.event('pointermove', { pointerType: 'touch', bubbles: true }));
-    assert.ok(!ov.classList.contains('is-awake'), '触屏不算');
-    // 暂停：不全屏时不出（工具行露着），全屏时动一下就在（原生控制条暂停时也一直在）
-    A.video.paused = true; A.video.dispatchEvent({ type: 'pause' });
-    A.media.dispatchEvent(E.dom.event('pointermove', { pointerType: 'mouse', bubbles: true }));
-    assert.ok(!ov.classList.contains('is-awake'), '不全屏 + 暂停：不出');
-    A.media.classList.add('is-lb-fullscreen');
-    A.media.dispatchEvent(E.dom.event('pointermove', { pointerType: 'mouse', bubbles: true }));
-    assert.ok(ov.classList.contains('is-awake'), '全屏 + 暂停：出');
-    A.media.dispatchEvent(E.dom.event('mouseleave', {}));
-    assert.ok(!ov.classList.contains('is-awake'), '鼠标离开画面就收');
-    A.media.classList.remove('is-lb-fullscreen');
-
     // 设置存不上：拨回原来的样子并说原因
     const E2 = makeEnv(archiveFiles(SID, { xml: xmlOf([]) }));
     const N2 = videoNote(E2, 'bili-' + SID);
@@ -390,5 +365,5 @@ const key = (E, target, k, extra = {}) => { const e = E.dom.event('keydown', { k
     nav.attach(); await settle();
     assert.ok(A.media.querySelector('.lb-video-full') && !A.media.querySelector('.lb-dm-toggle'));
   }
-  console.log('PASS danmaku 1031: XML 解析、引擎只建屏幕上的节点且同行不撞车、拖进度条重排、倍速 / 暂停、屏蔽 / 区域 / 速度；只认 B 站视频；弹幕 / 弹幕设置 / D 键；设置共用且存不上拨回；用户的弹幕 = 带 video_t 的批注（打开读、事件换、删掉撤下、重开一起播）；「弹」字开关；卸载拆干净');
+  console.log('PASS danmaku 1031: XML 解析、引擎只建屏幕上的节点且同行不撞车、拖进度条重排、倍速 / 暂停、屏蔽 / 区域 / 速度；只认 B 站视频；弹幕 / 弹幕设置 / D 键；设置共用且存不上拨回；用户的弹幕 = 带 video_t 的批注（打开读、事件换、删掉撤下、重开一起播）；「弹」图标（开关带 ⊘ / 设置带齿轮）；卸载拆干净');
 })().catch(e => { console.error(e); process.exit(1); });
