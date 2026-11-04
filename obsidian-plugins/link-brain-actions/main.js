@@ -7190,9 +7190,9 @@ var require_settings_v6 = __commonJS({
             paintLogin(null);
             guide.setText("暂时读不到登录状态：" + errText(e));
             const h = home();
-            if (plugin.currentBackend?.().mode === "missing" && h && typeof h.onRepaint === "function") {
+            if (plugin.firstRunBusy?.() && h && typeof h.onRepaint === "function") {
               const off = h.onRepaint(() => {
-                if (plugin.currentBackend().mode !== "missing") {
+                if (!plugin.firstRunBusy()) {
                   off();
                   loadStatus();
                 }
@@ -13471,14 +13471,7 @@ var LinkBrainActions = class extends Plugin {
     if (this.app.workspace?.onLayoutReady) this.app.workspace.onLayoutReady(() => {
       this.onboardTimer = setTimeout(() => this.startupChecks().catch((e) => console.error("[lb] 启动检查没做完", e)), 1500);
     });
-    const firstRunBusy = () => {
-      try {
-        const r = this.homeState && this.homeState.run;
-        return this.backendInstalling() || !!(r && r.state === "running");
-      } catch {
-        return false;
-      }
-    };
+    const firstRunBusy = () => this.firstRunBusy();
     if (this.app.workspace?.onLayoutReady) this.app.workspace.onLayoutReady(() => {
       this.fillTimer = setTimeout(() => {
         if (!firstRunBusy()) this.ensureCommentFill("startup");
@@ -14709,7 +14702,7 @@ var LinkBrainActions = class extends Plugin {
         paint({ ...r, _at: checkedAtOf(r, Date.now()) });
       } catch (e) {
         paint({ state: "error", next_step: e.message, action: "retry" });
-        if (this.currentBackend?.().mode === "missing") recheckWhenBackend();
+        if (this.firstRunBusy()) recheckWhenBackend();
       }
     };
     let waitingBackend = null;
@@ -14722,7 +14715,7 @@ var LinkBrainActions = class extends Plugin {
           waitingBackend = null;
           return;
         }
-        if (this.currentBackend().mode !== "missing") {
+        if (!this.firstRunBusy()) {
           waitingBackend();
           waitingBackend = null;
           refresh();
@@ -16464,6 +16457,15 @@ ${r.all.trim()}`);
     else if (!view?.resting && this.syncTick) {
       clearInterval(this.syncTick);
       this.syncTick = null;
+    }
+  }
+  // 1104：装后端 / 一键装好正在跑（后端还没有也算）——这时机器忙，账号卡这类查询查不成很正常，等它跑完再查
+  firstRunBusy() {
+    try {
+      const r = this.homeState && this.homeState.run;
+      return this.currentBackend?.().mode === "missing" || this.backendInstalling() || !!(r && r.state === "running");
+    } catch {
+      return false;
     }
   }
   onTask(callback) {

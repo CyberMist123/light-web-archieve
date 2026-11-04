@@ -526,8 +526,8 @@ module.exports = function (obsidian, plugin) {
         paintLogin(null); guide.setText('暂时读不到登录状态：' + errText(e));
         // 1104：后端还在装时查不了——装好以后自动再查一次（同小红书账号卡）
         const h = home();
-        if (plugin.currentBackend?.().mode === 'missing' && h && typeof h.onRepaint === 'function') {
-          const off = h.onRepaint(() => { if (plugin.currentBackend().mode !== 'missing') { off(); loadStatus(); } });
+        if (plugin.firstRunBusy?.() && h && typeof h.onRepaint === 'function') {
+          const off = h.onRepaint(() => { if (!plugin.firstRunBusy()) { off(); loadStatus(); } });
           tab.stops.push(off);
         }
       }

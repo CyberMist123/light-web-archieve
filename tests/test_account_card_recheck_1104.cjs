@@ -77,6 +77,22 @@ const flush = async (n = 6) => { for (let i = 0; i < n; i++) await new Promise(r
   for (const f of [...p.taskListeners]) f();
   await flush();
   assert.match(text(), /同步中/);
+  // 一键装好正在跑（机器忙）时查超时 → 等这一轮跑完再自动查一次
+  p.xhsSyncing = () => false;
+  p.homeState = { run: { state: 'running', current: 'install', stages: {} } };
+  let calls = 0;
+  p.accountStatus = async () => { calls++; if (p.homeState.run.state === 'running') throw new Error('超过 20 秒没有结果'); return { state: 'not_logged_in', code: 'NOT_LOGGED_IN', message: '未登录', action: 'login', next_step: '点「登录」扫码' }; };
+  const host2 = dom.document.createElement('div'); dom.document.body.appendChild(host2);
+  p.renderAccounts(host2, { inCard: true });
+  await flush();
+  assert.match(host2.textContent, /超过 20 秒/);
+  for (const f of [...painters]) f();   // 还在跑：不查
+  await flush(); assert.equal(calls, 1);
+  p.homeState.run.state = 'done';
+  for (const f of [...painters]) f();
+  await flush();
+  assert.equal(calls, 2, '跑完自动再查一次');
+  assert.match(host2.textContent, /点「登录」扫码/);
   console.log('PASS account card 1104: stuck on 「正在安装后端程序」 rechecks once (shallow) when the backend becomes available');
 })().catch(e => { console.error(e); process.exitCode = 1; });
 

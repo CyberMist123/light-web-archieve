@@ -934,7 +934,7 @@ class LinkBrainActions extends Plugin {
     if (this.app.workspace?.onLayoutReady) this.app.workspace.onLayoutReady(() => { this.onboardTimer = setTimeout(() => this.startupChecks().catch(e => console.error('[lb] 启动检查没做完', e)), 1500); });
     // 1009：打开 Obsidian 一分半后看一眼评论有没有没补齐的，有就后台接着补（单实例；号要人处理时它自己停下等）
     // 1104（审查 2）：首轮装后端 / 一键装好在跑时不另起——那一轮最后自己会安排补评论、整理目录，别和它抢 CPU、重复安排
-    const firstRunBusy = () => { try { const r = this.homeState && this.homeState.run; return this.backendInstalling() || !!(r && r.state === 'running'); } catch { return false; } };
+    const firstRunBusy = () => this.firstRunBusy();
     if (this.app.workspace?.onLayoutReady) this.app.workspace.onLayoutReady(() => { this.fillTimer = setTimeout(() => { if (!firstRunBusy()) this.ensureCommentFill('startup'); }, 90000); });
     // 1023 ARCH-AUDIT 第 1 批：上次同步被打断 / 别处导入过，目录还没跟上 → 打开 Obsidian 20 秒后补建一次（没有待重建就秒回、不碰文件；不占「正在跑」）
     if (this.app.workspace?.onLayoutReady) this.app.workspace.onLayoutReady(() => { this.freshTimer = setTimeout(() => { if (!firstRunBusy()) this.spawnPy(['-m', 'link_brain', 'catalog', '--if-dirty']).catch(() => {}); }, 20000); });
@@ -1786,7 +1786,7 @@ class LinkBrainActions extends Plugin {
       if (!deep && this.accountCache) paint({...this.accountCache.row, _at: checkedAtOf(this.accountCache.row, this.accountCache.at)}, true);
       else paint({state: 'checking'}, true);
       try { const r = await platform.status(this, deep); paint({...r, _at: checkedAtOf(r, Date.now())}); }
-      catch (e) { paint({state: 'error', next_step: e.message, action: 'retry'}); if (this.currentBackend?.().mode === 'missing') recheckWhenBackend(); }
+      catch (e) { paint({state: 'error', next_step: e.message, action: 'retry'}); if (this.firstRunBusy()) recheckWhenBackend(); }
     };
     // 1104（虚拟机实测）：首次启用时后端还在装，卡片查不了停在「正在安装后端程序」——后端装好以后它一直不变。
     // 挂到懒人安装的重画上：后端一能用就自动重查一次（浅查，不开浏览器）；卡片已经不在页面上就撤掉
@@ -1796,7 +1796,7 @@ class LinkBrainActions extends Plugin {
       if (waitingBackend || !h || typeof h.onRepaint !== 'function') return;
       waitingBackend = h.onRepaint(() => {
         if (box.isConnected === false) { waitingBackend(); waitingBackend = null; return; }
-        if (this.currentBackend().mode !== 'missing') { waitingBackend(); waitingBackend = null; refresh(); }
+        if (!this.firstRunBusy()) { waitingBackend(); waitingBackend = null; refresh(); }
       });
     };
     const login = async (force = false) => {
@@ -3008,6 +3008,13 @@ class LinkBrainActions extends Plugin {
     if (view) el.title = view.tip + '\n' + (this.running ? '点开看同步记录，可停止' : this.externalTaskText());
     if (view?.resting && !this.syncTick) this.syncTick = setInterval(() => this.paintSyncBar(), 1000);
     else if (!view?.resting && this.syncTick) { clearInterval(this.syncTick); this.syncTick = null; }
+  }
+  // 1104：装后端 / 一键装好正在跑（后端还没有也算）——这时机器忙，账号卡这类查询查不成很正常，等它跑完再查
+  firstRunBusy() {
+    try {
+      const r = this.homeState && this.homeState.run;
+      return this.currentBackend?.().mode === 'missing' || this.backendInstalling() || !!(r && r.state === 'running');
+    } catch { return false; }
   }
   onTask(callback) {
     (this.taskListeners || (this.taskListeners = new Set())).add(callback);
