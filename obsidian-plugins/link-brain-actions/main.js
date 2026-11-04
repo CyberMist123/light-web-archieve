@@ -1474,9 +1474,6 @@ var require_danmaku = __commonJS({
       ".lb-dm-item.is-mine{box-shadow:0 0 0 1px rgb(255 255 255 / .9);border-radius:3px;padding:0 4px;}",
       ".lb-dm-flash{position:absolute;left:12px;bottom:56px;z-index:5;pointer-events:none;padding:2px 10px;border-radius:var(--lb-radius-pill);background:rgb(0 0 0 / .6);color:#fff;font-family:var(--lb-font-body);font-size:var(--lb-fs-small);opacity:0;transition:opacity .2s;}",
       ".lb-dm-flash.is-on{opacity:1;}",
-      ".xhs-note .lb-media-tools .lb-dm-toggle,.xhs-note .lb-media-tools .lb-dm-menu{font-size:13px!important;}",
-      '.xhs-note .lb-media-tools .lb-dm-toggle[aria-pressed="true"]{color:var(--lb-ink);font-weight:600;}',
-      '.xhs-note .lb-media-locked .lb-media:has(video) .lb-media-tools .lb-dm-toggle[aria-pressed="true"]{color:#fff;}',
       ".lb-dm-panel{position:absolute;left:8px;z-index:8;width:min(320px,calc(100% - 16px));box-sizing:border-box;padding:var(--lb-space-3);display:flex;flex-direction:column;gap:var(--lb-space-2);border:1px solid var(--lb-line);border-radius:var(--lb-radius);background:var(--lb-surface);color:var(--lb-ink);font-family:var(--lb-font-body);font-size:var(--lb-fs-small);box-shadow:0 6px 24px rgb(0 0 0 / .2);}",
       ".lb-dm-panel[hidden]{display:none!important;}",
       ".lb-dm-row{display:flex;align-items:center;gap:var(--lb-space-2);flex-wrap:wrap;}",
@@ -1490,16 +1487,17 @@ var require_danmaku = __commonJS({
       ".lb-dm-tip,.lb-dm-count{margin:0;color:var(--lb-muted);line-height:1.5;}",
       // 高级弹幕：多行照原样（\n 换行），左上角对齐它写的坐标
       ".lb-dm-item.is-adv{line-height:1.15;}",
-      // 画面上的「弹」字开关：鼠标在画面上动才出现（is-awake），静止 2 秒淡出；关着时字上一道斜杠
-      // 1031 作者：从右下角挪到原生控制条那一排的最左边（音量键左边那块空位），和控制条的图标同一条线
-      ".xhs-note .lb-dm-ovbtn{position:absolute;left:10px;bottom:52px;z-index:6;width:34px;height:34px;min-width:0;padding:0;display:flex;align-items:center;justify-content:center;border:1px solid rgb(255 255 255 / .35)!important;border-radius:var(--lb-radius-pill);background:rgb(0 0 0 / .5)!important;box-shadow:none!important;color:#fff!important;font-family:var(--lb-font-body);font-size:15px;font-weight:700;line-height:1;cursor:pointer;opacity:0;pointer-events:none;transition:opacity .3s;}",
-      ".xhs-note .lb-dm-ovbtn.is-awake,.xhs-note .lb-dm-ovbtn.is-awake:hover,.xhs-note .lb-dm-ovbtn:focus-visible{opacity:1;pointer-events:auto;}",
-      ".xhs-note .lb-dm-ovbtn:hover{background:rgb(0 0 0 / .7)!important;}",
-      '.xhs-note .lb-dm-ovbtn[aria-pressed="false"]{color:rgb(255 255 255 / .6)!important;}',
-      '.xhs-note .lb-dm-ovbtn[aria-pressed="false"]::after{content:"";position:absolute;left:7px;right:7px;top:50%;height:2px;margin-top:-1px;background:currentColor;transform:rotate(-40deg);border-radius:1px;}',
-      ".xhs-note .lb-media.is-lb-fullscreen .lb-dm-ovbtn{left:16px;bottom:58px;width:40px;height:40px;font-size:18px;}",
+      // 1104 作者（参考 B 站播放器底栏）：「弹幕」「弹幕设置」是两个电视形图标——框里一个「弹」，右下角小角标：开关关着 = ⊘，设置 = 齿轮；颜色跟工具行的字
+      ".xhs-note .lb-media-tools button.lb-dm-icobtn{display:inline-flex;align-items:center;justify-content:center;width:38px;min-width:0;padding:0 6px!important;}",
+      ".lb-dm-ico{position:relative;display:inline-block;width:24px;height:19px;box-sizing:border-box;margin-top:3px;border:2px solid currentColor;border-radius:5px;}",
+      '.lb-dm-ico::before{content:"弹";position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font:700 11px/1 var(--lb-font-body);}',
+      '.lb-dm-ico::after{content:"";position:absolute;right:-7px;bottom:-6px;width:12px;height:12px;box-sizing:border-box;border-radius:50%;background:#000;color:inherit;display:flex;align-items:center;justify-content:center;font:700 10px/1 var(--lb-font-body);}',
+      '.lb-dm-toggle[aria-pressed="true"] .lb-dm-ico::after{display:none;}',
+      '.lb-dm-toggle[aria-pressed="false"] .lb-dm-ico{opacity:.7;}',
+      '.lb-dm-toggle[aria-pressed="false"] .lb-dm-ico::after{border:1.6px solid currentColor;background:#000 linear-gradient(45deg,transparent 43%,currentColor 43%,currentColor 57%,transparent 57%);}',
+      '.lb-dm-menu .lb-dm-ico::after{content:"⚙";font-size:11px;}',
       ".xhs-note .lb-media.is-lb-fullscreen .lb-dm-panel{bottom:auto!important;top:12px!important;}",
-      "@media print{.lb-dm-layer,.lb-dm-panel,.lb-dm-flash,.lb-dm-ovbtn{display:none!important;}}"
+      "@media print{.lb-dm-layer,.lb-dm-panel,.lb-dm-flash{display:none!important;}}"
     ].join("\n");
     function makeMeasure(doc, layer) {
       let ctx = null, family = null;
@@ -1524,6 +1522,21 @@ var require_danmaku = __commonJS({
         const w = ctx.measureText(String(text)).width;
         return Number.isFinite(w) && w > 0 ? Math.ceil(w) + 2 : estimateWidth(text, px);
       };
+    }
+    function icoBtn(doc, cls, label) {
+      const b = doc.createElement("button");
+      b.type = "button";
+      b.className = cls + " lb-dm-icobtn";
+      b.setAttribute("aria-label", label);
+      const ico = doc.createElement("span");
+      ico.className = "lb-dm-ico";
+      ico.setAttribute("aria-hidden", "true");
+      b.appendChild(ico);
+      const t = doc.createElement("span");
+      t.className = "lb-visually-hidden";
+      t.textContent = label;
+      b.appendChild(t);
+      return b;
     }
     function btn(doc, cls, text) {
       const b = doc.createElement("button");
@@ -1609,8 +1622,8 @@ var require_danmaku = __commonJS({
       slide.appendChild(flash);
       const engine = new Engine(layer, { measure: makeMeasure(doc, layer) });
       engine.setItems(orig.concat(mine));
-      const toggleBtn = btn(doc, "lb-dm-toggle", "弹幕");
-      const menuBtn = btn(doc, "lb-dm-menu", "弹幕设置");
+      const toggleBtn = icoBtn(doc, "lb-dm-toggle", "弹幕");
+      const menuBtn = icoBtn(doc, "lb-dm-menu", "弹幕设置");
       if (bar) {
         bar.appendChild(toggleBtn);
         bar.appendChild(menuBtn);
@@ -1680,14 +1693,11 @@ var require_danmaku = __commonJS({
       panel.appendChild(count);
       const tip = doc.createElement("p");
       tip.className = "lb-dm-tip";
-      tip.textContent = "点一下画面再按 D 开关弹幕（全屏里也能按，或点画面右下角的「弹」）。自己的弹幕 = 视频下面「发弹幕」框里发的，带细框飘，只存在本机，不会发到 B 站。";
+      tip.textContent = "点一下画面再按 D 开关弹幕（全屏里也能按，或点工具行的「弹」图标）。自己的弹幕 = 视频下面「发弹幕」框里发的，带细框飘，只存在本机，不会发到 B 站。";
       panel.appendChild(tip);
       const closeBtn = btn(doc, "lb-dm-close", "收起");
       panel.appendChild(closeBtn);
       media.appendChild(panel);
-      const ovBtn = btn(doc, "lb-dm-ovbtn", "弹");
-      ovBtn.setAttribute("aria-label", "弹幕开关");
-      slide.appendChild(ovBtn);
       let raf = 0, lastVt = -1, baseVt = 0, baseNow = 0, flashTimer = null, destroyed = false, ro = null;
       const alive = () => !destroyed && media.isConnected !== false && video.isConnected !== false;
       const curTime = () => Math.max(0, Number(video.currentTime) || 0);
@@ -1786,8 +1796,7 @@ var require_danmaku = __commonJS({
         layer.hidden = !s.on;
         media.classList.toggle("lb-dm-off", !s.on);
         toggleBtn.setAttribute("aria-pressed", String(s.on));
-        ovBtn.setAttribute("aria-pressed", String(s.on));
-        ovBtn.setAttribute("aria-label", s.on ? "弹幕：开（点一下关；也可按 D）" : "弹幕：关（点一下开；也可按 D）");
+        toggleBtn.setAttribute("aria-label", s.on ? "弹幕：开（点一下关；也可按 D）" : "弹幕：关（点一下开；也可按 D）");
         const wasOn = ctl.on;
         ctl.on = s.on;
         engine.setSettings(s);
@@ -1827,8 +1836,7 @@ var require_danmaku = __commonJS({
       const toggle = async (fromKey) => {
         const on = !settingsOf(plugin).on;
         const p = setSetting({ on }, true);
-        if (fromKey === "overlay") showFlash(on ? "弹幕：开" : "弹幕：关");
-        else if (fromKey) showFlash(on ? "弹幕：开（再按 D 关）" : "弹幕：关（再按 D 开）");
+        if (fromKey) showFlash(on ? "弹幕：开（再按 D 关）" : "弹幕：关（再按 D 开）");
         return p;
       };
       function setMine(next) {
@@ -1873,32 +1881,6 @@ var require_danmaku = __commonJS({
           }
         });
       }
-      let ovOver = false, ovRecent = false, ovTimer = null;
-      const isFs = () => doc && doc.fullscreenElement === media || media.classList.contains("is-lb-fullscreen");
-      const ovPaint = () => {
-        const started = !video.paused || curTime() > 0;
-        const show = ovOver && started && (video.paused ? isFs() : ovRecent);
-        ovBtn.classList.toggle("is-awake", !!show);
-      };
-      const onMediaMove = (e) => {
-        if (e && e.pointerType === "touch") return;
-        ovOver = true;
-        ovRecent = true;
-        clearTimeout(ovTimer);
-        ovTimer = setTimeout(() => {
-          ovRecent = false;
-          ovPaint();
-        }, AWAKE_MS);
-        ovPaint();
-      };
-      const onMediaLeave = () => {
-        ovOver = false;
-        ovRecent = false;
-        clearTimeout(ovTimer);
-        ovPaint();
-      };
-      media.addEventListener("pointermove", onMediaMove);
-      media.addEventListener("mouseleave", onMediaLeave);
       const onKey = (e) => {
         if (!alive()) {
           ctl.destroy();
@@ -1938,30 +1920,13 @@ var require_danmaku = __commonJS({
         else closePanel();
       });
       closeBtn.addEventListener("click", () => closePanel());
-      const swallow = (e) => {
-        e.stopPropagation?.();
-      };
-      ovBtn.addEventListener("pointerdown", swallow);
-      ovBtn.addEventListener("dblclick", (e) => {
-        e.preventDefault?.();
-        swallow(e);
-      });
-      ovBtn.addEventListener("click", (e) => {
-        e.preventDefault?.();
-        swallow(e);
-        blurAfterMouse(ovBtn, e);
-        toggle("overlay");
-        onMediaMove(e);
-      });
       const onPlay = () => {
         lastVt = -1;
         startLoop();
-        ovPaint();
       };
       const onPause = () => {
         stopLoop();
         if (settingsOf(plugin).on) engine.place(engine.t);
-        ovPaint();
       };
       const onSeeked = () => {
         syncTo();
@@ -1993,7 +1958,6 @@ var require_danmaku = __commonJS({
         video,
         layer,
         panel,
-        ovBtn,
         toggleBtn,
         menuBtn,
         engine,
@@ -2016,7 +1980,6 @@ var require_danmaku = __commonJS({
           destroyed = true;
           stopLoop();
           clearTimeout(flashTimer);
-          clearTimeout(ovTimer);
           try {
             if (ro) ro.disconnect();
           } catch {
@@ -2027,11 +1990,9 @@ var require_danmaku = __commonJS({
           }
           doc.removeEventListener("keydown", onKey);
           doc.removeEventListener("pointerdown", onDocDown, true);
-          media.removeEventListener("pointermove", onMediaMove);
-          media.removeEventListener("mouseleave", onMediaLeave);
           for (const [t, fn] of [["play", onPlay], ["playing", onPlay], ["pause", onPause], ["ended", onPause], ["seeked", onSeeked], ["emptied", onReset]]) video.removeEventListener(t, fn);
           engine.clear();
-          for (const el of [layer, flash, panel, ovBtn, toggleBtn, menuBtn]) {
+          for (const el of [layer, flash, panel, toggleBtn, menuBtn]) {
             try {
               el.remove();
             } catch {
