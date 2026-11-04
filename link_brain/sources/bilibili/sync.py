@@ -47,7 +47,7 @@ WORKERS_MAX = 8          # 1031 作者：同时下几路放到 8（撞 412/429 �
 HINTS = {
     "NOT_LOGGED_IN": "在设置页「账号登录 → B 站」点「扫码登录」重新扫一次，再点「立即同步」（已经下好的不会重下）",
     # 1102：yt-dlp 在 `bilibili` 功能包里（link_brain/extras.py），装进 LWA 用的那个 Python
-    "MISSING_DEPENDENCY": ("功能包要装进 LWA 用的那个 Python（装法见上一句）；ffmpeg 要另装并加进 PATH。"
+    "MISSING_DEPENDENCY": ("功能包要装进 LWA 用的那个 Python（装法见上一句；它随带 ffmpeg，不用另装）。"
                            "装好再点「立即同步」，从没下的接着下"),
     "HTTP_429": "B 站限流 / 风控了：先停一停（建议过 1 小时），并行路数调成 1 再同步；已经下好的不会重下",
     "NETWORK": "网络不通或 B 站接口没响应，稍后再试",

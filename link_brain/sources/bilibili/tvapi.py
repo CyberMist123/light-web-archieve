@@ -356,7 +356,8 @@ def fetch_stream(urls: list[str], dest: Path, *, client: httpx.Client, deadline:
 
 def merge(video: Path, audio: Path | None, out: Path, *, timeout_s: int = 600) -> None:
     """ffmpeg 只换容器不重编码（-c copy）合成 mp4；faststart 让 Obsidian 里能边下边放。"""
-    argv = ["ffmpeg", "-y", "-v", "error", "-i", str(video)]
+    from . import ytdlp
+    argv = [ytdlp.ffmpeg_exe() or "ffmpeg", "-y", "-v", "error", "-i", str(video)]   # 1104：PATH 上没有就用功能包随带的
     if audio is not None:
         argv += ["-i", str(audio)]
     argv += ["-c", "copy", "-movflags", "+faststart", str(out)]

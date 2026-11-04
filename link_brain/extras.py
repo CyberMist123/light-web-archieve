@@ -25,14 +25,14 @@ FALLBACK: dict[str, tuple[str, ...]] = {
          "rapidfuzz>=3.0", "qrcode>=7.0", "numpy>=1.26", "websockets>=12"),
     "ocr": ("rapidocr>=3.10", "onnxruntime>=1.17; python_version < '3.13'",
             "onnxruntime>=1.20; python_version == '3.13'", "onnxruntime>=1.24.1; python_version >= '3.14'"),
-    "bilibili": ("yt-dlp>=2025.1",),
+    "bilibili": ("yt-dlp>=2025.1", "imageio-ffmpeg>=0.5"),
     "docs": ("pypdfium2>=4.30", "python-docx>=1.1"),
     "full": ("link-brain[ocr,bilibili,docs]",),
     "dev": ("link-brain[full]", "pytest>=8.0"),
 }
 
 # 发行名 → import 名（元数据里没有这层对应；没列的两者相同、`-` 换 `_`）
-IMPORT_NAMES = {"pyyaml": "yaml", "pillow": "PIL", "python-docx": "docx", "yt-dlp": "yt_dlp"}
+IMPORT_NAMES = {"pyyaml": "yaml", "pillow": "PIL", "python-docx": "docx", "yt-dlp": "yt_dlp", "imageio-ffmpeg": "imageio_ffmpeg"}
 
 # 每个包干什么（doctor 的「关键依赖」那一列、缺了时的提示）
 PURPOSES = {
