@@ -7178,6 +7178,16 @@ var require_settings_v6 = __commonJS({
           } catch (e) {
             paintLogin(null);
             guide.setText("暂时读不到登录状态：" + errText(e));
+            const h = home();
+            if (plugin.currentBackend?.().mode === "missing" && h && typeof h.onRepaint === "function") {
+              const off = h.onRepaint(() => {
+                if (plugin.currentBackend().mode !== "missing") {
+                  off();
+                  loadStatus();
+                }
+              });
+              tab.stops.push(off);
+            }
           }
         };
         const login = async (btn, which = nextScan(biliStatus) || "tv") => {
@@ -14673,7 +14683,25 @@ var LinkBrainActions = class extends Plugin {
         paint({ ...r, _at: checkedAtOf(r, Date.now()) });
       } catch (e) {
         paint({ state: "error", next_step: e.message, action: "retry" });
+        if (this.currentBackend?.().mode === "missing") recheckWhenBackend();
       }
+    };
+    let waitingBackend = null;
+    const recheckWhenBackend = () => {
+      const h = this.homeUI?.();
+      if (waitingBackend || !h || typeof h.onRepaint !== "function") return;
+      waitingBackend = h.onRepaint(() => {
+        if (box.isConnected === false) {
+          waitingBackend();
+          waitingBackend = null;
+          return;
+        }
+        if (this.currentBackend().mode !== "missing") {
+          waitingBackend();
+          waitingBackend = null;
+          refresh();
+        }
+      });
     };
     const login = async (force = false) => {
       new Notice2("将自动弹出浏览器，扫码后会自动关闭窗口。", 8e3);

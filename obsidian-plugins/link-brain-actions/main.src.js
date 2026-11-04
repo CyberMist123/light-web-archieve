@@ -1763,7 +1763,18 @@ class LinkBrainActions extends Plugin {
       if (!deep && this.accountCache) paint({...this.accountCache.row, _at: checkedAtOf(this.accountCache.row, this.accountCache.at)}, true);
       else paint({state: 'checking'}, true);
       try { const r = await platform.status(this, deep); paint({...r, _at: checkedAtOf(r, Date.now())}); }
-      catch (e) { paint({state: 'error', next_step: e.message, action: 'retry'}); }
+      catch (e) { paint({state: 'error', next_step: e.message, action: 'retry'}); if (this.currentBackend?.().mode === 'missing') recheckWhenBackend(); }
+    };
+    // 1104（虚拟机实测）：首次启用时后端还在装，卡片查不了停在「正在安装后端程序」——后端装好以后它一直不变。
+    // 挂到懒人安装的重画上：后端一能用就自动重查一次（浅查，不开浏览器）；卡片已经不在页面上就撤掉
+    let waitingBackend = null;
+    const recheckWhenBackend = () => {
+      const h = this.homeUI?.();
+      if (waitingBackend || !h || typeof h.onRepaint !== 'function') return;
+      waitingBackend = h.onRepaint(() => {
+        if (box.isConnected === false) { waitingBackend(); waitingBackend = null; return; }
+        if (this.currentBackend().mode !== 'missing') { waitingBackend(); waitingBackend = null; refresh(); }
+      });
     };
     const login = async (force = false) => {
       new Notice('将自动弹出浏览器，扫码后会自动关闭窗口。', 8000);
