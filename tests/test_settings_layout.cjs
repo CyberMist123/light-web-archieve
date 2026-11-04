@@ -589,6 +589,17 @@ async function inventory(p) {
     assert.ok(boxes.every(b => b.checked), '默认全勾');
     boxes[1].checked = false; await boxes[1].onchange(); await settle();
     assert.deepEqual(e.p.settings.bilibili.skipFolders, ['9'], '取消勾选 = 跳过这个收藏夹');
+    // 1104 作者：全选 / 取消全选是同一个按钮（有没勾的 = 全选；全勾着 = 取消全选）
+    const allBtn = () => t.containerEl.querySelector('[data-section="lazy-bili-folders"]').querySelectorAll('button').find(b => /^(全选|取消全选)$/.test(b.textContent));
+    assert.equal(allBtn().textContent, '全选');
+    await allBtn().onclick(); await settle();
+    assert.deepEqual(e.p.settings.bilibili.skipFolders, [], '全选 = 一个都不跳过');
+    assert.equal(allBtn().textContent, '取消全选', '全勾着：按钮变成取消全选');
+    await allBtn().onclick(); await settle();
+    assert.deepEqual(e.p.settings.bilibili.skipFolders, ['7', '9'], '取消全选 = 全部跳过');
+    assert.ok(t.containerEl.querySelector('[data-section="lazy-bili-folders"]').querySelectorAll('.lb-bili-folder input').every(b => !b.checked));
+    await allBtn().onclick(); await settle();
+    assert.deepEqual(e.p.settings.bilibili.skipFolders, []);
     assert.ok(t.containerEl.querySelector('[data-section="lazy-bili-folders"] .lb-bili-next'), '选完给下一步：去 B 站同步 / 说明文档');
     await openAll(t.containerEl); await settle();
     assert.ok(/非大会员最高 1080P/.test(t.containerEl.querySelector('[data-section="lazy-more"]').textContent), '卡片里画质说明');

@@ -1686,7 +1686,7 @@ function renderScope() {
     chip.type = 'button'; chip.dataset.scope = 'album'; chip.setAttribute('aria-pressed', String(!!activeAlbum));
     if (after) typesBox.insertBefore(chip, after);   // 紧跟来源下拉
     const plat = activePlat || platsTab[0]?.[0] || '';
-    const none = /^(xhs|xiaohongshu)$/.test(plat) ? '还没读过小红书专辑（夜跑「读专辑」没开）'
+    const none = /^(xhs|xiaohongshu)$/.test(plat) ? '还没读过小红书专辑：一键安装那一轮里排在「同步收藏」之后读，同步完了就有'
       : /^(bili|bilibili|bv)$/.test(plat) ? '还没读到 B 站收藏夹（同步一次就有）' : '这个来源没有专辑';
     // 1101 作者：专辑都收在「专辑 ▾」里，不再摆几个在栏上（1031 那版「常用专辑拎出来」撤掉）；选中的那个照旧写在按钮上「专辑：xx」
     chip.onclick = () => chipMenu('专辑', albums.length ? [

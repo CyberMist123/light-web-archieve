@@ -589,6 +589,14 @@ module.exports = function (obsidian, plugin) {
       const skip = new Set(biliSkip(biliOpts()));
       const on = folders.filter(f => !skip.has(String(f.id))).length;
       r.setDesc(`勾上的才同步（${on} / ${folders.length}）；新建的收藏夹自动算勾上。`);
+      // 1104 作者：全选 / 取消全选（同一个按钮，有没勾的 = 全选；全勾着 = 取消全选）
+      const all = on === folders.length;
+      r.addButton(b => b.setButtonText(all ? '取消全选' : '全选').onClick(async () => {
+        const next = all ? folders.map(f => String(f.id)).sort() : [];
+        try { await saveBili('skipFolders', next); }
+        catch (e) { plugin.notify('没保存上，勾选没变：' + errText(e), { kind: 'error' }); return; }
+        paint();
+      }));
       const list = box.createDiv({ cls: 'lb-bili-folder-list' });
       for (const f of folders) {
         const id = String(f.id);
