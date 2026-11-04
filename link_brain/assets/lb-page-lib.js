@@ -779,7 +779,26 @@ ${engrSel}::after{content:attr(data-text);position:absolute;left:0;top:0;color:t
 .lb-sh-meta{margin-right:14px;font:italic 500 17px/1.2 var(--lb-font-num);font-variant-numeric:lining-nums;color:var(--lb-muted);white-space:nowrap;}
 @media(max-width:760px){.lb-space-switch{display:flex;width:100%;}.lb-space-switch button.lb-space{flex:1 1 0;padding:9px 0!important;}.lb-sh-meta{display:none;}}`;
 
-  return { root, path, provider, ensure, state, data, keep, rekeep, reuseDom, listen, onUnload, scroller, restoreScroll, onScroll, t, mark, role, get container() { return container; },
+  // 1104 作者：开着两栏（这一页旁边还有一栏）时，从这一页点开的笔记放到另一栏，这一页自己不跳走；左右不固定，看这一页在哪边。
+  // 只认同一个窗口里、别的分栏（不是同一组的另一个标签）当前显示着的那一栏；有几栏取最近用过的。没有 → null，调用方照旧在本栏打开
+  function otherPane() {
+    const ws = app && app.workspace;
+    if (!ws || !container || typeof ws.iterateRootLeaves !== 'function') return null;
+    const own = (ws.getLeavesOfType ? ws.getLeavesOfType('markdown') : []).find(l => l && l.view && l.view.containerEl && l.view.containerEl.contains(container));
+    if (!own) return null;
+    const ownDoc = own.view.containerEl.ownerDocument;
+    const shown = l => { const g = l.parent; return !g || !Array.isArray(g.children) || g.currentTab == null || g.children[g.currentTab] === l; };
+    let best = null;
+    try {
+      ws.iterateRootLeaves(l => {
+        if (!l || l === own || l.parent === own.parent || !shown(l)) return;
+        if (l.view && l.view.containerEl && l.view.containerEl.ownerDocument !== ownDoc) return;
+        if (!best || (Number(l.activeTime) || 0) > (Number(best.activeTime) || 0)) best = l;
+      });
+    } catch { return null; }
+    return best;
+  }
+  return { root, path, provider, ensure, state, data, keep, rekeep, reuseDom, listen, onUnload, scroller, restoreScroll, onScroll, t, mark, role, otherPane, get container() { return container; },
     brandTitleText, brandFontCss, brandCss, brandTitle, BRAND_FONT_STACK, spaceSwitch, siteHeaderCss,
     // 1027 样式集（CONVENTIONS「样式集」）
     applyTheme, themeVars: lbThemeVars, TOKENS_CSS: LB_SHARED_CSS.slice(0, LB_SHARED_CSS.indexOf('/* lb-tokens:end */') + 19).trim(),

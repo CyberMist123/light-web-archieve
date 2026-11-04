@@ -2381,7 +2381,8 @@ function openSavedInline(src, fromCite) {
   // 先找到这一行所在的回答（从胶囊点进来就是胶囊所在那一轮；从行标题点就是那一行）
   const answer = fromCite?.closest?.('.lbchat-answer') || null;
   const key = srcKey(src);
-  const rows = (answer || bodyEl).querySelectorAll('.lbchat-srcrow').filter(r => r.dataset.srcKey === key);
+  // 1104 作者（「我保存的」点不出来）：querySelectorAll 给的是 NodeList，真浏览器里没有 filter——以前这里直接抛错、什么都不发生
+  const rows = [...(answer || bodyEl).querySelectorAll('.lbchat-srcrow')].filter(r => r.dataset.srcKey === key);
   const line = rows[rows.length - 1];
   if (!line) return;
   const d = line.closest('details');
