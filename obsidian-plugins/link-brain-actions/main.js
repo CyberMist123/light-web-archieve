@@ -6403,7 +6403,12 @@ var require_onboarding_ui = __commonJS({
         // 1102：不再查 Dataview（页面由插件自己画）
         async startup() {
           const b = plugin.currentBackend();
+          const skipGuide = () => {
+            plugin.settings.onboarding = { ...plugin.settings.onboarding || {}, guideDone: true };
+          };
           if (b.mode === "missing") {
+            skipGuide();
+            Promise.resolve(plugin.saveSettings()).catch((e) => console.error("[lb] 引导状态没存上", e));
             try {
               plugin.openSetupPage?.();
             } catch (e) {
@@ -6420,7 +6425,8 @@ var require_onboarding_ui = __commonJS({
             }
           }
           if (await needsOnboarding()) {
-            plugin.settings.onboarding = { ...plugin.settings.onboarding || {}, done: true, at: (/* @__PURE__ */ new Date()).toISOString(), via: "first-run" };
+            skipGuide();
+            plugin.settings.onboarding = { ...plugin.settings.onboarding, done: true, at: (/* @__PURE__ */ new Date()).toISOString(), via: "first-run" };
             Promise.resolve(plugin.saveSettings()).catch((e) => console.error("[lb] 引导状态没存上", e));
             try {
               await plugin.homeUI().firstRun();

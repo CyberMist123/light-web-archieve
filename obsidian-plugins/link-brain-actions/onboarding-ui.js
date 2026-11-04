@@ -121,7 +121,12 @@ module.exports = function (obsidian, plugin) {
     // 1102：不再查 Dataview（页面由插件自己画）
     async startup() {
       const b = plugin.currentBackend();
+      // 1104 作者：首轮全自动时自动打开的设置页直接是「懒人安装」卡片，不先出「开始使用 LWA」引导（新库里引导会盖住安装进度）。
+      // 引导记成走过；想走还能在「06 修复 → 重新走一遍首次设置」进
+      const skipGuide = () => { plugin.settings.onboarding = { ...(plugin.settings.onboarding || {}), guideDone: true }; };
       if (b.mode === 'missing') {
+        skipGuide();
+        Promise.resolve(plugin.saveSettings()).catch(e => console.error('[lb] 引导状态没存上', e));
         // 1102：不再只弹「复制安装命令」——新电脑（可能连 Python 都没有）由插件自己装后端；装好接着走首次自动跑，没装上才提示并停下
         // 1103 作者：全自动——直接打开设置页的「懒人安装」卡片（上面边装边选，下面是进度），通知只是个入口
         try { plugin.openSetupPage?.(); } catch (e) { console.error('[lb] 设置页没打开', e); }
@@ -138,7 +143,8 @@ module.exports = function (obsidian, plugin) {
         // 1103 作者（虚拟机）：「走完首次设置教程，后来又被带回第 2 步『同步』」——根因在这里：以前整个换掉 onboarding，
         // 装后端那几分钟里用户在设置页走完的教程（guideDone）被冲掉；目录页还没生成时 needsGuide() 又判「要教程」，
         // 带着「同步时间」落点打开设置页就停在第 2 步。现在只并进这几个键，走完的记号留着
-        plugin.settings.onboarding = { ...(plugin.settings.onboarding || {}), done: true, at: new Date().toISOString(), via: 'first-run' };
+        skipGuide();
+        plugin.settings.onboarding = { ...plugin.settings.onboarding, done: true, at: new Date().toISOString(), via: 'first-run' };
         Promise.resolve(plugin.saveSettings()).catch(e => console.error('[lb] 引导状态没存上', e));
         try { await plugin.homeUI().firstRun(); } catch (e) { console.error('[lb] 首次自动跑没起来', e); this.open(); }
         return 'onboarding';

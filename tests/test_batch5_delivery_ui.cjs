@@ -252,6 +252,9 @@ function makePlugin(base, { saved = {}, files = new Set(), manifestDir = '.obsid
       env.p.settings.onboarding = {};
       assert.equal(await env.p.startupChecks(), 'onboarding', '装好了接着走首次自动跑');
       assert.equal(firstRuns.length, 1);
+      // 1104 作者：首轮全自动，自动打开的设置页直接是懒人安装卡片，不先出「开始使用 LWA」引导
+      assert.equal(env.p.settings.onboarding.guideDone, true, '装后端那一刻就把引导记成走过');
+      assert.equal(await env.p.settingsV6().needsGuide(), false, '设置页不出首次设置引导');
       assert.equal(progress.length, 1); assert.equal(progress[0].ok, true);
       const mb = env.p.currentBackend();
       assert.equal(mb.mode, 'managed', '托管目录里的 link-brain 排在 PATH 之前'); assert.equal(mb.exe, mp.exe); assert.equal(mb.python, mp.python);
@@ -304,6 +307,7 @@ function makePlugin(base, { saved = {}, files = new Set(), manifestDir = '.obsid
   assert.equal(firstRuns.length, 1, '按轻量版自动跑一次');
   assert.equal(env.p.app.setting.opened.length, opened, '不弹设置页 / 向导');
   assert.equal(env.p.settings.onboarding.done, true, '跑过一次就算走过');
+  assert.equal(env.p.settings.onboarding.guideDone, true, '1104：后端已在的新库首轮自动跑，设置页也直接是懒人安装卡片');
   assert.equal(await env.p.onboardingUI().needsOnboarding(), false);
   // 1103：装后端那几分钟里用户已经在设置页走完了教程——首次自动跑记「走过」时不能把 guideDone 冲掉（否则又被带回教程第 2 步）
   env.p.settings.onboarding = { guideDone: true, step: 0 };
