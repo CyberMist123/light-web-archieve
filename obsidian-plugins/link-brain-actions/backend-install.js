@@ -404,7 +404,7 @@ async function ensureBackend(plugin, { onProgress = null, upgrade = false, env =
       writeConfig(home, { [BACKEND_DIR_KEY]: targetDir, [PREV_DIR_KEY]: haveBackend ? curDir : (prev || '') });
     } else if (!readConfig(home)[BACKEND_DIR_KEY]) writeConfig(home, { [BACKEND_DIR_KEY]: targetDir });
     if (plugin && typeof plugin.locateCollection === 'function') { try { await plugin.locateCollection(); } catch (e) { console.error('[lb] 后端位置没刷新', e); } }
-    return { ok: true, code: '', message: (upgrade ? '后端已更新到 ' : '后端装好了：') + `link-brain ${release.version}` + (c.version ? `（${c.version}）` : ''), dir: targetDir, python: c.python, exe: c.exe, stages };
+    return { ok: true, code: '', message: (upgrade ? '后端已更新到 ' : '后端装好了：') + `link-brain ${release.version}` + (c.version && c.version !== release.version ? `（实际 ${c.version}）` : ''), dir: targetDir, python: c.python, exe: c.exe, stages };
   } catch (e) {
     return { ...fail(e && e.code === 'ENOSPC' ? 'PERMANENT.DISK_FULL' : 'PERMANENT.BAD_PACKAGE', '安装后端时出错：' + (e && e.message || e)), stages };
   } finally {
