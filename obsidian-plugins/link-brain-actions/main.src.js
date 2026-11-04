@@ -1742,7 +1742,9 @@ class LinkBrainActions extends Plugin {
       // 1031 作者：同步正在跑（读取服务中途重启那一下会查成「没在运行」）就说「同步中」，不报失败样子
       // 1103 作者（虚拟机）：刚登录就开始同步，卡片却是「进行中 · 号正被另一个任务使用（同步收藏…）」——号被同步占着（ACCOUNT_BUSY）
       // 说明它登着；判断只看 xhsSyncing() 这一处（同步记录没收尾 / 懒人安装正在同步 / 插件正在同步），不报存疑、不报占用
-      if ((['disconnected', 'unknown', 'error'].includes(r.state) || r.code === 'ACCOUNT_BUSY') && this.xhsSyncing()) {
+      // 1104 作者：三种状态里「同步中」优先——同步在跑就说同步中（掉登录 / 要验证这类要人处理的除外，那时同步也停了）
+      if ((['ready', 'idle', 'disconnected', 'unknown', 'error', 'busy'].includes(r.state) || r.code === 'ACCOUNT_BUSY')
+          && !['NOT_LOGGED_IN', 'CAPTCHA_REQUIRED', 'ACCOUNT_RISK'].includes(r.code) && r.action !== 'login' && this.xhsSyncing()) {
         const name = r.account || (this.accountCache?.row?.state === 'ready' ? this.accountCache.row.account : '') || '';
         r = { ...r, state: 'syncing', code: '', message: '同步中', next_step: '', account: name };
       }
@@ -1840,14 +1842,15 @@ class LinkBrainActions extends Plugin {
     refresh();
     // 1104 作者：同步一开始 / 一结束，状态字跟着在「同步中」和登录状态之间换（以前只在查的时候才重画）
     let wasSyncing = this.xhsSyncing();
+    let offTask = null;
     const onTask = () => {
-      if (box.isConnected === false) { this.taskListeners = (this.taskListeners || []).filter(f => f !== onTask); return; }
+      if (box.isConnected === false) { offTask && offTask(); return; }
       const now = this.xhsSyncing();
       if (now === wasSyncing) return;
       wasSyncing = now;
       if (now && current) paint(current); else refresh();
     };
-    (this.taskListeners || (this.taskListeners = [])).push(onTask);
+    offTask = this.onTask(onTask);
     return refresh;
   }
 

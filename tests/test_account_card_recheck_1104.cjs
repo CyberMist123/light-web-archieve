@@ -34,6 +34,7 @@ const flush = async (n = 6) => { for (let i = 0; i < n; i++) await new Promise(r
 (async () => {
   const p = new Plugin();
   p.settings = {};
+  p.taskListeners = new Set();   // 和 onload 一样是 Set（1104 虚拟机：卡片拿它当数组 push，整块渲染失败）
   let backend = 'missing';
   p.currentBackend = () => ({ mode: backend });
   const painters = new Set();
@@ -66,6 +67,16 @@ const flush = async (n = 6) => { for (let i = 0; i < n; i++) await new Promise(r
   assert.match(text(), /点「登录」扫码/);
   assert.doesNotMatch(text(), /正在安装后端程序/);
   assert.equal(painters.size, 0, '只重查一次');
+  assert.doesNotMatch(text(), /暂时读不到/, '卡片整块没渲染失败');
+  assert.equal(p.taskListeners.size, 1, '跟着同步换状态的监听挂上了');
+  // 同步开始：已登录的号 → 「同步中」
+  p.accountStatus = async () => ({ state: 'ready', message: '已登录', account: '合成号' });
+  await p.renderAccounts(host, { inCard: true }) && null;
+  await flush();
+  p.xhsSyncing = () => true;
+  for (const f of [...p.taskListeners]) f();
+  await flush();
+  assert.match(text(), /同步中/);
   console.log('PASS account card 1104: stuck on 「正在安装后端程序」 rechecks once (shallow) when the backend becomes available');
 })().catch(e => { console.error(e); process.exitCode = 1; });
 

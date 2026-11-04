@@ -7181,10 +7181,7 @@ var require_settings_v6 = __commonJS({
           if (now) paintLogin(biliStatus);
           else loadStatus();
         };
-        (plugin.taskListeners || (plugin.taskListeners = [])).push(onBiliTask);
-        tab.stops.push(() => {
-          plugin.taskListeners = (plugin.taskListeners || []).filter((f) => f !== onBiliTask);
-        });
+        if (typeof plugin.onTask === "function") tab.stops.push(plugin.onTask(onBiliTask));
         const loadStatus = async () => {
           try {
             const r = await plugin.runPy(["-m", "link_brain", "bilibili", "status", "--json"], { label: "B 站登录状态", timeoutMs: 6e4, okCodes: [0, 1, 5] });
@@ -14654,7 +14651,7 @@ var LinkBrainActions = class extends Plugin {
     let registry = {};
     let shownLabel = "";
     const paint = (r, running = false) => {
-      if ((["disconnected", "unknown", "error"].includes(r.state) || r.code === "ACCOUNT_BUSY") && this.xhsSyncing()) {
+      if ((["ready", "idle", "disconnected", "unknown", "error", "busy"].includes(r.state) || r.code === "ACCOUNT_BUSY") && !["NOT_LOGGED_IN", "CAPTCHA_REQUIRED", "ACCOUNT_RISK"].includes(r.code) && r.action !== "login" && this.xhsSyncing()) {
         const name = r.account || (this.accountCache?.row?.state === "ready" ? this.accountCache.row.account : "") || "";
         r = { ...r, state: "syncing", code: "", message: "同步中", next_step: "", account: name };
       }
@@ -14795,9 +14792,10 @@ var LinkBrainActions = class extends Plugin {
     });
     refresh();
     let wasSyncing = this.xhsSyncing();
+    let offTask = null;
     const onTask = () => {
       if (box.isConnected === false) {
-        this.taskListeners = (this.taskListeners || []).filter((f) => f !== onTask);
+        offTask && offTask();
         return;
       }
       const now = this.xhsSyncing();
@@ -14806,7 +14804,7 @@ var LinkBrainActions = class extends Plugin {
       if (now && current) paint(current);
       else refresh();
     };
-    (this.taskListeners || (this.taskListeners = [])).push(onTask);
+    offTask = this.onTask(onTask);
     return refresh;
   }
   // 登录成功后：提示一次网页版限制；第一次登录且从没同步过 → 按设置自动开始同步收藏。

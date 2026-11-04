@@ -519,8 +519,7 @@ module.exports = function (obsidian, plugin) {
       biliWas = now;
       if (now) paintLogin(biliStatus); else loadStatus();
     };
-    (plugin.taskListeners || (plugin.taskListeners = [])).push(onBiliTask);
-    tab.stops.push(() => { plugin.taskListeners = (plugin.taskListeners || []).filter(f => f !== onBiliTask); });
+    if (typeof plugin.onTask === 'function') tab.stops.push(plugin.onTask(onBiliTask));
     const loadStatus = async () => {
       try { const r = await plugin.runPy(['-m', 'link_brain', 'bilibili', 'status', '--json'], { label: 'B 站登录状态', timeoutMs: 60000, okCodes: [0, 1, 5] }); paintLogin(r.json); }
       catch (e) {
