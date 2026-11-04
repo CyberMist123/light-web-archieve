@@ -1127,6 +1127,7 @@ function editCategories(sel = '') {
 async function openVaultFile(rel, line = null) {
   const f = app.vault.getAbstractFileByPath(lbPath(rel));
   if (!f) { LB.say(`找不到 ${rel}：先刷新一次目录`, { kind: 'error' }); return; }
+  if (openInOtherPane(rel, Number(line) > 0 ? { eState: { line: Number(line) - 1 } } : undefined)) return;   // 1104：开着两栏 → 另一栏
   leaving = true;
   try {
     const leaf = app.workspace.getLeaf ? app.workspace.getLeaf(false) : null;
@@ -3572,14 +3573,24 @@ function buildCard(it, fuzzy, low) {
   return card;
 }
 
-// 多选模式：点击=勾选/取消；平时=打开笔记（同一窗格，§5.4；按住 Ctrl 照 Obsidian 习惯开新标签；中键也开新标签，C17）
+// 多选模式：点击=勾选/取消；平时=打开笔记（同一窗格，§5.4；1104 作者：开着两栏时在另一栏打开；按住 Ctrl 照 Obsidian 习惯开新标签；中键也开新标签，C17）
 function openItem(x, e, forceNew = false) {
   if (!x) return;
   if (selectMode && !forceNew) { toggleSelect(x.id); return; }
   if (!x.note) return;
   const newTab = forceNew || !!(e && (e.ctrlKey || e.metaKey));
-  saveState(); if (!newTab) leaving = true;
+  saveState();
+  if (!newTab && openInOtherPane(x.note)) return;   // 1104：开着两栏 → 另一栏打开，目录不跳走
+  if (!newTab) leaving = true;
   app.workspace.openLinkText(lbPath(x.note), '', newTab);
+}
+// 1104 作者：开着两栏时从目录点开的笔记放到另一栏（目录留在原地，左右不固定）；只有目录这一栏 → 返回 false，照旧本栏打开
+function openInOtherPane(rel, openState) {
+  const leaf = LB.otherPane ? LB.otherPane() : null;
+  const f = leaf && app.vault.getAbstractFileByPath(lbPath(rel));
+  if (!leaf || !f || typeof leaf.openFile !== 'function') return false;
+  Promise.resolve(leaf.openFile(f, { ...(openState || {}), active: false })).catch(err => LB.say('没打开：' + (err?.message || err), { kind: 'error' }));
+  return true;
 }
 
 // ── 1021「列表」视图：简单表格（标题、分类、作者、导入时间、♡），和瀑布流用同一份筛选 / 搜索结果；点行打开笔记，右键同卡片菜单 ──
@@ -4041,11 +4052,13 @@ function setSum(m, parts) {
   for (const p of parts) { if (Array.isArray(p)) m.sum.createEl('i', { text: p[0] }); else m.sum.append(p); }
 }
 
-// 边栏里点一篇：多选模式下也是打开（不是勾选）；同一窗格，Ctrl / 中键开新标签（§5.4）
+// 边栏里点一篇：多选模式下也是打开（不是勾选）；同一窗格（1104：开着两栏时另一栏），Ctrl / 中键开新标签（§5.4）
 function openFromSide(it, e, forceNew = false) {
   if (!it?.note) return;
   const newTab = forceNew || !!(e && (e.ctrlKey || e.metaKey));
-  saveState(); if (!newTab) leaving = true;
+  saveState();
+  if (!newTab && openInOtherPane(it.note)) return;   // 1104：开着两栏 → 另一栏打开
+  if (!newTab) leaving = true;
   app.workspace.openLinkText(lbPath(it.note), '', newTab);
 }
 // RECENT：按入库时间 ts 新→旧；今天显示 HH:MM，否则 M/D；点行打开笔记（同一窗格，Ctrl 开新标签）
